@@ -57,6 +57,7 @@ app.add_middleware(
 bot_task = None
 bot_running = False
 async_exchange = None
+initialized = False  # Nuova variabile per tracciare l'inizializzazione
 
 # === MODELLI ===
 class ApiKeys(BaseModel):
@@ -100,9 +101,27 @@ def verify_auth_token(api_key: str = Header(None, alias="api-key"), api_secret: 
 
 # === ENDPOINT ===
 
+@app.post("/initialize")
+async def initialize_bot(auth: None = Depends(verify_auth_token)):
+    """Inizializza il bot senza avviarlo"""
+    global initialized, async_exchange
+    
+    if not initialized:
+        # Inizializza l'exchange se necessario
+        if not async_exchange:
+            async_exchange = ccxt_async.bybit(exchange_config)
+            await async_exchange.load_markets()
+        initialized = True
+        return {"status": "Bot inizializzato"}
+    return {"status": "Bot già inizializzato"}
+
 @app.post("/start")
 async def start_bot(background_tasks: BackgroundTasks, auth: None = Depends(verify_auth_token)):
-    global bot_task, bot_running
+    global bot_task, bot_running, initialized
+    
+    if not initialized:
+        await initialize_bot(auth)
+    
     if bot_running:
         raise HTTPException(status_code=400, detail="Bot già in esecuzione")
 
@@ -122,7 +141,10 @@ async def stop_bot(auth: None = Depends(verify_auth_token)):
 
 @app.get("/status")
 def status(auth: None = Depends(verify_auth_token)):
-    return {"running": bot_running}
+    return {
+        "running": bot_running,
+        "initialized": initialized
+    }
 
 @app.post("/set-keys")
 def set_api_keys(keys: ApiKeys, auth: None = Depends(verify_auth_token)):

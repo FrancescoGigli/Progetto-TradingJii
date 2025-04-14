@@ -209,6 +209,126 @@
             background-color: rgba(255, 193, 7, 0.1);
             border: 1px solid #ffc107;
         }
+        
+        /* Stili per l'indicatore di forza del segnale */
+        .signal-strength {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+        }
+        
+        .signal-bar {
+            width: 3px;
+            height: 12px;
+            background-color: #e9ecef;
+            border-radius: 1px;
+            transition: all 0.3s ease;
+        }
+        
+        .signal-bar.active {
+            background-color: currentColor;
+        }
+        
+        /* Stili per le righe della tabella predizioni */
+        #predictions-table tr {
+            transition: all 0.3s ease;
+        }
+        
+        #predictions-table tr:hover {
+            transform: translateX(5px);
+            box-shadow: -5px 0 10px rgba(0,0,0,0.1);
+        }
+        
+        /* Stili per le barre di progresso */
+        .progress {
+            overflow: hidden;
+            background-color: #e9ecef;
+            border-radius: 3px;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
+        }
+        
+        .progress-bar {
+            transition: width 0.6s ease, background-color 0.3s ease;
+        }
+        
+        /* Stili per i badge di direzione */
+        .badge {
+            padding: 0.4em 0.6em;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            transition: all 0.3s ease;
+        }
+        
+        .badge i {
+            font-size: 0.8em;
+        }
+        
+        /* Stili per i tooltip */
+        .tooltip-inner {
+            max-width: 200px;
+            padding: 8px 12px;
+            background-color: rgba(33, 37, 41, 0.95);
+            border-radius: 4px;
+            font-size: 0.875rem;
+        }
+        
+        /* Stili per il pulsante di aggiornamento */
+        #refresh-predictions-btn {
+            transition: all 0.3s ease;
+        }
+        
+        #refresh-predictions-btn:hover {
+            transform: rotate(180deg);
+        }
+        
+        #refresh-predictions-btn i {
+            transition: transform 0.3s ease;
+        }
+        
+        #refresh-predictions-btn:hover i {
+            transform: rotate(-180deg);
+        }
+        
+        /* Stili per il timestamp di aggiornamento */
+        .text-muted.mt-2.small {
+            font-style: italic;
+            opacity: 0.8;
+            transition: opacity 0.3s ease;
+        }
+        
+        .text-muted.mt-2.small:hover {
+            opacity: 1;
+        }
+
+        /* Stili per il pulsante di controllo predizioni */
+        #predictions-control-btn {
+            transition: all 0.3s ease;
+            min-width: 140px;
+        }
+
+        #predictions-control-btn.running {
+            background-color: #dc3545;
+            border-color: #dc3545;
+        }
+
+        #predictions-control-btn.running:hover {
+            background-color: #bb2d3b;
+            border-color: #b02a37;
+        }
+
+        #predictions-control-btn i {
+            transition: all 0.3s ease;
+        }
+
+        #predictions-control-btn.running i {
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
     </style>
 </head>
 <body>
@@ -388,8 +508,8 @@
                                 <div class="card-header d-flex justify-content-between align-items-center">
                                     <h5>Predizioni Modelli</h5>
                                     <div class="d-flex">
-                                        <button id="refresh-predictions-btn" class="btn btn-sm btn-outline-primary">
-                                            <i class="fas fa-sync-alt me-1"></i> Aggiorna
+                                        <button id="predictions-control-btn" class="btn btn-sm btn-success">
+                                            <i class="fas fa-play me-1"></i> Avvia
                                         </button>
                                     </div>
                                 </div>
