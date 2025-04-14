@@ -23,6 +23,10 @@ let comparisonChart = null;
 let modelMetricsData = {};
 let currentMetric = 'accuracy';
 
+// Variabili globali per il controllo delle predizioni
+let predictionsInterval = null;
+let isPredictionsRunning = false;
+
 // Inizializzazione dell'applicazione
 document.addEventListener('DOMContentLoaded', () => {
     // Imposta gli stati iniziali
@@ -48,7 +52,6 @@ document.addEventListener('DOMContentLoaded', () => {
     loadPositions();
     loadOpenOrders();
     loadTrades();
-    loadPredictions(); // Carica le predizioni all'avvio
     
     // Imposta gli header per le richieste API
     updateApiHeaders();
@@ -71,19 +74,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // Carica le metriche dei modelli esistenti
     loadModelMetrics();
     
+    // Inizializza il controllo delle predizioni
+    initializePredictionsControl();
+    
     // Aggiorna periodicamente i dati
     setInterval(() => {
         if (document.getElementById('dashboard-section').classList.contains('d-none') === false) {
             checkStatus();
-            checkHealth();  // Aggiungi il controllo della salute all'aggiornamento periodico
+            checkHealth();
             loadBalance();
             loadPositions();
             loadOpenOrders();
-            // Aggiorna le predizioni ogni 5 minuti (non ad ogni ciclo per non sovraccaricare)
-            const now = new Date();
-            if (now.getMinutes() % 5 === 0 && now.getSeconds() < 10) {
-                loadPredictions();
-            }
         }
     }, 10000); // Aggiorna ogni 10 secondi
 });
@@ -3407,32 +3408,172 @@ function displayMetricsComparison(timeframe) {
 
 // Funzione per caricare le predizioni attuali
 async function loadPredictions() {
-    // Mostra il loader e nascondi eventuali messaggi di errore
-    document.getElementById('predictions-loading').classList.remove('d-none');
-    document.getElementById('predictions-error').classList.add('d-none');
+    const loadingEl = document.getElementById('predictions-loading');
+    const errorEl = document.getElementById('predictions-error');
+    const errorMsgEl = document.getElementById('predictions-error-message');
     
     try {
+        // Mostra il loader solo se è il primo caricamento
+        if (!document.querySelector('#predictions-table tbody').children.length) {
+            loadingEl.classList.remove('d-none');
+        }
+        errorEl.classList.add('d-none');
+        
+        // Recupera le predizioni dal server
         const result = await makeApiRequest('/predictions');
         
-        if (result && result.predictions) {
-            // Aggiorna la tabella con le predizioni
-            displayPredictions(result.predictions, result.timeframes, result.default_timeframe);
-        } else {
-            throw new Error('Nessuna predizione ricevuta');
+        if (!result || !result.predictions) {
+            throw new Error('Formato dati predizioni non valido');
         }
+        
+        // Raggruppa le predizioni per simbolo
+        const groupedPredictions = groupPredictionsBySymbol(result.predictions);
+        
+        // Calcola il consenso ensemble per ogni simbolo
+        const consensusPredictions = calculateEnsembleConsensus(groupedPredictions);
+        
+        // Visualizza le predizioni elaborate
+        await displayPredictions(consensusPredictions, result.timeframes, result.default_timeframe);
+        
+        // Aggiorna il timestamp
+        updateLastUpdateTimestamp();
+        
     } catch (error) {
         console.error('Errore nel caricamento delle predizioni:', error);
-        document.getElementById('predictions-error').classList.remove('d-none');
-        document.getElementById('predictions-error-message').textContent = 
-            error.message || 'Errore durante il caricamento delle predizioni';
+        errorEl.classList.remove('d-none');
+        errorMsgEl.textContent = error.message || 'Errore durante il caricamento delle predizioni';
+        
+        // Non fermare il loop in caso di errore
+        if (isPredictionsRunning) {
+            const tableBody = document.querySelector('#predictions-table tbody');
+            if (tableBody) {
+                tableBody.innerHTML = '<tr><td colspan="8" class="text-center text-warning">Riprovo tra 1 minuto...</td></tr>';
+            }
+        }
     } finally {
-        // Nascondi il loader
-        document.getElementById('predictions-loading').classList.add('d-none');
+        loadingEl.classList.add('d-none');
+    }
+}
+
+// Funzione per raggruppare le predizioni per simbolo
+function groupPredictionsBySymbol(predictions) {
+    return predictions.reduce((acc, pred) => {
+        if (!acc[pred.symbol]) {
+            acc[pred.symbol] = [];
+        }
+        acc[pred.symbol].push(pred);
+        return acc;
+    }, {});
+}
+
+// Funzione per calcolare il consenso ensemble delle predizioni
+function calculateEnsembleConsensus(groupedPredictions) {
+    const consensusPredictions = [];
+    
+    for (const [symbol, predictions] of Object.entries(groupedPredictions)) {
+        // Calcola la media pesata delle predizioni per ogni modello
+        const modelPredictions = {
+            lstm: calculateWeightedModelPrediction(predictions, 'lstm'),
+            rf: calculateWeightedModelPrediction(predictions, 'rf'),
+            xgb: calculateWeightedModelPrediction(predictions, 'xgb')
+        };
+        
+        // Calcola il valore ensemble complessivo
+        const ensembleValue = calculateEnsembleValue(modelPredictions);
+        
+        // Determina la direzione e il colore in base al consenso
+        const { direction, color } = determineConsensusDirection(ensembleValue);
+        
+        // Calcola il valore RSI medio
+        const avgRsi = predictions.reduce((sum, p) => sum + p.rsi_value, 0) / predictions.length;
+        
+        consensusPredictions.push({
+            symbol,
+            ensemble_value: ensembleValue,
+            direction,
+            color,
+            rsi_value: avgRsi,
+            models: modelPredictions,
+            timeframes: predictions.map(p => p.timeframe)
+        });
+    }
+    
+    // Ordina le predizioni per forza del segnale
+    return consensusPredictions.sort((a, b) => Math.abs(b.ensemble_value - 0.5) - Math.abs(a.ensemble_value - 0.5));
+}
+
+// Funzione per calcolare la predizione pesata per un singolo modello
+function calculateWeightedModelPrediction(predictions, modelType) {
+    const weights = {
+        '5m': 0.1,
+        '15m': 0.2,
+        '30m': 0.3,
+        '1h': 0.25,
+        '4h': 0.15
+    };
+    
+    const modelPredictions = {};
+    let totalWeight = 0;
+    let weightedSum = 0;
+    
+    predictions.forEach(pred => {
+        if (pred.models[modelType] && pred.timeframe) {
+            const weight = weights[pred.timeframe] || 0.2;
+            const value = pred.models[modelType];
+            
+            modelPredictions[pred.timeframe] = value;
+            weightedSum += value * weight;
+            totalWeight += weight;
+        }
+    });
+    
+    return {
+        weighted_average: totalWeight > 0 ? weightedSum / totalWeight : 0.5,
+        predictions: modelPredictions
+    };
+}
+
+// Funzione per calcolare il valore ensemble finale
+function calculateEnsembleValue(modelPredictions) {
+    const weights = {
+        lstm: 0.4,
+        rf: 0.3,
+        xgb: 0.3
+    };
+    
+    let ensembleValue = 0;
+    let totalWeight = 0;
+    
+    for (const [model, weight] of Object.entries(weights)) {
+        if (modelPredictions[model]) {
+            ensembleValue += modelPredictions[model].weighted_average * weight;
+            totalWeight += weight;
+        }
+    }
+    
+    return totalWeight > 0 ? ensembleValue / totalWeight : 0.5;
+}
+
+// Funzione per determinare la direzione e il colore del consenso
+function determineConsensusDirection(ensembleValue) {
+    const strongThreshold = 0.65;
+    const weakThreshold = 0.55;
+    
+    if (ensembleValue >= strongThreshold) {
+        return { direction: 'Buy', color: 'green' };
+    } else if (ensembleValue <= (1 - strongThreshold)) {
+        return { direction: 'Sell', color: 'red' };
+    } else if (ensembleValue >= weakThreshold) {
+        return { direction: 'Buy', color: 'yellow' };
+    } else if (ensembleValue <= (1 - weakThreshold)) {
+        return { direction: 'Sell', color: 'yellow' };
+    } else {
+        return { direction: 'Neutral', color: 'yellow' };
     }
 }
 
 // Funzione per visualizzare le predizioni nella tabella
-function displayPredictions(predictions, timeframes, defaultTimeframe) {
+async function displayPredictions(predictions, timeframes, defaultTimeframe) {
     const tableBody = document.querySelector('#predictions-table tbody');
     tableBody.innerHTML = '';
     
@@ -3447,7 +3588,11 @@ function displayPredictions(predictions, timeframes, defaultTimeframe) {
     predictions.forEach(prediction => {
         const row = document.createElement('tr');
         
-        // Imposta il colore di sfondo in base al valore di confidenza
+        // Applica lo stile in base alla forza del segnale
+        const signalStrength = Math.abs(prediction.ensemble_value - 0.5) * 2; // Normalizza tra 0 e 1
+        row.style.opacity = 0.5 + (signalStrength * 0.5); // Opacity tra 0.5 e 1
+        
+        // Imposta il colore di sfondo
         if (prediction.color === 'green') {
             row.classList.add('table-success');
         } else if (prediction.color === 'red') {
@@ -3457,88 +3602,176 @@ function displayPredictions(predictions, timeframes, defaultTimeframe) {
         }
         
         // Formatta il valore di confidenza
-        const confidencePercent = (prediction.ensemble_value * 100).toFixed(1);
+        const confidencePercent = (Math.abs(prediction.ensemble_value - 0.5) * 200).toFixed(1);
         
-        // Formatta la direzione
-        let directionBadge = '';
-        if (prediction.direction === 'Buy') {
-            directionBadge = '<span class="badge bg-success">Buy</span>';
-        } else if (prediction.direction === 'Sell') {
-            directionBadge = '<span class="badge bg-danger">Sell</span>';
-        } else {
-            directionBadge = '<span class="badge bg-warning text-dark">Neutral</span>';
-        }
+        // Crea il badge della direzione
+        const directionBadge = createDirectionBadge(prediction.direction, prediction.ensemble_value);
         
-        // Formatta il valore RSI e imposta un colore
-        let rsiClass = '';
-        if (prediction.rsi_value < 30) {
-            rsiClass = 'text-success'; // Sovravenduto
-        } else if (prediction.rsi_value > 70) {
-            rsiClass = 'text-danger';  // Ipercomprato
-        }
+        // Formatta il valore RSI con indicatori
+        const rsiDisplay = formatRSIDisplay(prediction.rsi_value);
         
-        // Calcola i valori medi per ogni modello
-        const lstmAvg = Object.values(prediction.models.lstm).reduce((a, b) => a + b, 0) / 
-                      Object.values(prediction.models.lstm).length;
-        const rfAvg = Object.values(prediction.models.rf).reduce((a, b) => a + b, 0) / 
-                    Object.values(prediction.models.rf).length;
-        const xgbAvg = Object.values(prediction.models.xgb).reduce((a, b) => a + b, 0) / 
-                     Object.values(prediction.models.xgb).length;
+        // Crea le barre di progresso per ogni modello
+        const modelBars = createModelProgressBars(prediction.models);
         
-        // Formatta i valori medi come percentuali
-        const lstmPercent = (lstmAvg * 100).toFixed(1);
-        const rfPercent = (rfAvg * 100).toFixed(1);
-        const xgbPercent = (xgbAvg * 100).toFixed(1);
-        
-        // Crea barre di progresso per visualizzare i valori
-        const lstmBar = createProgressBar(lstmAvg);
-        const rfBar = createProgressBar(rfAvg);
-        const xgbBar = createProgressBar(xgbAvg);
-        
-        // Aggiungi i dettagli per ogni timeframe come tooltip
-        const lstmDetails = createModelDetailsTooltip(prediction.models.lstm, timeframes);
-        const rfDetails = createModelDetailsTooltip(prediction.models.rf, timeframes);
-        const xgbDetails = createModelDetailsTooltip(prediction.models.xgb, timeframes);
-        
-        // Crea il pulsante per visualizzare la predizione nel grafico
-        const viewButton = `<button class="btn btn-sm btn-outline-primary view-prediction" data-symbol="${prediction.symbol}">
-                              <i class="fas fa-chart-line"></i>
-                           </button>`;
+        // Crea il pulsante per il grafico con tooltip
+        const chartButton = createChartButton(prediction.symbol, prediction.timeframes);
         
         // Popola la riga
         row.innerHTML = `
-            <td><strong>${prediction.symbol}</strong></td>
+            <td>
+                <strong>${prediction.symbol}</strong>
+                ${createSignalStrengthIndicator(signalStrength)}
+            </td>
             <td>
                 <div class="d-flex align-items-center">
                     <div class="progress flex-grow-1 me-2" style="height: 6px;">
-                        <div class="progress-bar bg-${prediction.color === 'green' ? 'success' : 
-                           (prediction.color === 'red' ? 'danger' : 'warning')}" 
-                             role="progressbar" style="width: ${confidencePercent}%" 
-                             aria-valuenow="${confidencePercent}" aria-valuemin="0" aria-valuemax="100">
+                        <div class="progress-bar bg-${prediction.color}" 
+                             role="progressbar" 
+                             style="width: ${confidencePercent}%" 
+                             aria-valuenow="${confidencePercent}" 
+                             aria-valuemin="0" 
+                             aria-valuemax="100">
                         </div>
                     </div>
                     <span class="small">${confidencePercent}%</span>
                 </div>
             </td>
             <td>${directionBadge}</td>
-            <td class="${rsiClass}">${prediction.rsi_value.toFixed(1)}</td>
-            <td data-bs-toggle="tooltip" data-bs-html="true" title="${lstmDetails}">${lstmBar}</td>
-            <td data-bs-toggle="tooltip" data-bs-html="true" title="${rfDetails}">${rfBar}</td>
-            <td data-bs-toggle="tooltip" data-bs-html="true" title="${xgbDetails}">${xgbBar}</td>
-            <td>${viewButton}</td>
+            <td>${rsiDisplay}</td>
+            ${modelBars}
+            <td>${chartButton}</td>
         `;
         
         tableBody.appendChild(row);
     });
     
-    // Inizializza i tooltip di Bootstrap
+    // Inizializza i tooltip
     initializeTooltips();
     
-    // Aggiungi event listener ai pulsanti di visualizzazione
+    // Aggiungi event listeners ai pulsanti del grafico
+    addChartButtonListeners(defaultTimeframe);
+}
+
+// Funzione per creare l'indicatore di forza del segnale
+function createSignalStrengthIndicator(strength) {
+    const bars = Math.round(strength * 3); // 0-3 barre
+    let html = '<div class="signal-strength ms-2">';
+    
+    for (let i = 0; i < 3; i++) {
+        const active = i < bars ? 'active' : '';
+        html += `<span class="signal-bar ${active}"></span>`;
+    }
+    
+    return html + '</div>';
+}
+
+// Funzione per creare il badge della direzione
+function createDirectionBadge(direction, value) {
+    const strength = Math.abs(value - 0.5) * 2;
+    let badgeClass = 'bg-warning text-dark';
+    let icon = 'fa-minus';
+    
+    if (direction === 'Buy') {
+        badgeClass = strength > 0.3 ? 'bg-success' : 'bg-success bg-opacity-50';
+        icon = 'fa-arrow-up';
+    } else if (direction === 'Sell') {
+        badgeClass = strength > 0.3 ? 'bg-danger' : 'bg-danger bg-opacity-50';
+        icon = 'fa-arrow-down';
+    }
+    
+    return `
+        <span class="badge ${badgeClass}">
+            <i class="fas ${icon} me-1"></i>${direction}
+        </span>
+    `;
+}
+
+// Funzione per formattare il display RSI
+function formatRSIDisplay(rsiValue) {
+    let rsiClass = '';
+    let icon = '';
+    
+    if (rsiValue < 30) {
+        rsiClass = 'text-success';
+        icon = '<i class="fas fa-arrow-down text-success me-1" title="Sovravenduto"></i>';
+    } else if (rsiValue > 70) {
+        rsiClass = 'text-danger';
+        icon = '<i class="fas fa-arrow-up text-danger me-1" title="Ipercomprato"></i>';
+    }
+    
+    return `
+        <div class="d-flex align-items-center">
+            ${icon}
+            <span class="${rsiClass}">${rsiValue.toFixed(1)}</span>
+        </div>
+    `;
+}
+
+// Funzione per creare le barre di progresso dei modelli
+function createModelProgressBars(models) {
+    const modelTypes = ['lstm', 'rf', 'xgb'];
+    let html = '';
+    
+    modelTypes.forEach(type => {
+        const model = models[type];
+        if (!model) return;
+        
+        const value = model.weighted_average;
+        const percent = (value * 100).toFixed(1);
+        const predictions = model.predictions;
+        
+        // Crea il tooltip con i dettagli per timeframe
+        const details = Object.entries(predictions)
+            .map(([tf, val]) => `${tf}: ${(val * 100).toFixed(1)}%`)
+            .join('<br>');
+        
+        html += `
+            <td data-bs-toggle="tooltip" data-bs-html="true" title="${details}">
+                <div class="d-flex align-items-center">
+                    <div class="progress flex-grow-1 me-2" style="height: 6px;">
+                        <div class="progress-bar ${getModelBarColor(value)}" 
+                             role="progressbar" 
+                             style="width: ${percent}%" 
+                             aria-valuenow="${percent}" 
+                             aria-valuemin="0" 
+                             aria-valuemax="100">
+                        </div>
+                    </div>
+                    <span class="small">${percent}%</span>
+                </div>
+            </td>
+        `;
+    });
+    
+    return html;
+}
+
+// Funzione per ottenere il colore della barra del modello
+function getModelBarColor(value) {
+    if (value > 0.6) return 'bg-success';
+    if (value < 0.4) return 'bg-danger';
+    return 'bg-warning';
+}
+
+// Funzione per creare il pulsante del grafico
+function createChartButton(symbol, timeframes) {
+    const timeframesList = timeframes.join(', ');
+    
+    return `
+        <button class="btn btn-sm btn-outline-primary view-prediction" 
+                data-symbol="${symbol}" 
+                data-bs-toggle="tooltip" 
+                title="Timeframes disponibili: ${timeframesList}">
+            <i class="fas fa-chart-line"></i>
+        </button>
+    `;
+}
+
+// Funzione per aggiungere i listener ai pulsanti del grafico
+function addChartButtonListeners(defaultTimeframe) {
     document.querySelectorAll('.view-prediction').forEach(button => {
         button.addEventListener('click', function() {
             const symbol = this.getAttribute('data-symbol');
-            const timeframe = defaultTimeframe || timeframes[0];
             
             // Seleziona il simbolo nel selettore del grafico
             const symbolSelect = document.getElementById('chart-symbol-select');
@@ -3546,10 +3779,10 @@ function displayPredictions(predictions, timeframes, defaultTimeframe) {
             
             if (symbolSelect && timeframeSelect) {
                 symbolSelect.value = symbol;
-                timeframeSelect.value = timeframe;
+                timeframeSelect.value = defaultTimeframe;
                 
-                // Carica il grafico per questo simbolo
-                loadChartData(symbol, timeframe);
+                // Carica il grafico
+                loadChartData(symbol, defaultTimeframe);
                 
                 // Scorri fino al grafico
                 document.querySelector('.card:has(#position-chart)').scrollIntoView({ 
@@ -3561,54 +3794,119 @@ function displayPredictions(predictions, timeframes, defaultTimeframe) {
     });
 }
 
-// Funzione per creare una barra di progresso per visualizzare i valori dei modelli
-function createProgressBar(value) {
-    // Calcola la percentuale
-    const percent = value * 100;
+// Funzione per aggiornare il timestamp dell'ultimo aggiornamento
+function updateLastUpdateTimestamp() {
+    const timestampEl = document.createElement('div');
+    timestampEl.className = 'text-muted mt-2 small';
+    timestampEl.innerHTML = `
+        <i class="fas fa-clock me-1"></i>
+        Ultimo aggiornamento: ${new Date().toLocaleTimeString()}
+        ${isPredictionsRunning ? '<span class="badge bg-success ms-2">Attivo</span>' : ''}
+    `;
     
-    // Determina il colore in base al valore
-    let colorClass = 'bg-warning';
-    if (value > 0.6) {
-        colorClass = 'bg-success';
-    } else if (value < 0.4) {
-        colorClass = 'bg-danger';
+    const container = document.querySelector('#predictions-table').parentNode;
+    const existingTimestamp = container.querySelector('.text-muted');
+    
+    if (existingTimestamp) {
+        existingTimestamp.replaceWith(timestampEl);
+    } else {
+        container.appendChild(timestampEl);
+    }
+}
+
+// ... existing code ...
+
+// Funzione per inizializzare il controllo delle predizioni
+function initializePredictionsControl() {
+    const controlBtn = document.getElementById('predictions-control-btn');
+    if (!controlBtn) return;
+
+    controlBtn.addEventListener('click', togglePredictions);
+}
+
+// Funzione per avviare/fermare le predizioni
+async function togglePredictions() {
+    const controlBtn = document.getElementById('predictions-control-btn');
+    
+    if (!isPredictionsRunning) {
+        try {
+            // Mostra loader sul pulsante
+            controlBtn.disabled = true;
+            controlBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Inizializzazione...';
+            
+            // Inizializza il bot
+            const initResult = await makeApiRequest('/initialize', 'POST');
+            if (!initResult) {
+                throw new Error('Errore durante l\'inizializzazione');
+            }
+            
+            // Avvia il bot
+            const startResult = await makeApiRequest('/start', 'POST');
+            if (!startResult) {
+                throw new Error('Errore durante l\'avvio');
+            }
+            
+            // Avvia le predizioni
+            isPredictionsRunning = true;
+            controlBtn.classList.add('running');
+            controlBtn.disabled = false;
+            controlBtn.innerHTML = '<i class="fas fa-stop me-1"></i> Ferma';
+            
+            // Carica le predizioni immediatamente
+            await loadPredictions();
+            
+            // Imposta l'intervallo per gli aggiornamenti
+            predictionsInterval = setInterval(async () => {
+                if (isPredictionsRunning) {
+                    await loadPredictions();
+                }
+            }, 60000); // Aggiorna ogni minuto
+            
+        } catch (error) {
+            console.error('Errore durante l\'avvio:', error);
+            controlBtn.disabled = false;
+            controlBtn.innerHTML = '<i class="fas fa-play me-1"></i> Avvia';
+            
+            // Mostra errore all'utente
+            const errorEl = document.getElementById('predictions-error');
+            const errorMsgEl = document.getElementById('predictions-error-message');
+            if (errorEl && errorMsgEl) {
+                errorEl.classList.remove('d-none');
+                errorMsgEl.textContent = error.message || 'Errore durante l\'avvio delle predizioni';
+            }
+        }
+    } else {
+        // Ferma le predizioni
+        stopPredictions();
+    }
+}
+
+// Funzione per fermare le predizioni
+function stopPredictions() {
+    isPredictionsRunning = false;
+    
+    // Pulisci l'intervallo
+    if (predictionsInterval) {
+        clearInterval(predictionsInterval);
+        predictionsInterval = null;
     }
     
-    return `
-        <div class="d-flex align-items-center">
-            <div class="progress flex-grow-1 me-2" style="height: 6px;">
-                <div class="progress-bar ${colorClass}" role="progressbar" 
-                    style="width: ${percent}%" aria-valuenow="${percent}" 
-                    aria-valuemin="0" aria-valuemax="100">
-                </div>
-            </div>
-            <span class="small">${percent.toFixed(1)}%</span>
-        </div>
-    `;
-}
-
-// Funzione per creare un tooltip con i dettagli per ogni timeframe
-function createModelDetailsTooltip(modelValues, timeframes) {
-    let html = '<div class="p-1">';
+    // Resetta il pulsante
+    const controlBtn = document.getElementById('predictions-control-btn');
+    if (controlBtn) {
+        controlBtn.classList.remove('running');
+        controlBtn.innerHTML = '<i class="fas fa-play me-1"></i> Avvia';
+    }
     
-    timeframes.forEach(tf => {
-        const value = modelValues[tf];
-        if (value !== undefined) {
-            const percent = (value * 100).toFixed(1);
-            html += `<div>${tf}: <strong>${percent}%</strong></div>`;
-        }
-    });
+    // Pulisci la tabella delle predizioni
+    const tableBody = document.querySelector('#predictions-table tbody');
+    if (tableBody) {
+        tableBody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">Predizioni fermate</td></tr>';
+    }
     
-    html += '</div>';
-    return html;
-}
-
-// Funzione per inizializzare i tooltip di Bootstrap
-function initializeTooltips() {
-    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-    tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl, {
-            html: true
-        });
-    });
+    // Rimuovi il timestamp
+    const timestamp = document.querySelector('#predictions-table').parentNode.querySelector('.text-muted');
+    if (timestamp) {
+        timestamp.remove();
+    }
 }
