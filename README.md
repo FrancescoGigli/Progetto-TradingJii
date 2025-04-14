@@ -1,10 +1,10 @@
-# Trae Trading Bot
+# TradingJii Bot
 
 Un bot di trading per criptovalute con funzionalità di machine learning e un'interfaccia frontend basata su web.
 
 ## Interfaccia Frontend
 
-Il Trae Trading Bot include ora un'interfaccia web moderna che consente di:
+Il TradingJii Bot include ora un'interfaccia web moderna che consente di:
 
 - Monitorare le statistiche di trading e le performance
 - Visualizzare le posizioni aperte e i segnali di trading recenti
@@ -79,4 +79,4 @@ Il frontend consiste in:
 
 ## Nota
 
-Questo frontend è progettato per funzionare con il bot di trading Trae esistente. Assicurati che tutte le dipendenze richieste per il bot di trading siano installate prima di utilizzare il frontend.
+Questo frontend è progettato per funzionare con il bot di trading TradingJii esistente. Assicurati che tutte le dipendenze richieste per il bot di trading siano installate prima di utilizzare il frontend.
