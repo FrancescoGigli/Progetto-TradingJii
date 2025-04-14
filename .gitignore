@@ -1,0 +1,22 @@
+# File di configurazione sensibili (es. chiavi API, variabili d'ambiente)
+.env
+config/config.json
+
+# File Python generati
+__pycache__/
+*.py[cod]
+
+# File di log
+*.log
+
+# File di database
+*.db
+
+# File dei modelli salvati
+*.h5
+*.pkl
+
+# Cartelle temporanee o di tuning
+lstm_tuning/
+
+*.txt

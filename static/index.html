@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trae Trading Bot</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-matrix"></script>
+    <style>
+        /* Nascondi la sezione Log di Training */
+        .training-logs {
+            display: none;
+        }
+        
+        /* Rimuovo i vecchi stili per la barra di progresso a fasi */
+        .training-phases {
+            display: none;
+        }
+        
+        /* Nuovi stili per la barra di progresso a fasi migliorata */
+        .progress-tracker {
+            margin: 30px 0;
+            padding: 20px 0;
+        }
+        
+        .progress-steps {
+            display: flex;
+            justify-content: space-between;
+            position: relative;
+            margin-bottom: 30px;
+        }
+        
+        .progress-bar-bg {
+            position: absolute;
+            top: 40px;
+            left: 0;
+            height: 4px;
+            width: 100%;
+            background-color: #e9ecef;
+            z-index: 1;
+        }
+        
+        .progress-bar-fill {
+            position: absolute;
+            top: 40px;
+            left: 0;
+            height: 4px;
+            width: 0%;
+            background-color: #28a745;
+            transition: width 0.5s ease;
+            z-index: 2;
+        }
+        
+        .step {
+            position: relative;
+            z-index: 3;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 18%;
+        }
+        
+        .step-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background-color: #e9ecef;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 10px;
+            transition: all 0.3s ease;
+            border: 2px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .step i {
+            font-size: 32px;
+            color: #6c757d;
+            transition: all 0.3s ease;
+        }
+        
+        .step-label {
+            font-size: 14px;
+            font-weight: 500;
+            text-align: center;
+            color: #6c757d;
+            transition: all 0.3s ease;
+        }
+        
+        .step.active .step-icon {
+            background-color: #28a745;
+            transform: scale(1.1);
+            box-shadow: 0 4px 10px rgba(40, 167, 69, 0.4);
+        }
+        
+        .step.active i {
+            color: white;
+        }
+        
+        .step.active .step-label {
+            color: #212529;
+            font-weight: 700;
+        }
+        
+        .step.completed .step-icon {
+            background-color: #28a745;
+        }
+        
+        .step.completed i {
+            color: white;
+        }
+        
+        .step-details {
+            font-size: 13px;
+            color: #6c757d;
+            text-align: center;
+            margin-top: 5px;
+            min-height: 40px;
+        }
+        
+        .step.active .step-details {
+            color: #212529;
+            font-weight: 600;
+        }
+        
+        .terminal-progress-container {
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            padding: 8px 12px;
+            border-left: 4px solid #28a745;
+            margin-top: 20px;
+        }
+
+        .terminal-progress-text {
+            white-space: nowrap;
+            overflow: hidden;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+        
+        /* Nascondo i dettagli tecnici della barra di progresso mantenendo solo l'informazione principale */
+        .terminal-progress-text::after {
+            content: " ...in corso";
+        }
+
+        .terminal-progress-text {
+            text-overflow: ellipsis;
+            max-width: 100%;
+            display: inline-block;
+            vertical-align: middle;
+        }
+
+        /* Modifico come viene visualizzato il testo del progresso */
+        .terminal-progress-text {
+            position: relative;
+        }
+
+        .terminal-progress-text::before {
+            content: "🔄 ";
+        }
+        
+        /* Nascondi la vecchia barra di progresso */
+        .progress {
+            display: none;
+        }
+        
+        /* Stili per la tabella di stato modelli */
+        .model-status {
+            font-weight: 600;
+            text-align: center;
+            padding: 10px;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        
+        .model-available {
+            color: #28a745;
+            background-color: rgba(40, 167, 69, 0.1);
+            border: 1px solid #28a745;
+        }
+        
+        .model-available:hover {
+            background-color: rgba(40, 167, 69, 0.2);
+            box-shadow: 0 3px 8px rgba(40, 167, 69, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        .model-unavailable {
+            color: #dc3545;
+            background-color: rgba(220, 53, 69, 0.1);
+            border: 1px solid #dc3545;
+        }
+        
+        .model-unavailable:hover {
+            background-color: rgba(220, 53, 69, 0.2);
+            box-shadow: 0 3px 8px rgba(220, 53, 69, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        .model-checking {
+            color: #ffc107;
+            background-color: rgba(255, 193, 7, 0.1);
+            border: 1px solid #ffc107;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block bg-dark sidebar">
+                <div class="position-sticky h-100 d-flex flex-column">
+                    <div class="sidebar-header">
+                        <h3>Trae Trading Bot</h3>
+                    </div>
+                    <div class="navigation flex-grow-1">
+                        <ul class="nav flex-column">
+                            <li class="nav-item">
+                                <a class="nav-link active" href="#dashboard">
+                                    <i class="fas fa-chart-line"></i> Dashboard
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="#models">
+                                    <i class="fas fa-brain"></i> Modelli
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="#api-keys">
+                                    <i class="fas fa-key"></i> API Keys
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Contenuto principale -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">Dashboard</h1>
+                </div>
+
+                <!-- Sezione Dashboard -->
+                <div id="dashboard-section" class="section">
+                    <!-- Statistiche principali -->
+                    <div class="row">
+                        <div class="col-md-3 mb-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Totale Realizzato</h5>
+                                    <h2 id="total-wallet" class="card-text">--</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Totale non realizzato</h5>
+                                    <h2 id="equity" class="card-text">--</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Disponibile</h5>
+                                    <h2 id="available-balance" class="card-text">--</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Utilizzato</h5>
+                                    <h2 id="used-balance" class="card-text">--</h2>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-3 mb-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">PnL Non Realizzato</h5>
+                                    <h2 id="unrealized-pnl" class="card-text">--</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Posizioni Aperte</h5>
+                                    <h2 id="positions" class="card-text">--</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Stato Bot</h5>
+                                    <h2 id="bot-status" class="card-text">--</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Salute Sistema</h5>
+                                    <h2 id="health-status" class="card-text">--</h2>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tabella Ordini Aperti -->
+                    <div class="row mb-4">
+                        <div class="col-md-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>Ordini Aperti</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table">
+                                            <thead id="open-orders-table-header">
+                                                <tr>
+                                                    <th>Simbolo</th>
+                                                    <th>Lato</th>
+                                                    <th>Quantità</th>
+                                                    <th>Prezzo</th>
+                                                    <th>PnL</th>
+                                                    <th>USDT</th>
+                                                    <th>Stop Loss</th>
+                                                    <th>P/L SL</th>
+                                                    <th>Stato</th>
+                                                    <th>Azioni</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="open-orders-table">
+                                                <!-- I dati verranno inseriti tramite JavaScript -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Grafico Posizioni -->
+                    <div class="row mb-4">
+                        <div class="col-md-12">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h5>Grafico Posizione</h5>
+                                    <div class="d-flex">
+                                        <select id="chart-timeframe-select" class="form-select form-select-sm me-2" style="width: auto;">
+                                            <option value="15m">15 minuti</option>
+                                            <option value="30m">30 minuti</option>
+                                            <option value="1h">1 ora</option>
+                                        </select>
+                                        <select id="chart-symbol-select" class="form-select form-select-sm" style="width: auto;">
+                                            <option value="">Seleziona simbolo</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div style="height: 500px;">
+                                        <canvas id="position-chart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Predizioni Modelli -->
+                    <div class="row mb-4">
+                        <div class="col-md-12">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h5>Predizioni Modelli</h5>
+                                    <div class="d-flex">
+                                        <button id="refresh-predictions-btn" class="btn btn-sm btn-outline-primary">
+                                            <i class="fas fa-sync-alt me-1"></i> Aggiorna
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="alert alert-info d-none" id="predictions-loading">
+                                        <i class="fas fa-spinner fa-spin me-2"></i> Caricamento predizioni in corso...
+                                    </div>
+                                    <div class="alert alert-danger d-none" id="predictions-error">
+                                        <i class="fas fa-exclamation-triangle me-2"></i> <span id="predictions-error-message"></span>
+                                    </div>
+                                    <div class="table-responsive">
+                                        <table class="table table-hover" id="predictions-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Symbol</th>
+                                                    <th>Confidence</th>
+                                                    <th>Direction</th>
+                                                    <th>RSI</th>
+                                                    <th>LSTM</th>
+                                                    <th>RandomForest</th>
+                                                    <th>XGBoost</th>
+                                                    <th>Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <!-- Le predizioni verranno inserite qui dinamicamente -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="small text-muted mt-2">
+                                        <i class="fas fa-info-circle me-1"></i> Le predizioni mostrano i segnali generati dai modelli per i top symbols. Un valore di confidence più alto indica una maggiore probabilità della direzione prevista.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sezione Modelli -->
+                <div id="models-section" class="section d-none">
+                    <h2>Training Modelli</h2>
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>Configurazione Training</h5>
+                                </div>
+                                <div class="card-body">
+                                    <form id="model-training-form">
+                                        <div class="mb-3">
+                                            <label for="model-type" class="form-label">Tipo di Modello</label>
+                                            <select class="form-select" id="model-type" required>
+                                                <option value="lstm">LSTM</option>
+                                                <option value="rf">Random Forest</option>
+                                                <option value="xgb">XGBoost</option>
+                                            </select>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="timeframe" class="form-label">Timeframe</label>
+                                            <select class="form-select" id="timeframe" required>
+                                                <option value="5m">5 minuti</option>
+                                                <option value="15m">15 minuti</option>
+                                                <option value="30m">30 minuti</option>
+                                                <option value="1h">1 ora</option>
+                                                <option value="4h">4 ore</option>
+                                            </select>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Configurazione</label>
+                                            <div class="card bg-light">
+                                                <div class="card-body py-2">
+                                                    <div class="d-flex justify-content-between">
+                                                        <span><i class="fas fa-calendar-alt me-2"></i>Giorni di Dati:</span>
+                                                        <strong>50 giorni</strong>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between mt-2">
+                                                        <span><i class="fas fa-coins me-2"></i>Numero di Criptovalute:</span>
+                                                        <strong>100 criptovalute</strong>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="d-flex">
+                                            <button type="submit" class="btn btn-primary me-2">Train</button>
+                                            <button type="button" id="train-all-models-btn" class="btn btn-success me-2">
+                                                <i class="fas fa-tasks me-2"></i>Train di Tutti i Modelli
+                                            </button>
+                                            <button type="button" id="train-missing-models-btn" class="btn btn-warning">
+                                                <i class="fas fa-exclamation-triangle me-2"></i>Train Modelli Mancanti
+                                            </button>
+                                        </div>
+                                        <div id="train-all-progress" class="mt-3 d-none">
+                                            <div class="alert alert-info">
+                                                <div class="d-flex align-items-center">
+                                                    <div class="me-3">
+                                                        <i class="fas fa-cog fa-spin fa-2x"></i>
+                                                    </div>
+                                                    <div>
+                                                        <h5 class="mb-1" id="train-all-title">Training in sequenza...</h5>
+                                                        <p class="mb-0">Completati: <span id="completed-models">0</span>/<span id="total-models">15</span></p>
+                                                        <p class="mb-0">Modello attuale: <span id="current-model-training">-</span></p>
+                                                        <div class="progress mt-2" style="height: 5px;">
+                                                            <div id="train-all-progress-bar" class="progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>Stato Training</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="training-status-card">
+                                        <h5>Stato Training</h5>
+                                        
+                                        <!-- Informazioni sul modello in training -->
+                                        <div class="alert alert-light border d-flex align-items-center mb-3" id="current-training-info">
+                                            <div class="d-flex align-items-center">
+                                                <i class="fas fa-brain text-primary me-3 fa-2x"></i>
+                                                <div>
+                                                    <h6 class="mb-0">Modello in training:</h6>
+                                                    <p class="mb-0 fw-bold" id="current-training-model">Nessun training in corso</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Nuova barra di progresso migliorata -->
+                                        <div class="progress-tracker">
+                                            <div class="progress-steps">
+                                                <div class="progress-bar-bg"></div>
+                                                <div id="progress-bar-fill" class="progress-bar-fill"></div>
+                                                
+                                                <div id="step-init" class="step">
+                                                    <div class="step-icon">
+                                                        <i class="fas fa-play"></i>
+                                                    </div>
+                                                    <div class="step-label">Inizio</div>
+                                                    <div class="step-details" id="step-init-details"></div>
+                                                </div>
+                                                
+                                                <div id="step-data" class="step">
+                                                    <div class="step-icon">
+                                                        <i class="fas fa-database"></i>
+                                                    </div>
+                                                    <div class="step-label">Dati</div>
+                                                    <div class="step-details" id="step-data-details">Recupero volumi</div>
+                                                </div>
+                                                
+                                                <div id="step-prep" class="step">
+                                                    <div class="step-icon">
+                                                        <i class="fas fa-table"></i>
+                                                    </div>
+                                                    <div class="step-label">Preparazione</div>
+                                                    <div class="step-details" id="step-prep-details">Elaborazione features</div>
+                                                </div>
+                                                
+                                                <div id="step-train" class="step">
+                                                    <div class="step-icon">
+                                                        <i class="fas fa-cogs"></i>
+                                                    </div>
+                                                    <div class="step-label">Training</div>
+                                                    <div class="step-details" id="step-train-details">Addestramento modello</div>
+                                                </div>
+                                                
+                                                <div id="step-complete" class="step">
+                                                    <div class="step-icon">
+                                                        <i class="fas fa-check"></i>
+                                                    </div>
+                                                    <div class="step-label">Completato</div>
+                                                    <div class="step-details" id="step-complete-details"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Rimuovo il badge di stato e il tempo stimato -->
+                                        <div class="training-time-container d-none">
+                                            <i class="fas fa-clock"></i>
+                                            <div id="training-time" class="text-muted">Tempo stimato: --:--</div>
+                                        </div>
+                                        
+                                        <!-- Visualizzazione terminale del progresso -->
+                                        <div class="terminal-progress-container mt-3" style="display: none;">
+                                            <div id="terminal-progress-text" class="font-monospace">Inizializzazione...</div>
+                                        </div>
+                                        
+                                        <!-- Area per le metriche (mostrata solo quando il training è completato) -->
+                                        <div id="training-metrics" class="training-metrics d-none">
+                                            <h6><i class="fas fa-chart-line"></i> Metriche Finali</h6>
+                                            <div id="metrics-content"></div>
+                                        </div>
+                                    </div>
+
+                                    <div class="training-logs">
+                                        <h5>Log di Training</h5>
+                                        <div id="training-logs" class="logs-container"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Nuova card per lo stato dei modelli -->
+                    <div class="row mt-4">
+                        <div class="col-md-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>Stato Modelli</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-bordered">
+                                            <thead>
+                                                <tr>
+                                                    <th>Modello \ Timeframe</th>
+                                                    <th>5m</th>
+                                                    <th>15m</th>
+                                                    <th>30m</th>
+                                                    <th>1h</th>
+                                                    <th>4h</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="models-status-table">
+                                                <tr>
+                                                    <td><strong>LSTM</strong></td>
+                                                    <td id="lstm-5m" class="model-status">Verifica in corso...</td>
+                                                    <td id="lstm-15m" class="model-status">Verifica in corso...</td>
+                                                    <td id="lstm-30m" class="model-status">Verifica in corso...</td>
+                                                    <td id="lstm-1h" class="model-status">Verifica in corso...</td>
+                                                    <td id="lstm-4h" class="model-status">Verifica in corso...</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><strong>Random Forest</strong></td>
+                                                    <td id="rf-5m" class="model-status">Verifica in corso...</td>
+                                                    <td id="rf-15m" class="model-status">Verifica in corso...</td>
+                                                    <td id="rf-30m" class="model-status">Verifica in corso...</td>
+                                                    <td id="rf-1h" class="model-status">Verifica in corso...</td>
+                                                    <td id="rf-4h" class="model-status">Verifica in corso...</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><strong>XGBoost</strong></td>
+                                                    <td id="xgb-5m" class="model-status">Verifica in corso...</td>
+                                                    <td id="xgb-15m" class="model-status">Verifica in corso...</td>
+                                                    <td id="xgb-30m" class="model-status">Verifica in corso...</td>
+                                                    <td id="xgb-1h" class="model-status">Verifica in corso...</td>
+                                                    <td id="xgb-4h" class="model-status">Verifica in corso...</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Nuova card per le metriche dei modelli -->
+                    <div class="row mt-4">
+                        <div class="col-md-12">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between">
+                                    <h5>Metriche dei Modelli</h5>
+                                    <div>
+                                        <select id="metrics-timeframe-select" class="form-select form-select-sm">
+                                            <option value="5m">5 minuti</option>
+                                            <option value="15m" selected>15 minuti</option>
+                                            <option value="30m">30 minuti</option>
+                                            <option value="1h">1 ora</option>
+                                            <option value="4h">4 ore</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="btn-group btn-group-sm mb-3" role="group" aria-label="Seleziona metrica">
+                                        <button type="button" class="btn btn-sm btn-outline-primary active" data-metric="accuracy">Accuracy</button>
+                                        <button type="button" class="btn btn-sm btn-outline-primary" data-metric="precision">Precision</button>
+                                        <button type="button" class="btn btn-sm btn-outline-primary" data-metric="recall">Recall</button>
+                                        <button type="button" class="btn btn-sm btn-outline-primary" data-metric="f1">F1-Score</button>
+                                    </div>
+                                    
+                                    <div class="metrics-chart-container" style="position: relative; height: 400px;">
+                                        <canvas id="metrics-comparison-chart"></canvas>
+                                    </div>
+                                    
+                                    <div id="metrics-comparison-data" class="mt-4">
+                                        <div class="text-center text-muted">
+                                            <i>Seleziona un timeframe per visualizzare le metriche</i>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sezione API Keys -->
+                <div id="api-keys-section" class="section d-none">
+                    <h2>Gestione API Keys</h2>
+                    <form id="api-keys-form" class="mt-4">
+                        <div class="mb-3">
+                            <label for="api-key" class="form-label">API Key</label>
+                            <input type="text" class="form-control" id="api-key" placeholder="Inserisci la tua API Key">
+                        </div>
+                        <div class="mb-3">
+                            <label for="secret-key" class="form-label">Secret Key</label>
+                            <input type="password" class="form-control" id="secret-key" placeholder="Inserisci la tua Secret Key">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Salva Chiavi API</button>
+                        <button type="button" id="test-connection-btn" class="btn btn-outline-primary ms-2">Test Connessione</button>
+                    </form>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html> 

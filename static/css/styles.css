@@ -1,0 +1,844 @@
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa;
+    color: #333;
+}
+
+/* Sidebar */
+.sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 100;
+    padding: 48px 0 0;
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+    background-color: #343a40;
+    color: #fff;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    padding: 10px 0;
+    margin-bottom: 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-header h3 {
+    color: #fff;
+    font-size: 1.5rem;
+    margin: 0;
+}
+
+.navigation .nav-link {
+    color: rgba(255, 255, 255, 0.8);
+    padding: 10px 15px;
+    margin: 5px 0;
+    border-radius: 5px;
+    transition: all 0.3s;
+}
+
+.navigation .nav-link:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.navigation .nav-link.active {
+    background-color: #007bff;
+    color: #fff;
+}
+
+.navigation .nav-link i {
+    margin-right: 10px;
+    width: 20px;
+    text-align: center;
+}
+
+.sidebar-footer {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    padding: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    max-height: 250px;
+    overflow: hidden;
+    margin-top: auto;
+}
+
+.log-container {
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 5px;
+    padding: 10px;
+    margin-top: 20px;
+}
+
+.log-content {
+    height: 150px;
+    overflow-y: auto;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.8rem;
+    color: #fff;
+}
+
+/* Main content */
+main {
+    padding-top: 1.5rem;
+}
+
+.section {
+    padding: 20px;
+    background-color: #fff;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.d-none {
+    display: none !important;
+}
+
+/* Cards */
+.card {
+    border: none;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+    background-color: #fff;
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    padding: 15px 20px;
+}
+
+.card-body {
+    padding: 20px;
+}
+
+/* Tables */
+.table {
+    margin-bottom: 0;
+}
+
+.table thead th {
+    background-color: #343a40;
+    color: #fff;
+    border: none;
+    padding: 12px 15px;
+}
+
+.table tbody td {
+    padding: 12px 15px;
+    vertical-align: middle;
+}
+
+/* Status badges */
+.badge {
+    padding: 5px 10px;
+    border-radius: 15px;
+    font-weight: 500;
+}
+
+.badge-success {
+    background-color: #28a745;
+}
+
+.badge-danger {
+    background-color: #dc3545;
+}
+
+.badge-warning {
+    background-color: #ffc107;
+    color: #000;
+}
+
+/* Forms */
+.form-check {
+    margin-bottom: 0.5rem;
+}
+
+.form-label {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.form-control {
+    border-radius: 5px;
+    border: 1px solid #ced4da;
+    padding: 8px 12px;
+}
+
+.form-control:focus {
+    border-color: #80bdff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .sidebar {
+        position: static;
+        height: auto;
+        padding-bottom: 1rem;
+    }
+    
+    .sidebar-footer {
+        position: static;
+    }
+    
+    .log-container {
+        height: 150px;
+    }
+
+    .card {
+        margin-bottom: 15px;
+    }
+
+    .table-responsive {
+        margin-bottom: 0;
+    }
+}
+
+/* Custom status display */
+#bot-status, #health-status {
+    font-weight: bold;
+}
+
+.status-online {
+    color: #28a745 !important;
+    font-weight: bold;
+}
+
+.status-offline {
+    color: #dc3545 !important;
+    font-weight: bold;
+}
+
+/* Button styles */
+.btn {
+    border-radius: 5px;
+    padding: 8px 16px;
+    font-weight: 500;
+    transition: all 0.3s;
+}
+
+.btn-primary {
+    background-color: #007bff;
+    border-color: #007bff;
+}
+
+.btn-primary:hover {
+    background-color: #0056b3;
+    border-color: #0056b3;
+}
+
+.btn-success {
+    background-color: #28a745;
+    border-color: #28a745;
+}
+
+.btn-success:hover {
+    background-color: #218838;
+    border-color: #218838;
+}
+
+.btn-danger {
+    background-color: #dc3545;
+    border-color: #dc3545;
+}
+
+.btn-danger:hover {
+    background-color: #c82333;
+    border-color: #c82333;
+}
+
+/* Tema scuro */
+@media (prefers-color-scheme: dark) {
+    body {
+        background-color: #1a1a1a;
+        color: #fff;
+    }
+
+    .card {
+        background-color: #2d2d2d;
+    }
+
+    .card-header {
+        background-color: #343a40;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .table tbody td {
+        color: #fff;
+        border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .form-control {
+        background-color: #2d2d2d;
+        border-color: #444;
+        color: #fff;
+    }
+
+    .form-control:focus {
+        background-color: #2d2d2d;
+        border-color: #007bff;
+        color: #fff;
+    }
+
+    .section {
+        background-color: #2d2d2d;
+    }
+
+    /* Manteniamo gli stessi colori per i bottoni e i badge */
+    .btn-primary, .btn-success, .btn-danger {
+        color: #fff;
+    }
+
+    .badge {
+        color: #fff;
+    }
+
+    .badge-warning {
+        color: #000;
+    }
+}
+
+/* Training section styles */
+#training-progress-container {
+    margin-bottom: 20px;
+}
+
+#training-progress-bar {
+    transition: width 0.3s ease-in-out;
+}
+
+#training-progress-text {
+    margin-top: 10px;
+    font-weight: 500;
+}
+
+#training-log-container {
+    background-color: #f8f9fa;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+#training-log-container .log-entry {
+    padding: 5px 0;
+    border-bottom: 1px solid #eee;
+}
+
+#training-log-container .log-entry:last-child {
+    border-bottom: none;
+}
+
+#training-log-container .log-entry.info {
+    color: #0dcaf0;
+}
+
+#training-log-container .log-entry.success {
+    color: #198754;
+}
+
+#training-log-container .log-entry.warning {
+    color: #ffc107;
+}
+
+#training-log-container .log-entry.error {
+    color: #dc3545;
+}
+
+/* Stili per il log di training */
+.log-entry {
+    padding: 8px;
+    margin: 4px 0;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.log-entry.info {
+    background-color: rgba(0, 123, 255, 0.1);
+    color: #007bff;
+}
+
+.log-entry.success {
+    background-color: rgba(40, 167, 69, 0.1);
+    color: #28a745;
+}
+
+.log-entry.error {
+    background-color: rgba(220, 53, 69, 0.1);
+    color: #dc3545;
+}
+
+.log-entry.warning {
+    background-color: rgba(255, 193, 7, 0.1);
+    color: #ffc107;
+}
+
+.log-timestamp {
+    color: #6c757d;
+    margin-right: 8px;
+}
+
+.details-container {
+    margin-top: 8px;
+    padding-left: 16px;
+    border-left: 2px solid rgba(0, 0, 0, 0.1);
+}
+
+.detail-item {
+    margin: 4px 0;
+}
+
+.detail-key {
+    font-weight: bold;
+    margin-right: 8px;
+}
+
+/* Stili per il progresso del training */
+.progress-container {
+    margin: 16px 0;
+}
+
+.progress-bar {
+    height: 20px;
+    background-color: #e9ecef;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background-color: #007bff;
+    transition: width 0.3s ease;
+}
+
+.progress-text {
+    margin-top: 8px;
+    text-align: center;
+    font-weight: bold;
+}
+
+.metrics-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.metric-item {
+    padding: 12px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.metric-key {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.metric-value {
+    font-size: 1.2em;
+    color: #007bff;
+}
+
+/* Stili per la sezione di training */
+.training-card {
+    transition: all 0.3s ease;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.training-card:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.training-card .card-header {
+    background-color: #2c3e50;
+    color: white;
+    border-bottom: none;
+    padding: 1rem;
+}
+
+.training-form {
+    margin: 1.5rem 0;
+}
+
+.training-form .form-control {
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    padding: 0.75rem;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+}
+
+.training-form .form-control:focus {
+    border-color: #3498db;
+    box-shadow: 0 0 0 0.2rem rgba(52,152,219,0.25);
+}
+
+.training-form .form-label {
+    font-weight: 500;
+    color: #2c3e50;
+    margin-bottom: 0.5rem;
+}
+
+.training-form .form-text {
+    color: #7f8c8d;
+    font-size: 0.875rem;
+}
+
+/* Stili per le metriche */
+.metric-card {
+    background-color: #fff;
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 0.5rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    transition: all 0.3s ease;
+}
+
+.metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.metric-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.metric-label {
+    font-size: 0.875rem;
+    color: #7f8c8d;
+    margin-top: 0.25rem;
+}
+
+/* Stili per il log */
+.log-container {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-top: 1rem;
+}
+
+.log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.log-content {
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 0.5rem;
+}
+
+.log-entry {
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    border-radius: 6px;
+    background-color: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.log-entry.info {
+    border-left: 4px solid #3498db;
+}
+
+.log-entry.success {
+    border-left: 4px solid #2ecc71;
+}
+
+.log-entry.warning {
+    border-left: 4px solid #f1c40f;
+}
+
+.log-entry.error {
+    border-left: 4px solid #e74c3c;
+}
+
+.details-container {
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    padding: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.detail-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.25rem 0;
+    font-size: 0.875rem;
+}
+
+.detail-key {
+    color: #7f8c8d;
+    margin-right: 1rem;
+}
+
+.detail-value {
+    color: #2c3e50;
+    font-weight: 500;
+}
+
+/* Stili per i badge di stato */
+.status-badge {
+    display: inline-block;
+    padding: 0.35rem 0.75rem;
+    border-radius: 50rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+}
+
+.status-badge.trained {
+    background-color: #2ecc71;
+    color: white;
+}
+
+.status-badge.not-trained {
+    background-color: #e74c3c;
+    color: white;
+}
+
+.status-badge.training {
+    background-color: #3498db;
+    color: white;
+    animation: pulse 2s infinite;
+}
+
+.status-badge.error {
+    background-color: #e74c3c;
+    color: white;
+}
+
+/* Animazione pulse per il badge di training */
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+    100% {
+        opacity: 1;
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .metric-card {
+        margin: 0.25rem;
+        padding: 0.75rem;
+    }
+    
+    .metric-value {
+        font-size: 1.25rem;
+    }
+    
+    .training-form .form-control {
+        padding: 0.5rem;
+    }
+    
+    .log-content {
+        max-height: 200px;
+    }
+}
+
+/* Stili per il log nella sidebar */
+.sidebar-footer .log-container {
+    background-color: #2c3e50;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-top: 1rem;
+}
+
+.sidebar-footer .log-content {
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 0.5rem;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.875rem;
+    color: #ecf0f1;
+    line-height: 1.4;
+}
+
+.sidebar-footer .log-entry {
+    padding: 0.5rem;
+    margin-bottom: 0.5rem;
+    border-radius: 4px;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-footer .log-entry:last-child {
+    margin-bottom: 0;
+}
+
+.sidebar-footer .log-entry.info {
+    border-left: 3px solid #3498db;
+}
+
+.sidebar-footer .log-entry.success {
+    border-left: 3px solid #2ecc71;
+}
+
+.sidebar-footer .log-entry.warning {
+    border-left: 3px solid #f1c40f;
+}
+
+.sidebar-footer .log-entry.error {
+    border-left: 3px solid #e74c3c;
+}
+
+/* Stili per il Training Dashboard */
+.training-dashboard {
+    padding: 15px;
+}
+
+.training-status-card {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.stat-card {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.stat-card h6 {
+    color: #6c757d;
+    margin-bottom: 10px;
+}
+
+.stat-card h3 {
+    color: #212529;
+    margin: 0;
+}
+
+.performance-chart {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.training-logs {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.logs-container {
+    max-height: 200px;
+    overflow-y: auto;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    padding: 10px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.85rem;
+    margin-top: 10px;
+}
+
+.log-entry {
+    padding: 4px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.log-entry:last-child {
+    border-bottom: none;
+}
+
+.log-entry.info {
+    color: #0dcaf0;
+}
+
+.log-entry.success {
+    color: #198754;
+}
+
+.log-entry.warning {
+    color: #ffc107;
+}
+
+.log-entry.error {
+    color: #dc3545;
+}
+
+#training-status-badge {
+    font-size: 0.9em;
+    padding: 5px 10px;
+}
+
+#training-status-badge.bg-success {
+    background-color: #198754 !important;
+}
+
+#training-status-badge.bg-warning {
+    background-color: #ffc107 !important;
+}
+
+#training-status-badge.bg-danger {
+    background-color: #dc3545 !important;
+}
+
+#training-status-badge.bg-secondary {
+    background-color: #6c757d !important;
+}
+
+/* Stili per la dashboard di training */
+.training-status-card {
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    padding: 15px;
+    margin-bottom: 15px;
+}
+
+.stat-card {
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    padding: 15px;
+    text-align: center;
+}
+
+.performance-chart {
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    padding: 15px;
+    margin-bottom: 15px;
+}
+
+.training-logs {
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    padding: 15px;
+}
+
+/* Tema scuro per i log di training */
+@media (prefers-color-scheme: dark) {
+    .logs-container, .training-status-card, .stat-card, .performance-chart, .training-logs {
+        background-color: #2d2d2d;
+    }
+    
+    .log-entry {
+        border-bottom: 1px solid #444;
+    }
+} 
