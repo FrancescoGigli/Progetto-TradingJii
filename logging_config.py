@@ -31,14 +31,12 @@ class EmojiFormatter(logging.Formatter):
 # Handler per la console con il formatter personalizzato
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(EmojiFormatter("%(asctime)s %(levelname)s %(message)s"))
-# Mostriamo solo warning e errori sulla console
-console_handler.setLevel(logging.WARNING)
 
 # Handler per il file (senza colori)
 file_handler = logging.FileHandler("trading_bot_derivatives.log", mode='w', encoding="utf-8")
 file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 
 logging.basicConfig(
-    level=logging.WARNING,  # Ridotto a WARNING per diminuire i log
+    level=logging.INFO,
     handlers=[file_handler, console_handler],
 )

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
+import sqlite3
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from termcolor import colored
 import os
@@ -10,8 +11,8 @@ import uuid
 import json
 
 from config import (
-    MARGIN_USDT, LEVERAGE, EXCLUDED_SYMBOLS,
-    TOP_ANALYSIS_CRYPTO
+    MARGIN_USDT, LEVERAGE, EXCLUDED_SYMBOLS, DB_FILE,
+    TRADE_STATISTICS_DAYS, TOP_ANALYSIS_CRYPTO, USE_DATABASE
 )
 from fetcher import get_top_symbols, get_data_async
 
@@ -19,84 +20,130 @@ def is_symbol_excluded(symbol):
     normalized = re.sub(r'[^A-Za-z0-9]', '', symbol).upper()
     return any(exc.upper() in normalized for exc in EXCLUDED_SYMBOLS)
 
+def init_db():
+    if not USE_DATABASE:
+        logging.info(colored("Uso del database disattivato. Inizializzazione del database saltato.", "cyan"))
+        return
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS trades (
+            trade_id TEXT PRIMARY KEY,
+            symbol TEXT,
+            side TEXT,
+            entry_price REAL,
+            exit_price REAL,
+            trade_type TEXT,
+            closed_pnl REAL,
+            result TEXT,
+            open_trade_volume REAL,
+            closed_trade_volume REAL,
+            opening_fee REAL,
+            closing_fee REAL,
+            funding_fee REAL,
+            trade_time TEXT,
+            timestamp TEXT,
+            status TEXT
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS trade_statistics (
+            period TEXT PRIMARY KEY,
+            timestamp TEXT,
+            total_closed_trades INTEGER,
+            total_wins INTEGER,
+            total_losses INTEGER,
+            win_rate_percent REAL,
+            total_realizedpnl REAL
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS weights (
+            symbol TEXT PRIMARY KEY,
+            weight_5m REAL,
+            weight_15m REAL,
+            weight_rf5 REAL,
+            weight_rf15 REAL
+        )
+    ''')
+    conn.commit()
+    conn.close()
+    logging.info(colored("Database inizializzato.", "green"))
+
+init_db()
+
+def save_trade_db(trade):
+    if not USE_DATABASE:
+        logging.info(colored("Uso del database disattivato. Salvataggio trade saltato.", "cyan"))
+        return
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO trades (
+                trade_id, symbol, side, entry_price, exit_price, trade_type, closed_pnl,
+                result, open_trade_volume, closed_trade_volume,
+                opening_fee, closing_fee, funding_fee, trade_time, timestamp, status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            trade.get("trade_id"),
+            trade.get("symbol"),
+            trade.get("side"),
+            trade.get("entry_price"),
+            trade.get("exit_price"),
+            trade.get("trade_type"),
+            trade.get("closed_pnl"),
+            trade.get("result"),
+            trade.get("open_trade_volume"),
+            trade.get("closed_trade_volume"),
+            trade.get("opening_fee"),
+            trade.get("closing_fee"),
+            trade.get("funding_fee"),
+            trade.get("trade_time"),
+            trade.get("timestamp"),
+            trade.get("status")
+        ))
+        conn.commit()
+    except Exception as e:
+        logging.error(colored(f"❌ Errore nel salvataggio del trade: {e}", "red"))
+    finally:
+        if USE_DATABASE:
+            conn.close()
+
+def close_trade_record(trade_record, exit_price):
+    side = trade_record["side"]
+    entry_price = trade_record["entry_price"]
+    if side.lower() == "buy":
+        realizedpnl = (exit_price - entry_price)
+        win = exit_price > entry_price
+    else:
+        realizedpnl = (entry_price - exit_price)
+        win = exit_price < entry_price
+    trade_record["exit_price"] = exit_price
+    trade_record["closed_pnl"] = realizedpnl
+    trade_record["result"] = "Win" if win else "Loss"
+    trade_record["status"] = "closed"
+    now_iso = datetime.utcnow().isoformat()
+    trade_record["trade_time"] = now_iso
+    trade_record["timestamp"] = now_iso
+    save_trade_db(trade_record)
+    logging.info(colored(f"✅ Trade chiuso: {trade_record}", "green"))
+
 async def get_real_balance(exchange):
     try:
-        # Usa l'approccio diretto di CCXT per ottenere il saldo
-        logging.info(colored("📊 Recupero saldo tramite CCXT", "cyan"))
-        
-        # Ottieni il saldo completo
         balance = await exchange.fetch_balance()
-        
-        # Inizializza il valore totale in USD
-        total_value = 0
-        
-        # Controlla se esiste la struttura info e unified (per account unificato)
-        if 'info' in balance and 'totalEquity' in balance['info']:
-            # Account unificato - possiamo ottenere direttamente l'equity totale
-            total_value = float(balance['info']['totalEquity'])
-            logging.info(colored(f"💰 Valore totale account: {total_value} USD", "green"))
-            return total_value
-        
-        # Calcola il valore totale sommando tutti i saldi in USD
-        # Cerca prima nella sezione 'total' che contiene tutti i saldi
-        if 'total' in balance:
-            for currency, amount in balance['total'].items():
-                if amount > 0:
-                    # Stampa le informazioni per debug
-                    logging.info(colored(f"💴 {currency}: {amount}", "green"))
-                    
-                    # Se è USDT, aggiungi direttamente
-                    if currency == 'USDT':
-                        total_value += amount
-                    else:
-                        # Per altre valute, prova a convertire in USD/USDT
-                        try:
-                            if currency != 'USD' and currency != 'USDT':
-                                # Trova il ticker per la conversione
-                                ticker_symbol = f"{currency}/USDT"
-                                ticker = await exchange.fetch_ticker(ticker_symbol)
-                                if ticker and 'last' in ticker:
-                                    currency_value = amount * ticker['last']
-                                    logging.info(colored(f"  → {amount} {currency} = {currency_value:.2f} USDT", "green"))
-                                    total_value += currency_value
-                            else:
-                                # USD e USDT sono considerati equivalenti
-                                total_value += amount
-                        except Exception as conv_err:
-                            logging.warning(colored(f"⚠️ Impossibile convertire {currency} in USDT: {conv_err}", "yellow"))
-        
-        # Se abbiamo trovato almeno qualche saldo
-        if total_value > 0:
-            logging.info(colored(f"💰 Valore totale stimato: {total_value:.2f} USDT", "green"))
-            return total_value
-        
-        # Fallback: cerca il saldo USDT se non abbiamo trovato altro
         usdt_balance = balance.get('USDT', {}).get('free', 0)
-        if isinstance(usdt_balance, dict) and 'free' in usdt_balance:
-            usdt_balance = usdt_balance['free']
-        
-        # Se è ancora zero, prova a cercarlo nella struttura total
-        if usdt_balance == 0 and 'total' in balance and 'USDT' in balance['total']:
-            usdt_balance = balance['total']['USDT']
-        
-        if usdt_balance > 0:
-            logging.info(colored(f"💰 Saldo USDT: {usdt_balance}", "green"))
-        else:
-            logging.warning(colored("⚠️ Nessun saldo trovato.", "yellow"))
-        
-        return usdt_balance or 0
+        if usdt_balance == 0:
+            logging.warning(colored("⚠️ Il saldo USDT è zero o non trovato.", "yellow"))
+        return usdt_balance
     except Exception as e:
         logging.error(colored(f"❌ Errore nel recupero del saldo: {e}", "red"))
-        logging.error(colored("Riprovare successivamente", "yellow"))
-        return 0
+        return None
 
 async def get_open_positions(exchange):
     try:
-        positions = await exchange.fetch_positions(None, {
-            'limit': 100, 
-            'category': 'linear',
-            'settleCoin': 'USDT'
-        })
+        positions = await exchange.fetch_positions(None, {'limit': 100, 'type': 'swap'})
         return len([p for p in positions if float(p.get('contracts', 0)) > 0])
     except Exception as e:
         logging.error(colored(f"❌ Errore nel recupero delle posizioni aperte: {e}", "red"))
@@ -191,17 +238,13 @@ async def execute_order(exchange, symbol, side, position_size, price, current_ti
         "timestamp": datetime.utcnow().isoformat(),
         "status": "open"
     }
-    
+    save_trade_db(new_trade)
     logging.info(colored(f"🔔 Trade aperto: {new_trade}", "green"))
     return new_trade
 
 async def get_total_initial_margin(exchange, symbol):
     try:
-        positions = await exchange.fetch_positions(None, {
-            'limit': 100, 
-            'category': 'linear',
-            'settleCoin': 'USDT'
-        })
+        positions = await exchange.fetch_positions(None, {'limit': 100, 'type': 'swap'})
         total_im = 0.0
         for pos in positions:
             if pos.get('symbol') == symbol and float(pos.get('contracts', 0)) > 0:
@@ -213,91 +256,55 @@ async def get_total_initial_margin(exchange, symbol):
         return 0.0
 
 async def update_orders_status(exchange):
-    pass
+    await save_orders_tracker()
 
 async def save_orders_tracker():
-    pass
-
-async def fetch_closed_orders_for_symbol(exchange, symbol, since, limit, semaphore):
-    async with semaphore:
-        try:
-            orders = await exchange.fetch_closed_orders(symbol, since, limit)
-            logging.info(colored(f"Recuperati {len(orders)} ordini chiusi per {symbol}.", "cyan"))
-            await asyncio.sleep(0.3)
-            return symbol, orders
-        except Exception as e:
-            logging.error(colored(f"❌ Errore nel recupero degli ordini chiusi per {symbol}: {e}", "red"))
-            await asyncio.sleep(0.3)
-            return symbol, f"Errore: {e}"
-
-def aggregate_closed_orders(orders):
-    aggregated_trades = []
-    orders_by_symbol = {}
-    for order in orders:
-        symbol = order.get("symbol")
-        orders_by_symbol.setdefault(symbol, []).append(order)
-    
-    for symbol, ord_list in orders_by_symbol.items():
-        open_orders = [o for o in ord_list if o.get("info", {}).get("createType", "").lower() not in ["createbyclosing", "createbystoploss"]]
-        close_orders = [o for o in ord_list if o.get("info", {}).get("createType", "").lower() in ["createbyclosing", "createbystoploss"]]
-        open_orders.sort(key=lambda o: o.get("datetime"))
-        close_orders.sort(key=lambda o: o.get("datetime"))
-        pairs = min(len(open_orders), len(close_orders))
-        for i in range(pairs):
-            o_order = open_orders[i]
-            c_order = close_orders[i]
-            agg_trade_type = "Close Short" if o_order.get("side", "").lower() == "sell" else "Close Long"
-            o_price = float(o_order.get("average", o_order.get("price", 0)))
-            c_price = float(c_order.get("average", c_order.get("price", 0)))
-            quantity = float(o_order.get("amount", 0))
-            aggregated_pnl = (o_price - c_price) * quantity if agg_trade_type == "Close Short" else (c_price - o_price) * quantity
-            o_fee = float(o_order.get("fee", {}).get("cost", 0))
-            c_fee = float(c_order.get("fee", {}).get("cost", 0))
-            trade_time = c_order.get("datetime")
-            aggregated_trade = {
-                "trade_id": o_order.get("id") + "_" + c_order.get("id"),
-                "symbol": symbol,
-                "side": o_order.get("side"),
-                "entry_price": o_price,
-                "exit_price": c_price,
-                "trade_type": agg_trade_type,
-                "closed_pnl": aggregated_pnl,
-                "result": "Win" if aggregated_pnl > 0 else "Loss",
-                "open_trade_volume": float(o_order.get("cost", 0)),
-                "closed_trade_volume": float(c_order.get("cost", 0)),
-                "opening_fee": o_fee,
-                "closing_fee": c_fee,
-                "funding_fee": 0.0,
-                "trade_time": trade_time,
-                "timestamp": trade_time,
-                "status": "closed"
-            }
-            aggregated_trades.append(aggregated_trade)
-    return aggregated_trades
-
-async def wait_and_update_closed_trades(exchange, wait_duration=600, interval=10):
-    end_time = time.time() + wait_duration
-    while time.time() < end_time:
-        await asyncio.sleep(interval)
+    if not USE_DATABASE:
+        logging.info(colored("Uso del database disattivato. Salvataggio dello stato degli ordini saltato.", "cyan"))
+        return
+    try:
+        import aiofiles
+        async with aiofiles.open("orders_status.json", 'w') as f:
+            await f.write(json.dumps([], indent=2))
+    except Exception as e:
+        logging.error(colored(f"❌ Errore nel salvataggio dello stato degli ordini: {e}", "red"))
 
 async def monitor_open_trades(exchange):
     while True:
         await asyncio.sleep(30)
 
 async def load_existing_positions(exchange):
+    if not USE_DATABASE:
+        logging.info(colored("Uso del database disattivato. Non carico le vecchie posizioni.", "cyan"))
+        return
     try:
-        positions = await exchange.fetch_positions(None, {
-            'limit': 100, 
-            'category': 'linear',
-            'settleCoin': 'USDT'
-        })
+        positions = await exchange.fetch_positions(None, {'limit': 100, 'type': 'swap'})
         for pos in positions:
             contracts = float(pos.get("contracts", 0))
             if contracts > 0:
+                trade_key = build_trade_key(pos)
                 symbol = pos.get("symbol")
                 side = parse_position_side(pos)
                 entry_price = float(pos.get("entryPrice", 0))
-                logging.info(colored(f"Posizione aperta: {symbol}, {side}, {entry_price}", "green"))
+                new_trade = {
+                    "trade_id": trade_key,
+                    "symbol": symbol,
+                    "side": side,
+                    "entry_price": entry_price,
+                    "exit_price": None,
+                    "trade_type": "Open",
+                    "closed_pnl": None,
+                    "result": None,
+                    "open_trade_volume": None,
+                    "closed_trade_volume": None,
+                    "opening_fee": None,
+                    "closing_fee": None,
+                    "funding_fee": None,
+                    "trade_time": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "status": "open"
+                }
+                save_trade_db(new_trade)
         logging.info(colored("✅ Posizioni aperte caricate/aggiornate.", "green"))
     except Exception as e:
         logging.error(colored(f"❌ Errore nel caricamento delle posizioni aperte: {e}", "red"))
@@ -318,3 +325,182 @@ def parse_position_side(position):
     if "positionSide" in position:
         return "Sell" if position["positionSide"].upper() == "SHORT" else "Buy"
     return "Buy"
+
+def compute_trade_statistics_for_trades(trades):
+    total_closed = len(trades)
+    total_wins = sum(1 for trade in trades if trade.get("result") == "Win")
+    total_losses = sum(1 for trade in trades if trade.get("result") == "Loss")
+    win_rate_percent = (total_wins / (total_wins + total_losses) * 100) if (total_wins + total_losses) > 0 else 0
+    total_realizedpnl = sum((trade.get("closed_pnl") or 0) for trade in trades)
+    return total_closed, total_wins, total_losses, win_rate_percent, total_realizedpnl
+
+def compute_trade_statistics():
+    if not USE_DATABASE:
+        logging.info(colored("Uso del database disattivato. Nessuna statistica disponibile.", "cyan"))
+        return (0, 0, 0, 0, 0)
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM trades WHERE status = 'closed'")
+    rows = cursor.fetchall()
+    conn.close()
+    trades_list = []
+    for row in rows:
+        trades_list.append({
+            "trade_id": row[0],
+            "symbol": row[1],
+            "side": row[2],
+            "entry_price": row[3],
+            "exit_price": row[4],
+            "trade_type": row[5],
+            "closed_pnl": row[6],
+            "result": row[7],
+            "open_trade_volume": row[8],
+            "closed_trade_volume": row[9],
+            "opening_fee": row[10],
+            "closing_fee": row[11],
+            "funding_fee": row[12],
+            "trade_time": row[13],
+            "timestamp": row[14],
+            "status": row[15]
+        })
+    return compute_trade_statistics_for_trades(trades_list)
+
+def compute_trade_statistics_for_period(period: timedelta):
+    if not USE_DATABASE:
+        logging.info(colored("Uso del database disattivato. Nessuna statistica disponibile per il periodo richiesto.", "cyan"))
+        return (0, 0, 0, 0, 0)
+    now = datetime.utcnow()
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM trades WHERE status='closed'")
+    rows = cursor.fetchall()
+    conn.close()
+    trades_list = []
+    for row in rows:
+        try:
+            ts = row[14]
+            if ts.endswith("Z"):
+                ts = ts[:-1]
+            # Gestione di formati ISO diversi
+            try:
+                trade_time = datetime.fromisoformat(ts)
+            except ValueError:
+                # Prova un formato alternativo se il primo fallisce
+                try:
+                    trade_time = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%f")
+                except ValueError:
+                    try:
+                        trade_time = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S")
+                    except ValueError:
+                        logging.warning(f"Impossibile analizzare il timestamp: {ts}")
+                        continue
+        except Exception as e:
+            logging.warning(f"Errore nell'analisi del timestamp: {e}")
+            continue
+        if now - trade_time <= period:
+            trades_list.append({
+                "trade_id": row[0],
+                "symbol": row[1],
+                "side": row[2],
+                "entry_price": row[3],
+                "exit_price": row[4],
+                "trade_type": row[5],
+                "closed_pnl": row[6],
+                "result": row[7],
+                "open_trade_volume": row[8],
+                "closed_trade_volume": row[9],
+                "opening_fee": row[10],
+                "closing_fee": row[11],
+                "funding_fee": row[12],
+                "trade_time": row[13],
+                "timestamp": row[14],
+                "status": row[15]
+            })
+    return compute_trade_statistics_for_trades(trades_list)
+
+def get_trade_statistics_text():
+    overall = compute_trade_statistics()
+    last_24h = compute_trade_statistics_for_period(timedelta(hours=24))
+    last_4h = compute_trade_statistics_for_period(timedelta(hours=4))
+    last_1h = compute_trade_statistics_for_period(timedelta(hours=1))
+    lines = []
+    lines.append("============================================")
+    lines.append("           STATISTICHE DEI TRADE")
+    lines.append("============================================")
+    lines.append(f"Ultimi {TRADE_STATISTICS_DAYS} giorni:")
+    lines.append(f"   Trade chiusi : {overall[0]}")
+    lines.append(f"   Vincite      : {overall[1]}")
+    lines.append(f"   Perse        : {overall[2]}")
+    lines.append(f"   Win Rate     : {overall[3]:.2f}%")
+    lines.append(f"   PnL          : {overall[4]:.2f}")
+    lines.append("--------------------------------------------")
+    lines.append("Ultime 24h:")
+    lines.append(f"   Trade chiusi : {last_24h[0]}")
+    lines.append(f"   Vincite      : {last_24h[1]}")
+    lines.append(f"   Perse        : {last_24h[2]}")
+    lines.append(f"   Win Rate     : {last_24h[3]:.2f}%")
+    lines.append(f"   PnL          : {last_24h[4]:.2f}")
+    lines.append("--------------------------------------------")
+    lines.append("Ultime 4h:")
+    lines.append(f"   Trade chiusi : {last_4h[0]}")
+    lines.append(f"   Vincite      : {last_4h[1]}")
+    lines.append(f"   Perse        : {last_4h[2]}")
+    lines.append(f"   Win Rate     : {last_4h[3]:.2f}%")
+    lines.append(f"   PnL          : {last_4h[4]:.2f}")
+    lines.append("--------------------------------------------")
+    lines.append("Ultima 1h:")
+    lines.append(f"   Trade chiusi : {last_1h[0]}")
+    lines.append(f"   Vincite      : {last_1h[1]}")
+    lines.append(f"   Perse        : {last_1h[2]}")
+    lines.append(f"   Win Rate     : {last_1h[3]:.2f}%")
+    lines.append(f"   PnL          : {last_1h[4]:.2f}")
+    lines.append("============================================")
+    return "\n".join(lines)
+
+def save_trade_statistics():
+    if not USE_DATABASE:
+        logging.info(colored("Uso del database disattivato. Salvataggio statistiche saltato.", "cyan"))
+        return
+    timestamp = datetime.utcnow().isoformat()
+    overall = compute_trade_statistics()
+    last_24h = compute_trade_statistics_for_period(timedelta(hours=24))
+    last_4h = compute_trade_statistics_for_period(timedelta(hours=4))
+    last_1h = compute_trade_statistics_for_period(timedelta(hours=1))
+    data = [
+        (timestamp, f"Ultimi {TRADE_STATISTICS_DAYS} giorni",   *overall),
+        (timestamp, "last_24h",  *last_24h),
+        (timestamp, "last_4h",   *last_4h),
+        (timestamp, "last_1h",   *last_1h),
+    ]
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        for row in data:
+            cursor.execute('''
+                INSERT INTO trade_statistics (
+                    timestamp, period, total_closed_trades, total_wins,
+                    total_losses, win_rate_percent, total_realizedpnl
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(period) DO UPDATE SET
+                    timestamp = excluded.timestamp,
+                    total_closed_trades = excluded.total_closed_trades,
+                    total_wins = excluded.total_wins,
+                    total_losses = excluded.total_losses,
+                    win_rate_percent = excluded.win_rate_percent,
+                    total_realizedpnl = excluded.total_realizedpnl
+            ''', row)
+        conn.commit()
+        logging.info(colored("✅ Statistiche dei trade salvate nel DB.", "green"))
+    except Exception as e:
+        logging.error(colored(f"❌ Errore nel salvataggio delle statistiche dei trade: {e}", "red"))
+    finally:
+        if USE_DATABASE:
+            conn.close()
+
+def print_trade_statistics():
+    if not USE_DATABASE:
+        logging.info(colored("Uso del database disattivato. Nessuna statistica da mostrare.", "cyan"))
+        return
+    stats_text = get_trade_statistics_text()
+    logging.info(colored(stats_text, "cyan"))

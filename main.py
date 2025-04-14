@@ -2,29 +2,24 @@
 import sys
 import os
 import numpy as np
-from datetime import timedelta, datetime
+from datetime import timedelta
 import asyncio
 import logging
 import re
 import ccxt.async_support as ccxt_async
 from termcolor import colored
 from tqdm import tqdm  # Import per la progress bar
-import concurrent.futures
 
 from config import (
     exchange_config,
     EXCLUDED_SYMBOLS, TIME_STEPS, TRADE_CYCLE_INTERVAL,
     MODEL_RATES,  # I rate definiti in config; la somma DEVE essere pari a 1
+    RESET_DB_ON_STARTUP, DB_FILE,
     TOP_TRAIN_CRYPTO, TOP_ANALYSIS_CRYPTO, EXPECTED_COLUMNS,
-    SYMBOLS_PER_ANALYSIS_CYCLE, SYMBOLS_FOR_VALIDATION,  # Nuove variabili di configurazione
-    TRAIN_IF_NOT_FOUND,  # Variabile di controllo per il training
-    ENABLED_TIMEFRAMES, TIMEFRAME_DEFAULT, SELECTED_MODELS as selected_models
+    TRAIN_IF_NOT_FOUND  # Variabile di controllo per il training
 )
 from logging_config import *
-from fetcher import (
-    fetch_markets, get_top_symbols, fetch_min_amounts,
-    fetch_data_for_multiple_symbols, get_data_async
-)
+from fetcher import fetch_markets, get_top_symbols, fetch_min_amounts, fetch_and_save_data
 from model_loader import (
     load_lstm_model_func,
     load_random_forest_model_func,
@@ -36,19 +31,55 @@ from trainer import (
     train_xgboost_model_wrapper
 )
 from predictor import predict_signal_ensemble, get_color_normal
-from trade_manager import (
-    get_real_balance, manage_position, get_open_positions,
-    update_orders_status, load_existing_positions, monitor_open_trades
-)
 from data_utils import prepare_data
 from db_manager import init_data_tables
 from trainer import ensure_trained_models_dir
+from trade_manager import (
+    get_real_balance, manage_position, get_open_positions,
+    update_orders_status, load_existing_positions, monitor_open_trades,
+    print_trade_statistics, save_trade_statistics, compute_trade_statistics_for_period,
+    init_db
+)
 
 if sys.platform.startswith('win'):
     import asyncio
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 first_cycle = True
+
+# --- Sezione: Configurazione interattiva ---
+def select_config():
+    # Valori predefiniti che verranno sovrascritti dall'interfaccia web
+    default_timeframes = ["15m", "30m", "1h"]
+    default_models = ["lstm", "rf", "xgb"]
+    return default_timeframes, default_models
+
+# Esegui la selezione e aggiorna la configurazione
+selected_timeframes, selected_models = select_config()
+import config
+config.ENABLED_TIMEFRAMES = selected_timeframes
+config.TIMEFRAME_DEFAULT = selected_timeframes[0]
+
+# Aggiorna le variabili locali per comodità
+ENABLED_TIMEFRAMES = selected_timeframes
+TIMEFRAME_DEFAULT = ENABLED_TIMEFRAMES[0]
+
+# --- Calcolo dei pesi raw e normalizzati per i modelli ---
+raw_weights = {}
+for tf in ENABLED_TIMEFRAMES:
+    raw_weights[tf] = {}
+    for model in selected_models:
+        raw_weights[tf][model] = MODEL_RATES.get(model, 0)
+def normalize_weights(raw_weights):
+    normalized = {}
+    for tf, weights in raw_weights.items():
+        total = sum(weights.values())
+        if total > 0:
+            normalized[tf] = {model: weight / total for model, weight in weights.items()}
+        else:
+            normalized[tf] = weights
+    return normalized
+normalized_weights = normalize_weights(raw_weights)
 
 # --- Funzioni ausiliarie ---
 async def track_orders():
@@ -66,240 +97,153 @@ async def trade_signals():
 
     while True:
         try:
-            start_time = datetime.now()
             predicted_buys = []
             predicted_sells = []
             predicted_neutrals = []
 
+            logging.info(colored("Statistiche iniziali (DB):", "cyan"))
+            print_trade_statistics()
             await load_existing_positions(async_exchange)
 
             markets = await fetch_markets(async_exchange)
             all_symbols_analysis = [m['symbol'] for m in markets.values() if m.get('quote') == 'USDT'
                                     and m.get('active') and m.get('type') == 'swap'
                                     and not re.search('|'.join(EXCLUDED_SYMBOLS), m['symbol'])]
-            
-            # Utilizziamo una quantità maggiore di simboli per analisi
             top_symbols_analysis = await get_top_symbols(async_exchange, all_symbols_analysis, top_n=TOP_ANALYSIS_CRYPTO)
+            logging.info(f"{colored('Simboli per analisi:', 'cyan')} {', '.join(top_symbols_analysis)}")
 
-            # Raccogliamo informazioni di riferimento
             reference_counts = {}
             first_symbol = top_symbols_analysis[0]
             for tf in ENABLED_TIMEFRAMES:
-                df = await get_data_async(exchange=async_exchange, symbol=first_symbol, timeframe=tf)
+                df = await fetch_and_save_data(async_exchange, first_symbol, tf)
                 if df is not None:
                     reference_counts[tf] = len(df)
+                    logging.info(f"Reference candle count for {tf}: {reference_counts[tf]} from {first_symbol}")
 
-            # Otteniamo il saldo e le posizioni aperte
             usdt_balance = await get_real_balance(async_exchange)
             if usdt_balance is None:
+                logging.warning(colored("⚠️ Failed to get USDT balance. Retrying in 5 seconds.", "yellow"))
                 await asyncio.sleep(5)
                 return
             open_positions_count = await get_open_positions(async_exchange)
-            print(f"USDT Balance: {usdt_balance:.2f} | Open Positions: {open_positions_count}")
+            logging.info(f"{colored('USDT Balance:', 'cyan')} {colored(f'{usdt_balance:.2f}', 'yellow')} | {colored('Open Positions:', 'cyan')} {colored(str(open_positions_count), 'yellow')}")
 
-            # Recupera dati per tutti i simboli in parallelo per ogni timeframe
-            dataframes_by_symbol = {}
-            
-            # Eseguiamo il recupero dati per tutti i timeframe in parallelo
-            # Utilizziamo il numero configurato di simboli da analizzare per ciclo
-            timeframe_tasks = []
-            for tf in ENABLED_TIMEFRAMES:
-                task = asyncio.create_task(fetch_data_for_multiple_symbols(
-                    async_exchange, top_symbols_analysis[:SYMBOLS_PER_ANALYSIS_CYCLE], timeframe=tf
-                ))
-                timeframe_tasks.append((tf, task))
-            
-            # Attendiamo tutti i risultati
-            for tf, task in timeframe_tasks:
-                result_dict = await task
-                for symbol, df in result_dict.items():
-                    if df is not None:
-                        if symbol not in dataframes_by_symbol:
-                            dataframes_by_symbol[symbol] = {}
-                        dataframes_by_symbol[symbol][tf] = df
-            
-            # Filtra i simboli che hanno dati validi per tutti i timeframes
-            valid_symbols = []
-            for symbol, dfs in dataframes_by_symbol.items():
-                if all(tf in dfs for tf in ENABLED_TIMEFRAMES):
-                    valid_count = all(len(dfs[tf]) >= reference_counts[tf] * 0.95 for tf in ENABLED_TIMEFRAMES)
-                    if valid_count:
-                        valid_symbols.append(symbol)
-            
-            print(f"Analisi di {len(valid_symbols)} simboli validi...")
-            
-            # Analizziamo i simboli validi in batch con maggiore parallelismo
-            # Utilizziamo un numero di thread ancora maggiore (12)
-            def analyze_with_models(symbol_data):
-                symbol, dataframes = symbol_data
-                ensemble_value, final_signal, predictions = predict_signal_ensemble(
-                    dataframes,
-                    lstm_models, lstm_scalers,
-                    rf_models, rf_scalers,
-                    xgb_models, xgb_scalers,
-                    symbol, TIME_STEPS,
-                    {tf: normalized_weights[tf]['lstm'] for tf in dataframes.keys()},
-                    {tf: normalized_weights[tf]['rf'] for tf in dataframes.keys()},
-                    {tf: normalized_weights[tf]['xgb'] for tf in dataframes.keys()}
-                )
-                return symbol, ensemble_value, final_signal, predictions
-            
-            # Eseguiamo l'analisi modelli in parallelo utilizzando thread
-            signal_results = []
-            with tqdm(total=len(valid_symbols), desc="Analisi segnali", ncols=80) as pbar:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
-                    futures = []
-                    for symbol in valid_symbols:
-                        futures.append(executor.submit(
-                            analyze_with_models, (symbol, dataframes_by_symbol[symbol])
-                        ))
-                    
-                    for future in concurrent.futures.as_completed(futures):
-                        try:
-                            symbol, ensemble_value, final_signal, predictions = future.result()
-                            if ensemble_value is not None and final_signal is not None:
-                                signal_results.append({
-                                    "symbol": symbol,
-                                    "ensemble_value": ensemble_value,
-                                    "signal": final_signal,
-                                    "predictions": predictions
-                                })
-                                if final_signal == 1:
-                                    predicted_buys.append(symbol)
-                                elif final_signal == 0:
-                                    predicted_sells.append(symbol)
-                            pbar.update(1)
-                        except Exception as e:
-                            pbar.update(1)
-            
-            # Eseguiamo gli ordini in parallelo per i segnali validi
-            # Aumentiamo la concorrenza a 10
-            semaphore = asyncio.Semaphore(10)
-            
-            async def execute_order_with_semaphore(signal_data):
-                async with semaphore:
-                    symbol = signal_data["symbol"]
-                    signal = signal_data["signal"]
-                    try:
-                        result = await manage_position(
-                            async_exchange,
-                            symbol,
-                            signal,
-                            usdt_balance,
-                            min_amounts,
-                            None, None, None, None,
-                            dataframes_by_symbol[symbol][TIMEFRAME_DEFAULT]
-                        )
-                        return {"symbol": symbol, "signal": signal, "result": result}
-                    except Exception as e:
-                        return {"symbol": symbol, "signal": signal, "result": "error", "error": str(e)}
-            
-            # Eseguiamo gli ordini in parallelo
-            order_tasks = []
-            for signal_data in signal_results:
-                task = asyncio.create_task(execute_order_with_semaphore(signal_data))
-                order_tasks.append(task)
-            
-            with tqdm(total=len(order_tasks), desc="Esecuzione ordini", ncols=80) as pbar:
-                for i, task in enumerate(asyncio.as_completed(order_tasks)):
-                    result = await task
-                    pbar.update(1)
-            
-            # Calcoliamo e mostriamo il tempo totale impiegato
-            elapsed = (datetime.now() - start_time).total_seconds()
-            print(f"Generati segnali: {len(signal_results)} (Buy: {len(predicted_buys)}, Sell: {len(predicted_sells)})")
-            print(f"Completato in {elapsed:.2f} secondi")
-            print("Fine ciclo. Bot in esecuzione.")
+            for index, symbol in enumerate(top_symbols_analysis, start=1):
+                logging.info(colored("-" * 60, "white"))
+                try:
+                    logging.info(f"{colored(f'[{index}/{len(top_symbols_analysis)}] Analizzo', 'magenta')} {colored(symbol, 'yellow')}...")
+                    dataframes = {}
+                    skip_symbol = False
+
+                    for tf in ENABLED_TIMEFRAMES:
+                        df = await fetch_and_save_data(async_exchange, symbol, tf)
+                        if df is None or len(df) < reference_counts[tf] * 0.95:
+                            logging.warning(colored(f"⚠️ Skipping {symbol}: Insufficient candles for {tf} (Got: {len(df) if df is not None else 0}, Expected: {reference_counts[tf]})", "yellow"))
+                            skip_symbol = True
+                            break
+                        dataframes[tf] = df
+
+                    if skip_symbol:
+                        continue
+
+                    ensemble_value, final_signal, predictions = predict_signal_ensemble(
+                        dataframes,
+                        lstm_models, lstm_scalers,
+                        rf_models, rf_scalers,
+                        xgb_models, xgb_scalers,
+                        symbol, TIME_STEPS,
+                        {tf: normalized_weights[tf]['lstm'] for tf in dataframes.keys()},
+                        {tf: normalized_weights[tf]['rf'] for tf in dataframes.keys()},
+                        {tf: normalized_weights[tf]['xgb'] for tf in dataframes.keys()}
+                    )
+                    if ensemble_value is None:
+                        continue
+                    logging.info(f"{colored('Ensemble value:', 'blue')} {colored(f'{ensemble_value:.4f}', get_color_normal(ensemble_value))}")
+                    logging.info(f"{colored('Predizioni:', 'blue')} {colored(str(predictions), 'magenta')}")
+                    if final_signal is None:
+                        logging.info(colored("🔔 Segnale neutro: zona di indecisione.", "yellow"))
+                        continue
+                    else:
+                        if final_signal == 1:
+                            predicted_buys.append(symbol)
+                        elif final_signal == 0:
+                            predicted_sells.append(symbol)
+                    logging.info(f"{colored('📈 Final Trading Decision:', 'green')} {colored('BUY' if final_signal==1 else 'SELL', 'cyan')}")
+                    result = await manage_position(
+                        async_exchange,
+                        symbol,
+                        final_signal,
+                        usdt_balance,
+                        min_amounts,
+                        None,
+                        None,
+                        None,
+                        None,
+                        dataframes[TIMEFRAME_DEFAULT]
+                    )
+                    if result == "insufficient_balance":
+                        logging.info(f"{colored(symbol, 'yellow')}: Trade non eseguito per mancanza di balance.")
+                        break
+                except Exception as e:
+                    logging.error(f"{colored('❌ Error processing', 'red')} {symbol}: {e}")
+                logging.info(colored("-" * 60, "white"))
+
+            logging.info(colored("Fine ciclo: aggiornamento statistiche.", "cyan"))
+            print_trade_statistics()
+            save_trade_statistics()
+            logging.info(colored("Bot is running", "green"))
 
             await countdown_timer(TRADE_CYCLE_INTERVAL)
 
         except Exception as e:
-            print(f"Error in trade cycle: {e}")
+            logging.error(f"{colored('Error in trade cycle:', 'red')} {e}")
             await asyncio.sleep(60)
 
 # --- Funzione Main ---
 async def main():
     global async_exchange, lstm_models, lstm_scalers, rf_models, rf_scalers, xgb_models, xgb_scalers, min_amounts
 
-    logging.info(colored("Avvio del programma...", "green"))
+    # Se RESET_DB_ON_STARTUP è attivo e il file DB esiste, rimuovilo per partire da zero
+    if RESET_DB_ON_STARTUP and os.path.exists(DB_FILE):
+        os.remove(DB_FILE)
+        print("Database file removed as per config; starting fresh.")
+    init_db()
+    # Inizializza le tabelle in base a config.ENABLED_TIMEFRAMES (già aggiornato tramite input)
     init_data_tables()
-    logging.info(colored("Inizializzazione delle tabelle di dati completata", "green"))
 
-    logging.info(colored("Connessione all'exchange in corso...", "cyan"))
     async_exchange = ccxt_async.bybit(exchange_config)
-    logging.info(colored("Caricamento dei mercati in corso...", "cyan"))
     await async_exchange.load_markets()
-    logging.info(colored("Sincronizzazione orario in corso...", "cyan"))
     await async_exchange.load_time_difference()
-    logging.info(colored("Connessione all'exchange completata", "green"))
 
-    logging.info(colored("Caricamento delle posizioni esistenti...", "cyan"))
     await load_existing_positions(async_exchange)
-    logging.info(colored("Caricamento posizioni completato", "green"))
 
     try:
-        logging.info(colored("Recupero dei mercati disponibili...", "cyan"))
         markets = await fetch_markets(async_exchange)
-        logging.info(colored(f"Recuperati {len(markets)} mercati", "cyan"))
-        
         all_symbols = [m['symbol'] for m in markets.values() if m.get('quote') == 'USDT'
                        and m.get('active') and m.get('type') == 'swap']
-        logging.info(colored(f"Trovati {len(all_symbols)} simboli USDT attivi", "cyan"))
-        
         all_symbols_analysis = [s for s in all_symbols if not re.search('|'.join(EXCLUDED_SYMBOLS), s)]
-        logging.info(colored(f"Filtrati {len(all_symbols_analysis)} simboli dopo esclusioni", "cyan"))
 
-        logging.info(colored(f"Recupero top {TOP_ANALYSIS_CRYPTO} simboli per analisi...", "cyan"))
         top_symbols_analysis = await get_top_symbols(async_exchange, all_symbols_analysis, top_n=TOP_ANALYSIS_CRYPTO)
-        
-        logging.info(colored(f"Recupero top {TOP_TRAIN_CRYPTO} simboli per training...", "cyan"))
         top_symbols_training = await get_top_symbols(async_exchange, all_symbols, top_n=TOP_TRAIN_CRYPTO)
 
-        # Validazione dei dati in parallelo
-        logging.info(colored("Validazione dei dati prima del training...", "cyan"))
-        
-        valid_symbols = []
-        for timeframe in ENABLED_TIMEFRAMES:
-            logging.info(colored(f"Recupero dati in parallelo per timeframe {timeframe}...", "cyan"))
-            # Utilizziamo la nuova funzione per recuperare i dati in parallelo
-            result_dict = await fetch_data_for_multiple_symbols(
-                async_exchange, 
-                top_symbols_training[:SYMBOLS_FOR_VALIDATION],  # Utilizziamo il numero configurato per validazione
-                timeframe=timeframe
-            )
-            
-            # Filtriamo solo simboli con dati validi
-            valid_for_tf = []
-            for symbol, df in result_dict.items():
-                if df is not None and not (df.isnull().any().any() or np.isinf(df).any().any()):
-                    valid_for_tf.append(symbol)
-                else:
+        # Validazione dei dati prima del training
+        for symbol in top_symbols_training[:]:
+            for tf in ENABLED_TIMEFRAMES:
+                df = await fetch_and_save_data(async_exchange, symbol, tf)
+                if df is not None and (df.isnull().any().any() or np.isinf(df).any().any()):
                     logging.warning(f"Removing {symbol} from training set due to invalid data")
-            
-            # Se è il primo timeframe, inizializziamo la lista, altrimenti manteniamo solo quelli validi in tutti i timeframe
-            if not valid_symbols:
-                valid_symbols = valid_for_tf
-            else:
-                valid_symbols = [s for s in valid_symbols if s in valid_for_tf]
-        
-        # Aggiorniamo la lista di simboli validi per il training
-        top_symbols_training = valid_symbols
-        logging.info(f"{colored('Numero di monete per il training dopo validazione:', 'cyan')} {colored(str(len(top_symbols_training)), 'yellow')}")
+                    top_symbols_training.remove(symbol)
+                    break
+
+        logging.info(f"{colored('Numero di monete per il training:', 'cyan')} {colored(str(len(top_symbols_training)), 'yellow')}")
         logging.info(f"{colored('Numero di monete per analisi operativa:', 'cyan')} {colored(str(len(top_symbols_analysis)), 'yellow')}")
 
-        logging.info(colored("Recupero importi minimi per trading...", "cyan"))
         min_amounts = await fetch_min_amounts(async_exchange, top_symbols_analysis, markets)
-        logging.info(colored("Importi minimi recuperati", "green"))
 
         # Ensure trained_models directory exists
-        logging.info(colored("Verifica directory dei modelli...", "cyan"))
         ensure_trained_models_dir()
         
         # Initialize models and scalers
-        logging.info(colored("Inizializzazione modelli e scalers...", "cyan"))
-        
-        # Precarichiamo tutti i modelli in memoria per massimizzare la velocità
-        print("Precaricamento dei modelli per massimizzare le prestazioni...")
         lstm_models = {}
         lstm_scalers = {}
         rf_models = {}
@@ -307,72 +251,46 @@ async def main():
         xgb_models = {}
         xgb_scalers = {}
         
-        # Caricamento parallelo dei modelli per tutti i timeframe
-        model_load_tasks = []
-        
         for tf in ENABLED_TIMEFRAMES:
-            if 'lstm' in selected_models:
-                model_load_tasks.append(('lstm', tf, asyncio.create_task(
-                    asyncio.to_thread(load_lstm_model_func, tf))))
-            
-            if 'rf' in selected_models:
-                model_load_tasks.append(('rf', tf, asyncio.create_task(
-                    asyncio.to_thread(load_random_forest_model_func, tf))))
-            
-            if 'xgb' in selected_models:
-                model_load_tasks.append(('xgb', tf, asyncio.create_task(
-                    asyncio.to_thread(load_xgboost_model_func, tf))))
+            lstm_models[tf], lstm_scalers[tf] = await asyncio.to_thread(load_lstm_model_func, tf)
+            rf_models[tf], rf_scalers[tf] = await asyncio.to_thread(load_random_forest_model_func, tf)
+            xgb_models[tf], xgb_scalers[tf] = await asyncio.to_thread(load_xgboost_model_func, tf)
         
-        # Utilizziamo una barra di progresso per il caricamento dei modelli
-        with tqdm(total=len(model_load_tasks), desc="Caricamento modelli", ncols=80) as pbar:
-            for model_type, tf, task in model_load_tasks:
-                try:
-                    result = await task
+            # Training models if not found
+            if 'lstm' in selected_models and not lstm_models[tf]:
+                # Add additional check to see if the model file exists
+                model_file = config.get_lstm_model_file(tf)
+                if os.path.exists(model_file) and os.path.getsize(model_file) > 0:
+                    logging.warning(f"Model file exists but couldn't be loaded: {model_file}")
                     
-                    if model_type == 'lstm':
-                        lstm_models[tf], lstm_scalers[tf] = result
-                        if not lstm_models[tf] and TRAIN_IF_NOT_FOUND:
-                            print(f"Training LSTM model for {tf}...")
-                            lstm_models[tf], lstm_scalers[tf], _ = await train_lstm_model_for_timeframe(
-                                async_exchange, top_symbols_training, timeframe=tf, timestep=TIME_STEPS)
+                if TRAIN_IF_NOT_FOUND:
+                    logging.info(f"Training new LSTM model for timeframe {tf}")
+                    lstm_models[tf], lstm_scalers[tf], _ = await train_lstm_model_for_timeframe(
+                        async_exchange, top_symbols_training, timeframe=tf, timestep=TIME_STEPS)
+                else:
+                    raise Exception(f"LSTM model for timeframe {tf} not available. Train models first.")
                     
-                    elif model_type == 'rf':
-                        rf_models[tf], rf_scalers[tf] = result
-                        if not rf_models[tf] and TRAIN_IF_NOT_FOUND:
-                            print(f"Training RF model for {tf}...")
-                            rf_models[tf], rf_scalers[tf], _ = await train_random_forest_model_wrapper(
-                                top_symbols_training, async_exchange, timestep=TIME_STEPS, timeframe=tf)
+            if 'rf' in selected_models and not rf_models[tf]:
+                if TRAIN_IF_NOT_FOUND:
+                    rf_models[tf], rf_scalers[tf], _ = await train_random_forest_model_wrapper(
+                        top_symbols_training, async_exchange, timestep=TIME_STEPS, timeframe=tf)
+                else:
+                    raise Exception(f"RF model for timeframe {tf} not available. Train models first.")
                     
-                    elif model_type == 'xgb':
-                        xgb_models[tf], xgb_scalers[tf] = result
-                        if not xgb_models[tf] and TRAIN_IF_NOT_FOUND:
-                            print(f"Training XGB model for {tf}...")
-                            xgb_models[tf], xgb_scalers[tf], _ = await train_xgboost_model_wrapper(
-                                top_symbols_training, async_exchange, timestep=TIME_STEPS, timeframe=tf)
-                    
-                    pbar.update(1)
-                    
-                except Exception as e:
-                    print(f"Error loading {model_type} model for {tf}: {e}")
-                    pbar.update(1)
-        
-        # Verifica e addestramento di modelli mancanti
-        for tf in ENABLED_TIMEFRAMES:
-            # Stampa messaggio riepilogativo
-            print(f"Modelli per {tf}: " + 
-                  f"LSTM: {'✓' if 'lstm' in selected_models and lstm_models.get(tf) else '✗'}, " +
-                  f"RF: {'✓' if 'rf' in selected_models and rf_models.get(tf) else '✗'}, " +
-                  f"XGB: {'✓' if 'xgb' in selected_models and xgb_models.get(tf) else '✗'}")
-        
-        print("Modelli precaricati in memoria. Ottimizzazione completata.")
+            if 'xgb' in selected_models and not xgb_models[tf]:
+                if TRAIN_IF_NOT_FOUND:
+                    xgb_models[tf], xgb_scalers[tf], _ = await train_xgboost_model_wrapper(
+                        top_symbols_training, async_exchange, timestep=TIME_STEPS, timeframe=tf)
+                else:
+                    raise Exception(f"XGBoost model for timeframe {tf} not available. Train models first.")
 
+        save_trade_statistics()
         logging.info(colored("Modelli caricati da disco o allenati per tutti i timeframe abilitati.", "magenta"))
         await load_existing_positions(async_exchange)
 
         trade_count = len(top_symbols_analysis)
         logging.info(f"{colored('Numero totale di trade stimati (basato sui simboli per analisi):', 'cyan')} {colored(str(trade_count), 'yellow')}")
 
-        logging.info(colored("Avvio del ciclo principale di trading...", "green"))
         await asyncio.gather(
             trade_signals(),
             monitor_open_trades(async_exchange),

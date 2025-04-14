@@ -32,10 +32,14 @@ import time
 # Importa la funzione principale del bot
 from main import main as run_bot
 from trade_manager import (
-    get_real_balance, get_open_positions,
-    fetch_closed_orders_for_symbol, aggregate_closed_orders
+    get_real_balance, get_open_positions
 )
 from config import exchange_config, API_KEY, API_SECRET
+from fetcher import (
+    fetch_markets, get_top_symbols, fetch_min_amounts,
+    fetch_data_for_multiple_symbols, get_data_async
+)
+from config import EXCLUDED_SYMBOLS, TOP_ANALYSIS_CRYPTO
 
 # === CONFIGURAZIONE ===
 API_KEY_FILE = Path("api_keys.enc")
@@ -57,12 +61,17 @@ app.add_middleware(
 bot_task = None
 bot_running = False
 async_exchange = None
+current_config = None
 initialized = False  # Nuova variabile per tracciare l'inizializzazione
 
 # === MODELLI ===
 class ApiKeys(BaseModel):
     api_key: str
     secret_key: str
+
+class BotConfig(BaseModel):
+    models: list[str]
+    timeframes: list[str]
 
 class ClosePositionRequest(BaseModel):
     symbol: str
@@ -102,32 +111,69 @@ def verify_auth_token(api_key: str = Header(None, alias="api-key"), api_secret: 
 # === ENDPOINT ===
 
 @app.post("/initialize")
-async def initialize_bot(auth: None = Depends(verify_auth_token)):
-    """Inizializza il bot senza avviarlo"""
-    global initialized, async_exchange
+async def initialize_bot(config: BotConfig, auth: None = Depends(verify_auth_token)):
+    """Inizializza il bot con i modelli e timeframe selezionati"""
+    global current_config, async_exchange, initialized
     
-    if not initialized:
-        # Inizializza l'exchange se necessario
+    try:
+        # Valida i timeframe
+        valid_timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
+        if not all(tf in valid_timeframes for tf in config.timeframes):
+            raise HTTPException(status_code=400, detail="Timeframe non valido")
+        
+        if len(config.timeframes) < 1 or len(config.timeframes) > 3:
+            raise HTTPException(status_code=400, detail="Numero di timeframe non valido (min: 1, max: 3)")
+        
+        # Valida i modelli
+        valid_models = ['lstm', 'rf', 'xgb']
+        if not all(model in valid_models for model in config.models):
+            raise HTTPException(status_code=400, detail="Modello non valido")
+        
+        if len(config.models) < 1 or len(config.models) > 3:
+            raise HTTPException(status_code=400, detail="Numero di modelli non valido (min: 1, max: 3)")
+        
+        # Inizializza l'exchange se non è già stato fatto
         if not async_exchange:
             async_exchange = ccxt_async.bybit(exchange_config)
             await async_exchange.load_markets()
+            await async_exchange.load_time_difference()
+        
+        # Salva la configurazione
+        current_config = config
+        
+        # Aggiorna la configurazione nel modulo main
+        import main
+        main.ENABLED_TIMEFRAMES = config.timeframes
+        main.TIMEFRAME_DEFAULT = config.timeframes[0]
+        main.selected_models = config.models
+        
+        # Imposta il flag di inizializzazione
         initialized = True
-        return {"status": "Bot inizializzato"}
-    return {"status": "Bot già inizializzato"}
+        
+        return {
+            "status": "Bot inizializzato", 
+            "config": config.dict(),
+            "exchange": "Bybit",
+            "initialized": initialized
+        }
+    except Exception as e:
+        logging.error(f"Errore durante l'inizializzazione: {str(e)}")
+        logging.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Errore durante l'inizializzazione: {str(e)}")
 
 @app.post("/start")
 async def start_bot(background_tasks: BackgroundTasks, auth: None = Depends(verify_auth_token)):
-    global bot_task, bot_running, initialized
-    
-    if not initialized:
-        await initialize_bot(auth)
+    global bot_task, bot_running, current_config
     
     if bot_running:
         raise HTTPException(status_code=400, detail="Bot già in esecuzione")
-
+    
+    if not current_config:
+        raise HTTPException(status_code=400, detail="Bot non inizializzato. Chiamare prima /initialize")
+    
     bot_task = asyncio.create_task(run_bot())
     bot_running = True
-    return {"status": "Bot avviato"}
+    return {"status": "Bot avviato", "config": current_config.dict()}
 
 @app.post("/stop")
 async def stop_bot(auth: None = Depends(verify_auth_token)):
@@ -143,7 +189,7 @@ async def stop_bot(auth: None = Depends(verify_auth_token)):
 def status(auth: None = Depends(verify_auth_token)):
     return {
         "running": bot_running,
-        "initialized": initialized
+        "config": current_config.dict() if current_config else None
     }
 
 @app.post("/set-keys")
@@ -227,7 +273,7 @@ async def get_balance(auth: None = Depends(verify_auth_token)):
         
         # Se ancora non abbiamo un valore, usiamo il bilancio USDT standard
         if total_usdt == 0:
-            total_usdt = await get_real_balance(async_exchange)
+            total_usdt = get_real_balance(async_exchange)
         
         detailed_balance["usdt_balance"] = total_usdt
         
@@ -264,15 +310,16 @@ async def get_balance(auth: None = Depends(verify_auth_token)):
 
 @app.get("/positions")
 async def get_positions(auth: None = Depends(verify_auth_token)):
-    global async_exchange
-    if not async_exchange:
-        async_exchange = ccxt_async.bybit(exchange_config)
-        await async_exchange.load_markets()
     try:
+        global async_exchange
+        if not async_exchange:
+            async_exchange = ccxt_async.bybit(exchange_config)
+            await async_exchange.load_markets()
         count = await get_open_positions(async_exchange)
         return {"open_positions": count}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Errore recupero posizioni: {e}")
+        logging.error(f"Errore nel recupero delle posizioni: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/orders/open")
 async def get_open_orders(auth: None = Depends(verify_auth_token)):
@@ -435,9 +482,26 @@ async def get_closed_trades(auth: None = Depends(verify_auth_token)):
         if not async_exchange:
             async_exchange = ccxt_async.bybit(exchange_config)
             await async_exchange.load_markets()
-        trades = await async_exchange.fetch_my_trades()
-        return {"trades": trades}
+            
+        # Recupera i trade recenti
+        trades = await async_exchange.fetch_my_trades(limit=50)
+        
+        # Formatta i trade per la visualizzazione
+        formatted_trades = []
+        for trade in trades:
+            formatted_trades.append({
+                'symbol': trade['symbol'],
+                'type': trade['type'],
+                'side': trade['side'],
+                'amount': trade['amount'],
+                'price': trade['price'],
+                'realized_pnl': trade.get('info', {}).get('closedPnl', 0),
+                'timestamp': trade['timestamp']
+            })
+            
+        return formatted_trades
     except Exception as e:
+        logging.error(f"Errore nel recupero dei trade: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
@@ -828,156 +892,135 @@ async def get_trained_model_file(filename: str, auth: None = Depends(verify_auth
 
 @app.get("/predictions")
 async def get_predictions(auth: None = Depends(verify_auth_token)):
-    """Restituisce le predizioni correnti per i top simboli in analisi."""
     try:
-        from predictor import predict_signal_ensemble, get_color_normal
-        from config import (
-            ENABLED_TIMEFRAMES, TIME_STEPS, TOP_ANALYSIS_CRYPTO,
-            TIMEFRAME_DEFAULT, MODEL_RATES
-        )
-        from model_loader import (
-            load_lstm_model_func, load_random_forest_model_func, load_xgboost_model_func
-        )
-        from fetcher import fetch_markets, get_top_symbols, fetch_data_for_multiple_symbols
-        import re
+        global async_exchange, current_config, initialized
         
-        # Inizializza l'exchange
-        global async_exchange
+        # Se non è stato inizializzato, restituisci un messaggio informativo
+        if not initialized:
+            return {
+                'predictions': [],
+                'timeframes': ['15m', '30m', '1h'],
+                'default_timeframe': '15m',
+                'status': 'not_initialized',
+                'message': 'Il bot non è stato ancora inizializzato. Inizializza il bot prima di richiedere le predizioni.'
+            }
+        
+        # Inizializza l'exchange se non esiste
         if not async_exchange:
             async_exchange = ccxt_async.bybit(exchange_config)
             await async_exchange.load_markets()
+            await async_exchange.load_time_difference()
         
-        # Carica i modelli se non sono già caricati
-        lstm_models, lstm_scalers = {}, {}
-        rf_models, rf_scalers = {}, {}
-        xgb_models, xgb_scalers = {}, {}
-        
-        # Carica i modelli in parallelo per tutti i timeframe abilitati
-        model_load_tasks = []
-        
-        for tf in ENABLED_TIMEFRAMES:
-            model_load_tasks.append(('lstm', tf, asyncio.create_task(
-                asyncio.to_thread(load_lstm_model_func, tf))))
-            model_load_tasks.append(('rf', tf, asyncio.create_task(
-                asyncio.to_thread(load_random_forest_model_func, tf))))
-            model_load_tasks.append(('xgb', tf, asyncio.create_task(
-                asyncio.to_thread(load_xgboost_model_func, tf))))
-        
-        for model_type, tf, task in model_load_tasks:
-            try:
-                result = await task
-                if model_type == 'lstm':
-                    lstm_models[tf], lstm_scalers[tf] = result
-                elif model_type == 'rf':
-                    rf_models[tf], rf_scalers[tf] = result
-                elif model_type == 'xgb':
-                    xgb_models[tf], xgb_scalers[tf] = result
-            except Exception as e:
-                logging.error(f"Errore nel caricamento del modello {model_type} per {tf}: {e}")
-        
-        # Recupera i mercati disponibili
+        # Usa timeframes e modelli configurati
+        timeframes = current_config.timeframes
+        model_types = current_config.models
+
+        # Ottieni i dati per i simboli selezionati
         markets = await fetch_markets(async_exchange)
         all_symbols = [m['symbol'] for m in markets.values() if m.get('quote') == 'USDT'
-                       and m.get('active') and m.get('type') == 'swap']
+                      and m.get('active') and m.get('type') == 'swap'
+                      and not re.search('|'.join(EXCLUDED_SYMBOLS), m['symbol'])]
         
-        # Filtra i simboli esclusi
-        from config import EXCLUDED_SYMBOLS
-        all_symbols_analysis = [s for s in all_symbols if not re.search('|'.join(EXCLUDED_SYMBOLS), s)]
+        top_symbols = await get_top_symbols(async_exchange, all_symbols, top_n=TOP_ANALYSIS_CRYPTO)
         
-        # Ottieni i top simboli per analisi
-        top_symbols_analysis = await get_top_symbols(async_exchange, all_symbols_analysis, top_n=TOP_ANALYSIS_CRYPTO)
+        # Recupera i dati per tutti i simboli e timeframe
+        data_dict = await fetch_data_for_multiple_symbols(
+            exchange=async_exchange,
+            symbols=top_symbols,
+            timeframes=timeframes
+        )
         
-        # Limita a massimo 15 simboli per una risposta API veloce
-        top_symbols_analysis = top_symbols_analysis[:15]
-        
-        # Calcola i pesi normalizzati per i modelli
-        normalized_weights = {}
-        for tf in ENABLED_TIMEFRAMES:
-            normalized_weights[tf] = {
-                'lstm': MODEL_RATES['lstm'],
-                'rf': MODEL_RATES['rf'],
-                'xgb': MODEL_RATES['xgb']
-            }
-        
-        # Recupera i dati per ogni simbolo e genera le predizioni
-        predictions = []
-        
-        # Esegui il recupero dati per tutti i timeframe in parallelo
-        timeframe_tasks = {}
-        for tf in ENABLED_TIMEFRAMES:
-            task = asyncio.create_task(fetch_data_for_multiple_symbols(
-                async_exchange, top_symbols_analysis, timeframe=tf
-            ))
-            timeframe_tasks[tf] = task
-        
-        # Attendi tutti i risultati
-        dataframes_by_symbol = {}
-        for tf, task in timeframe_tasks.items():
-            result_dict = await task
-            for symbol, df in result_dict.items():
-                if df is not None:
-                    if symbol not in dataframes_by_symbol:
-                        dataframes_by_symbol[symbol] = {}
-                    dataframes_by_symbol[symbol][tf] = df
-        
-        # Genera le predizioni per ogni simbolo
-        for symbol in top_symbols_analysis:
-            if symbol in dataframes_by_symbol and len(dataframes_by_symbol[symbol]) == len(ENABLED_TIMEFRAMES):
+        # Carica i modelli necessari
+        models = {}
+        scalers = {}
+        for model_type in model_types:
+            for timeframe in timeframes:
+                model_key = f"{model_type}_{timeframe}"
+                
+                # Determina il percorso del file del modello
+                model_dir = os.path.join(os.path.dirname(__file__), 'trained_models')
+                if model_type == 'lstm':
+                    model_path = os.path.join(model_dir, f'lstm_model_{timeframe}.h5')
+                    scaler_path = os.path.join(model_dir, f'lstm_scaler_{timeframe}.pkl')
+                else:
+                    model_path = os.path.join(model_dir, f'{model_type}_model_{timeframe}.pkl')
+                    scaler_path = os.path.join(model_dir, f'{model_type}_scaler_{timeframe}.pkl')
+                
+                # Verifica se i file esistono
+                if not os.path.exists(model_path) or not os.path.exists(scaler_path):
+                    logging.warning(f"Modello o scaler mancante per {model_key}")
+                    continue
+                
+                # Carica il modello e lo scaler
                 try:
-                    ensemble_value, final_signal, prediction_details = predict_signal_ensemble(
-                        dataframes_by_symbol[symbol],
-                        lstm_models, lstm_scalers,
-                        rf_models, rf_scalers,
-                        xgb_models, xgb_scalers,
-                        symbol, TIME_STEPS,
-                        {tf: normalized_weights[tf]['lstm'] for tf in ENABLED_TIMEFRAMES},
-                        {tf: normalized_weights[tf]['rf'] for tf in ENABLED_TIMEFRAMES},
-                        {tf: normalized_weights[tf]['xgb'] for tf in ENABLED_TIMEFRAMES}
-                    )
+                    if model_type == 'lstm':
+                        from tensorflow.keras.models import load_model
+                        models[model_key] = load_model(model_path)
+                    else:
+                        import joblib
+                        models[model_key] = joblib.load(model_path)
                     
-                    if ensemble_value is not None:
-                        # Estrai i dettagli delle predizioni
-                        lstm_preds, rf_preds, xgb_preds, rsi_value = prediction_details
-                        
-                        # Calcola il colore in base all'ensemble value
-                        color = get_color_normal(ensemble_value)
-                        
-                        # Ottieni la direzione del segnale in base al valore finale
-                        direction = "Neutrale"
-                        if final_signal == 1:
-                            direction = "Buy"
-                        elif final_signal == 0:
-                            direction = "Sell"
-                        
-                        # Aggiungi il risultato alle predizioni
-                        predictions.append({
-                            "symbol": symbol,
-                            "ensemble_value": float(ensemble_value),
-                            "direction": direction,
-                            "signal": final_signal,
-                            "color": color,
-                            "rsi_value": float(rsi_value),
-                            "models": {
-                                "lstm": {tf: float(lstm_preds[tf]) for tf in ENABLED_TIMEFRAMES},
-                                "rf": {tf: float(rf_preds[tf]) for tf in ENABLED_TIMEFRAMES},
-                                "xgb": {tf: float(xgb_preds[tf]) for tf in ENABLED_TIMEFRAMES}
-                            }
-                        })
+                    import joblib
+                    scalers[model_key] = joblib.load(scaler_path)
                 except Exception as e:
-                    logging.error(f"Errore nella predizione per {symbol}: {e}")
-        
-        # Ordina le predizioni per ensemble_value
-        predictions.sort(key=lambda x: x["ensemble_value"], reverse=True)
+                    logging.error(f"Errore nel caricamento del modello {model_key}: {e}")
+                    continue
+
+        # Genera le predizioni
+        predictions = []
+        for symbol, timeframe_data in data_dict.items():
+            for timeframe, df in timeframe_data.items():
+                if df is not None and not df.empty:
+                    # Calcola RSI
+                    rsi_value = df['RSI'].iloc[-1] if 'RSI' in df.columns else 50
+                    
+                    # Genera predizioni per ogni modello
+                    model_predictions = {}
+                    for model_type in model_types:
+                        model_key = f"{model_type}_{timeframe}"
+                        
+                        if model_key not in models or model_key not in scalers:
+                            model_predictions[model_type] = 0.5  # Valore di default se il modello non è disponibile
+                            continue
+                        
+                        try:
+                            # Prepara i dati per la predizione
+                            X = df.drop(['timestamp', 'open_time', 'close_time', 'RSI'] if 'RSI' in df.columns else 
+                                      ['timestamp', 'open_time', 'close_time'], axis=1).iloc[-1:]
+                            
+                            # Scala i dati
+                            X_scaled = scalers[model_key].transform(X)
+                            
+                            # Genera la predizione
+                            if model_type == 'lstm':
+                                # Reshape per LSTM (samples, time_steps, features)
+                                X_reshaped = X_scaled.reshape((1, 1, X_scaled.shape[1]))
+                                pred = models[model_key].predict(X_reshaped, verbose=0)[0][0]
+                            else:
+                                pred = models[model_key].predict_proba(X_scaled)[0][1]
+                            
+                            model_predictions[model_type] = float(pred)
+                        except Exception as e:
+                            logging.error(f"Errore nella predizione per {model_key} su {symbol}: {e}")
+                            model_predictions[model_type] = 0.5
+                    
+                    predictions.append({
+                        'symbol': symbol,
+                        'timeframe': timeframe,
+                        'models': model_predictions,
+                        'rsi_value': float(rsi_value)
+                    })
         
         return {
-            "predictions": predictions,
-            "timeframes": ENABLED_TIMEFRAMES,
-            "default_timeframe": TIMEFRAME_DEFAULT
+            'predictions': predictions,
+            'timeframes': timeframes,
+            'default_timeframe': timeframes[0] if timeframes else '15m'
         }
+        
     except Exception as e:
-        logging.error(f"Errore generale nell'endpoint delle predizioni: {e}")
-        logging.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Errore nel generare le predizioni: {e}")
+        logging.error(f"❌ Errore generale nell'endpoint delle predizioni: {str(e)}")
+        logging.error(f"❌ {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # === AVVIO MANUALE ===
 if __name__ == "__main__":

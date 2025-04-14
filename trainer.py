@@ -5,6 +5,7 @@ import joblib
 import json
 import datetime
 import numpy as np
+import matplotlib.pyplot as plt
 import tensorflow as tf
 from keras.models import Sequential
 from keras.layers import LSTM, Dense, Dropout, Bidirectional, Input
@@ -22,10 +23,33 @@ from models import FocalLoss, create_lstm_model, create_rf_model
 from data_utils import prepare_data
 
 def save_training_history_plot(history, timeframe):
-    """
-    Funzione vuota per retrocompatibilità. Non salva più log né file.
-    """
-    pass
+    plot_dir = os.path.join("logs", "plots")
+    os.makedirs(plot_dir, exist_ok=True)
+    
+    plt.figure(figsize=(12, 5))
+    
+    # Plot della Loss
+    plt.subplot(1, 2, 1)
+    plt.plot(history.history['loss'], label='Train Loss')
+    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.title('Loss durante il Training')
+    plt.xlabel('Epoca')
+    plt.ylabel('Loss')
+    plt.legend()
+    
+    # Plot dell'Accuracy
+    plt.subplot(1, 2, 2)
+    plt.plot(history.history['accuracy'], label='Train Accuracy')
+    plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+    plt.title('Accuracy durante il Training')
+    plt.xlabel('Epoca')
+    plt.ylabel('Accuracy')
+    plt.legend()
+    
+    plot_file = os.path.join(plot_dir, f"training_history_{timeframe}_{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.png")
+    plt.savefig(plot_file)
+    plt.close()
+    logging.info("Grafici di training salvati in: %s", plot_file)
 
 def augment_jitter(X, sigma=0.03):
     noise = np.random.normal(loc=0.0, scale=sigma, size=X.shape)
@@ -45,34 +69,10 @@ async def train_lstm_model_for_timeframe(exchange, symbols, timeframe, timestep)
     X_list = []
     y_list = []
     from fetcher import get_data_async  # Funzione per il recupero dati
-    
-    # Raccogli informazioni sul periodo di training
-    training_info = {
-        "num_cryptocurrencies": len(symbols),
-        "symbols_used": symbols,
-        "start_date": None,
-        "end_date": None,
-        "timeframe": timeframe,
-        "timestep": timestep,
-        "training_started": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
-    
     for symbol in symbols:
         df = await get_data_async(exchange, symbol, timeframe)
         if df is None:
             continue
-        
-        # Raccogli informazioni sulla data di inizio e fine
-        if df.index.size > 0:
-            symbol_start = df.index[0].strftime("%Y-%m-%d %H:%M:%S")
-            symbol_end = df.index[-1].strftime("%Y-%m-%d %H:%M:%S")
-            
-            # Aggiorna le date di inizio e fine generali
-            if training_info["start_date"] is None or symbol_start < training_info["start_date"]:
-                training_info["start_date"] = symbol_start
-            if training_info["end_date"] is None or symbol_end > training_info["end_date"]:
-                training_info["end_date"] = symbol_end
-        
         data = prepare_data(df)
         # Verifica la presenza di valori non finiti
         if not np.all(np.isfinite(data)):
@@ -89,7 +89,6 @@ async def train_lstm_model_for_timeframe(exchange, symbols, timeframe, timestep)
         if X:
             X_list.append(np.array(X))
             y_list.append(np.array(y))
-    
     if not X_list:
         logging.error(f"Failed to collect data for LSTM training at timeframe {timeframe}")
         return None, None, None
@@ -97,30 +96,11 @@ async def train_lstm_model_for_timeframe(exchange, symbols, timeframe, timestep)
     X_all = np.concatenate(X_list)
     y_all = np.concatenate(y_list)
     
-    # Calcola durata in giorni del periodo di training
-    if training_info["start_date"] and training_info["end_date"]:
-        start = datetime.datetime.strptime(training_info["start_date"], "%Y-%m-%d %H:%M:%S")
-        end = datetime.datetime.strptime(training_info["end_date"], "%Y-%m-%d %H:%M:%S")
-        training_info["days_covered"] = (end - start).days + 1
-    else:
-        training_info["days_covered"] = "N/A"
-    
-    # Salva informazioni sui dati di training
-    training_info["total_samples"] = len(X_all)
-    training_info["class_distribution"] = {
-        "class_0": int(np.sum(y_all == 0)),
-        "class_1": int(np.sum(y_all == 1))
-    }
-    
     tscv = TimeSeriesSplit(n_splits=4)
     splits = list(tscv.split(X_all))
     train_index, val_index = splits[-1]
     X_train, X_val = X_all[train_index], X_all[val_index]
     y_train, y_val = y_all[train_index], y_all[val_index]
-    
-    # Aggiorna le informazioni di training con i dettagli del split
-    training_info["training_samples"] = len(X_train)
-    training_info["validation_samples"] = len(X_val)
     
     # Augmentazione per bilanciare le classi, se necessario
     unique, counts = np.unique(y_train, return_counts=True)
@@ -137,16 +117,9 @@ async def train_lstm_model_for_timeframe(exchange, symbols, timeframe, timestep)
             X_train = np.concatenate([X_train, np.array(augmented_X)], axis=0)
             y_train = np.concatenate([y_train, np.array(augmented_y)], axis=0)
             logging.info("Augmentazione applicata per bilanciare le classi nel training set.")
-            
-            # Aggiorna le informazioni di training dopo l'augmentazione
-            training_info["augmented_samples"] = len(augmented_X)
-            training_info["post_augmentation_training_samples"] = len(X_train)
 
     class_weights_arr = class_weight.compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
     class_weights = {i: class_weights_arr[i] for i in range(len(class_weights_arr))}
-    
-    # Aggiungi i pesi delle classi alle informazioni di training
-    training_info["class_weights"] = {str(i): float(class_weights_arr[i]) for i in range(len(class_weights_arr))}
     
     num_features = len(config.EXPECTED_COLUMNS)
     input_shape = (timestep, num_features)
@@ -162,34 +135,23 @@ async def train_lstm_model_for_timeframe(exchange, symbols, timeframe, timestep)
         ]
     )
     
-    # Aggiunta configurazione del modello alle informazioni di training
-    training_info["model_config"] = {
-        "type": "LSTM",
-        "input_shape": input_shape,
-        "optimizer": "adam",
-        "loss": model.loss.__class__.__name__ if hasattr(model.loss, '__class__') else str(model.loss)
-    }
-    
     early_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+    log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     
     epochs = 100
     class TrainingProgressBar(tf.keras.callbacks.Callback):
         def __init__(self, total_epochs):
             super().__init__()
-            self.total_epochs = total_epochs
-            self.current_epoch = 0
-            
+            self.pbar = tqdm(total=total_epochs, desc=f"Training LSTM {timeframe}", ncols=80, leave=False)
         def on_epoch_end(self, epoch, logs=None):
-            self.current_epoch += 1
-            # Utilizziamo logging invece di tqdm per evitare problemi di thread
-            logging.info(
-                f"Epoch {self.current_epoch}/{self.total_epochs} - "
-                f"loss: {logs['loss']:.4f}, accuracy: {logs['accuracy']:.4f}, "
-                f"val_loss: {logs['val_loss']:.4f}, val_accuracy: {logs['val_accuracy']:.4f}"
-            )
-            
+            self.pbar.update(1)
+            self.pbar.set_postfix({
+                'loss': f"{logs['loss']:.4f}",
+                'acc': f"{logs['accuracy']:.4f}"
+            })
         def on_train_end(self, logs=None):
-            logging.info(f"Training completato dopo {self.current_epoch} epoche")
+            self.pbar.close()
     
     history = model.fit(
         X_train, y_train,
@@ -197,14 +159,11 @@ async def train_lstm_model_for_timeframe(exchange, symbols, timeframe, timestep)
         batch_size=32,
         validation_data=(X_val, y_val),
         class_weight=class_weights,
-        callbacks=[early_stop, TrainingProgressBar(epochs)],
+        callbacks=[early_stop, tensorboard_callback, TrainingProgressBar(epochs)],
         verbose=0
     )
-    
-    # Aggiorna le informazioni con i dettagli del training
-    training_info["epochs_trained"] = len(history.history['loss'])
-    training_info["early_stopping"] = training_info["epochs_trained"] < epochs
-    training_info["training_completed"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print()
+    save_training_history_plot(history, timeframe)
     
     train_metrics = model.evaluate(X_train, y_train, verbose=0)
     val_metrics = model.evaluate(X_val, y_val, verbose=0)
@@ -234,64 +193,64 @@ async def train_lstm_model_for_timeframe(exchange, symbols, timeframe, timestep)
     
     metrics_dict = {
         "train": {
-            "loss": float(train_metrics[0]),
-            "accuracy": float(train_metrics[1]),
-            "precision": float(train_metrics[2]),
-            "recall": float(train_metrics[3]),
-            "auc": float(train_metrics[4]),
+            "loss": train_metrics[0],
+            "accuracy": train_metrics[1],
+            "precision": train_metrics[2],
+            "recall": train_metrics[3],
+            "auc": train_metrics[4],
         },
         "validation": {
-            "loss": float(val_metrics[0]),
-            "accuracy": float(val_metrics[1]),
-            "precision": float(val_metrics[2]),
-            "recall": float(val_metrics[3]),
-            "auc": float(val_metrics[4]),
-        },
-        "history": {
-            key: [float(val) for val in history.history[key]]
-            for key in history.history.keys()
-        },
-        "training_info": training_info
+            "loss": val_metrics[0],
+            "accuracy": val_metrics[1],
+            "precision": val_metrics[2],
+            "recall": val_metrics[3],
+            "auc": val_metrics[4],
+        }
     }
     
-    # Utilizzo della nuova funzione per salvare le metriche in modo uniforme
-    save_model_metrics(metrics_dict, "lstm", timeframe, trained_models_dir)
+    metrics_file = model_file.replace(".h5", "_metrics.json")
+    try:
+        with open(metrics_file, "w") as f:
+            json.dump(metrics_dict, f, indent=4)
+        logging.info("Metriche di training salvate in '%s'.", metrics_file)
+    except Exception as e:
+        logging.error("Errore nel salvataggio delle metriche: %s", e)
     
     return model, scaler_final, metrics_dict
 
 # Trainer per Random Forest
+def train_rf_sync(X, y):
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    tscv = TimeSeriesSplit(n_splits=4)
+    splits = list(tscv.split(X_scaled))
+    train_index, val_index = splits[-1]
+    X_train, X_val = X_scaled[train_index], X_scaled[val_index]
+    y_train, y_val = y[train_index], y[val_index]
+    
+    rf = create_rf_model()
+    logging.info("Training Random Forest model...")
+    rf.fit(X_train, y_train)
+    logging.info("Random Forest training completed")
+    from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+    y_pred = rf.predict(X_val)
+    metrics = {
+        'validation_accuracy': accuracy_score(y_val, y_pred),
+        'validation_precision': precision_score(y_val, y_pred, average='binary'),
+        'validation_recall': recall_score(y_val, y_pred, average='binary'),
+        'validation_f1': f1_score(y_val, y_pred, average='binary')
+    }
+    logging.info(f"Random Forest Metrics: {metrics}")
+    return rf, scaler, metrics
+
 async def train_random_forest_model_wrapper(top_symbols, exchange, timestep, timeframe):
     X_combined = []
     y_combined = []
     from fetcher import get_data_async
-    
-    # Raccogli informazioni sul periodo di training
-    training_info = {
-        "num_cryptocurrencies": len(top_symbols),
-        "symbols_used": top_symbols,
-        "start_date": None,
-        "end_date": None,
-        "timeframe": timeframe,
-        "timestep": timestep,
-        "training_started": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
-    
     for symbol in top_symbols:
         df = await get_data_async(exchange, symbol, timeframe)
         if df is None:
             continue
-            
-        # Raccogli informazioni sulla data di inizio e fine
-        if df.index.size > 0:
-            symbol_start = df.index[0].strftime("%Y-%m-%d %H:%M:%S")
-            symbol_end = df.index[-1].strftime("%Y-%m-%d %H:%M:%S")
-            
-            # Aggiorna le date di inizio e fine generali
-            if training_info["start_date"] is None or symbol_start < training_info["start_date"]:
-                training_info["start_date"] = symbol_start
-            if training_info["end_date"] is None or symbol_end > training_info["end_date"]:
-                training_info["end_date"] = symbol_end
-                
         data = prepare_data(df)
         if not np.all(np.isfinite(data)):
             logging.warning(f"Il dataset per {symbol} nel timeframe {timeframe} contiene NaN o infiniti. Saltato.")
@@ -307,162 +266,70 @@ async def train_random_forest_model_wrapper(top_symbols, exchange, timestep, tim
         if X:
             X_combined.extend(X)
             y_combined.extend(y_data)
-            
     if X_combined and y_combined:
         X_all = np.array(X_combined)
         y_all = np.array(y_combined)
-        
-        # Calcola durata in giorni del periodo di training
-        if training_info["start_date"] and training_info["end_date"]:
-            start = datetime.datetime.strptime(training_info["start_date"], "%Y-%m-%d %H:%M:%S")
-            end = datetime.datetime.strptime(training_info["end_date"], "%Y-%m-%d %H:%M:%S")
-            training_info["days_covered"] = (end - start).days + 1
-        else:
-            training_info["days_covered"] = "N/A"
-            
-        # Salva informazioni sui dati di training
-        training_info["total_samples"] = len(X_all)
-        training_info["class_distribution"] = {
-            "class_0": int(np.sum(y_all == 0)),
-            "class_1": int(np.sum(y_all == 1))
-        }
-        
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X_all)
-        tscv = TimeSeriesSplit(n_splits=4)
-        splits = list(tscv.split(X_scaled))
-        train_index, val_index = splits[-1]
-        X_train, X_val = X_scaled[train_index], X_scaled[val_index]
-        y_train, y_val = y_all[train_index], y_all[val_index]
-        
-        # Aggiorna le informazioni di training con i dettagli del split
-        training_info["training_samples"] = len(X_train)
-        training_info["validation_samples"] = len(X_val)
-        training_info["train_val_split_ratio"] = float(len(X_train) / (len(X_train) + len(X_val)))
-        
-        rf = create_rf_model()
-        logging.info("Training Random Forest model...")
-        
-        # Registra il tempo di inizio training
-        start_time = time.time()
-        
-        rf.fit(X_train, y_train)
-        
-        # Calcola il tempo di training
-        training_time = time.time() - start_time
-        training_info["training_time_seconds"] = float(training_time)
-        training_info["training_completed"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # Aggiungi configurazione del modello
-        rf_params = {
-            "type": "RandomForest",
-            "n_estimators": rf.n_estimators,
-            "max_depth": rf.max_depth,
-            "random_state": 42
-        }
-        training_info["model_config"] = rf_params
-        
-        logging.info("Random Forest training completed")
-        from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, roc_curve, auc
-        
-        # Valutazione sul training set
-        y_train_pred = rf.predict(X_train)
-        train_accuracy = accuracy_score(y_train, y_train_pred)
-        train_precision = precision_score(y_train, y_train_pred, average='binary', zero_division=0)
-        train_recall = recall_score(y_train, y_train_pred, average='binary', zero_division=0)
-        train_f1 = f1_score(y_train, y_train_pred, average='binary', zero_division=0)
-        
-        # Valutazione sul validation set
-        y_pred = rf.predict(X_val)
-        y_proba = rf.predict_proba(X_val)[:, 1] if hasattr(rf, 'predict_proba') else None
-        
-        val_accuracy = accuracy_score(y_val, y_pred)
-        val_precision = precision_score(y_val, y_pred, average='binary', zero_division=0)
-        val_recall = recall_score(y_val, y_pred, average='binary', zero_division=0)
-        val_f1 = f1_score(y_val, y_pred, average='binary', zero_division=0)
-        
-        # Calcola matrice di confusione
-        cm = confusion_matrix(y_val, y_pred).tolist()
-        
-        # Calcola curva ROC e AUC se possibile
-        fpr, tpr, _ = roc_curve(y_val, y_proba) if y_proba is not None else ([0], [0], [0])
-        roc_auc = auc(fpr, tpr) if len(fpr) > 1 else 0
-        
-        metrics = {
-            "train": {
-                "accuracy": float(train_accuracy),
-                "precision": float(train_precision),
-                "recall": float(train_recall),
-                "f1": float(train_f1)
-            },
-            "validation": {
-                "accuracy": float(val_accuracy),
-                "precision": float(val_precision),
-                "recall": float(val_recall),
-                "f1": float(val_f1)
-            },
-            "confusion_matrix": cm,
-            "roc_auc": float(roc_auc),
-            "feature_importances": [float(imp) for imp in rf.feature_importances_] if hasattr(rf, 'feature_importances_') else [],
-            "training_info": training_info
-        }
-        
-        # Converti i valori fpr e tpr in liste di float
-        if y_proba is not None:
-            metrics["fpr"] = [float(f) for f in fpr]
-            metrics["tpr"] = [float(t) for t in tpr]
-            
-        logging.info(f"Random Forest Metrics: {metrics}")
-        
+        rf_model, rf_scaler, metrics = train_rf_sync(X_all, y_all)
         trained_models_dir = ensure_trained_models_dir()
         model_file = os.path.join(trained_models_dir, f'rf_model_{timeframe}.pkl')
         scaler_file = os.path.join(trained_models_dir, f'rf_scaler_{timeframe}.pkl')
         metrics_file = os.path.join(trained_models_dir, f'rf_model_{timeframe}_metrics.json')
         
-        joblib.dump(rf, model_file)
-        joblib.dump(scaler, scaler_file)
+        joblib.dump(rf_model, model_file)
+        joblib.dump(rf_scaler, scaler_file)
         
-        # Utilizzo della nuova funzione per salvare le metriche in modo uniforme
-        save_model_metrics(metrics, "rf", timeframe, trained_models_dir)
+        try:
+            with open(metrics_file, "w") as f:
+                json.dump(metrics, f, indent=4)
+            logging.info("RF model, scaler and metrics saved in trained_models directory")
+        except Exception as e:
+            logging.error("Error saving RF metrics: %s", e)
         
-        return rf, scaler, metrics
+        return rf_model, rf_scaler, metrics
     else:
         logging.error("Failed to collect data for Random Forest training")
         return None, None, None
 
 # Trainer per XGBoost
+def train_xgb_model(X, y):
+    from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    tscv = TimeSeriesSplit(n_splits=4)
+    splits = list(tscv.split(X_scaled))
+    train_index, val_index = splits[-1]
+    X_train, X_val = X_scaled[train_index], X_scaled[val_index]
+    y_train, y_val = y[train_index], y[val_index]
+    
+    import xgboost as xgb
+    model = xgb.XGBClassifier(
+        n_estimators=100,
+        max_depth=6,
+        learning_rate=0.1,
+        use_label_encoder=False,
+        eval_metric='logloss'
+    )
+    logging.info("Training XGBoost model...")
+    model.fit(X_train, y_train)
+    logging.info("XGBoost training completed")
+    y_pred = model.predict(X_val)
+    metrics = {
+        'validation_accuracy': accuracy_score(y_val, y_pred),
+        'validation_precision': precision_score(y_val, y_pred, average='binary'),
+        'validation_recall': recall_score(y_val, y_pred, average='binary'),
+        'validation_f1': f1_score(y_val, y_pred, average='binary')
+    }
+    logging.info(f"XGBoost Metrics: {metrics}")
+    return model, scaler, metrics
+
 async def train_xgboost_model_wrapper(top_symbols, exchange, timestep, timeframe):
     X_combined = []
     y_combined = []
     from fetcher import get_data_async
-    
-    # Raccogli informazioni sul periodo di training
-    training_info = {
-        "num_cryptocurrencies": len(top_symbols),
-        "symbols_used": top_symbols,
-        "start_date": None,
-        "end_date": None,
-        "timeframe": timeframe,
-        "timestep": timestep,
-        "training_started": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
-    
     for symbol in top_symbols:
         df = await get_data_async(exchange, symbol, timeframe)
         if df is None:
             continue
-            
-        # Raccogli informazioni sulla data di inizio e fine
-        if df.index.size > 0:
-            symbol_start = df.index[0].strftime("%Y-%m-%d %H:%M:%S")
-            symbol_end = df.index[-1].strftime("%Y-%m-%d %H:%M:%S")
-            
-            # Aggiorna le date di inizio e fine generali
-            if training_info["start_date"] is None or symbol_start < training_info["start_date"]:
-                training_info["start_date"] = symbol_start
-            if training_info["end_date"] is None or symbol_end > training_info["end_date"]:
-                training_info["end_date"] = symbol_end
-                
         data = prepare_data(df)
         if not np.all(np.isfinite(data)):
             logging.warning(f"Il dataset per {symbol} nel timeframe {timeframe} contiene NaN o infiniti. Saltato.")
@@ -476,168 +343,35 @@ async def train_xgboost_model_wrapper(top_symbols, exchange, timestep, timeframe
         if X:
             X_combined.extend(X)
             y_combined.extend(y_data)
-            
     if X_combined and y_combined:
         X_all = np.array(X_combined)
         y_all = np.array(y_combined)
-        
-        # Calcola durata in giorni del periodo di training
-        if training_info["start_date"] and training_info["end_date"]:
-            start = datetime.datetime.strptime(training_info["start_date"], "%Y-%m-%d %H:%M:%S")
-            end = datetime.datetime.strptime(training_info["end_date"], "%Y-%m-%d %H:%M:%S")
-            training_info["days_covered"] = (end - start).days + 1
-        else:
-            training_info["days_covered"] = "N/A"
-            
-        # Salva informazioni sui dati di training
-        training_info["total_samples"] = len(X_all)
-        training_info["class_distribution"] = {
-            "class_0": int(np.sum(y_all == 0)),
-            "class_1": int(np.sum(y_all == 1))
-        }
-        
-        # Prepariamo un training migliorato con metriche dettagliate
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X_all)
-        tscv = TimeSeriesSplit(n_splits=4)
-        splits = list(tscv.split(X_scaled))
-        train_index, val_index = splits[-1]
-        X_train, X_val = X_scaled[train_index], X_scaled[val_index]
-        y_train, y_val = y_all[train_index], y_all[val_index]
-        
-        # Aggiorna le informazioni di training con i dettagli del split
-        training_info["training_samples"] = len(X_train)
-        training_info["validation_samples"] = len(X_val)
-        training_info["train_val_split_ratio"] = float(len(X_train) / (len(X_train) + len(X_val)))
-        
-        import xgboost as xgb
-        xgb_params = {
-            "n_estimators": 100,
-            "max_depth": 6,
-            "learning_rate": 0.1,
-            "use_label_encoder": False,
-            "eval_metric": 'logloss'
-        }
-        model = xgb.XGBClassifier(**xgb_params)
-        
-        # Aggiungi configurazione del modello alle informazioni di training
-        training_info["model_config"] = {
-            "type": "XGBoost",
-            "params": xgb_params
-        }
-        
-        logging.info("Training XGBoost model...")
-        
-        # Registra il tempo di inizio training
-        start_time = time.time()
-        
-        # Train with early stopping
-        model.fit(
-            X_train, y_train,
-            eval_set=[(X_val, y_val)],
-            early_stopping_rounds=10,
-            verbose=False
-        )
-        
-        # Calcola il tempo di training
-        training_time = time.time() - start_time
-        training_info["training_time_seconds"] = float(training_time)
-        training_info["training_completed"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        training_info["best_iteration"] = model.best_iteration if hasattr(model, 'best_iteration') else None
-        
-        logging.info("XGBoost training completed")
-        from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, roc_curve, auc
-        
-        # Valutazione sul training set
-        y_train_pred = model.predict(X_train)
-        train_accuracy = accuracy_score(y_train, y_train_pred)
-        train_precision = precision_score(y_train, y_train_pred, average='binary', zero_division=0)
-        train_recall = recall_score(y_train, y_train_pred, average='binary', zero_division=0)
-        train_f1 = f1_score(y_train, y_train_pred, average='binary', zero_division=0)
-        
-        # Valutazione sul validation set
-        y_pred = model.predict(X_val)
-        y_proba = model.predict_proba(X_val)[:, 1] if hasattr(model, 'predict_proba') else None
-        
-        val_accuracy = accuracy_score(y_val, y_pred)
-        val_precision = precision_score(y_val, y_pred, average='binary', zero_division=0)
-        val_recall = recall_score(y_val, y_pred, average='binary', zero_division=0)
-        val_f1 = f1_score(y_val, y_pred, average='binary', zero_division=0)
-        
-        # Calcola matrice di confusione
-        cm = confusion_matrix(y_val, y_pred).tolist()
-        
-        # Calcola curva ROC e AUC se possibile
-        fpr, tpr, _ = roc_curve(y_val, y_proba) if y_proba is not None else ([0], [0], [0])
-        roc_auc = auc(fpr, tpr) if len(fpr) > 1 else 0
-        
-        # Metriche complete
-        metrics = {
-            "train": {
-                "accuracy": float(train_accuracy),
-                "precision": float(train_precision),
-                "recall": float(train_recall),
-                "f1": float(train_f1)
-            },
-            "validation": {
-                "accuracy": float(val_accuracy),
-                "precision": float(val_precision),
-                "recall": float(val_recall),
-                "f1": float(val_f1)
-            },
-            "confusion_matrix": cm,
-            "roc_auc": float(roc_auc),
-            "feature_importances": [float(imp) for imp in model.feature_importances_] if hasattr(model, 'feature_importances_') else [],
-            "training_info": training_info
-        }
-        
-        # Converti i valori fpr e tpr in liste di float
-        if y_proba is not None:
-            metrics["fpr"] = [float(f) for f in fpr]
-            metrics["tpr"] = [float(t) for t in tpr]
-            
-        logging.info(f"XGBoost Metrics: {metrics}")
-        
+        xgb_model, xgb_scaler, metrics = train_xgb_model(X_all, y_all)
         trained_models_dir = ensure_trained_models_dir()
         model_file = os.path.join(trained_models_dir, f'xgb_model_{timeframe}.pkl')
         scaler_file = os.path.join(trained_models_dir, f'xgb_scaler_{timeframe}.pkl')
         metrics_file = os.path.join(trained_models_dir, f'xgb_model_{timeframe}_metrics.json')
         
-        joblib.dump(model, model_file)
-        joblib.dump(scaler, scaler_file)
+        joblib.dump(xgb_model, model_file)
+        joblib.dump(xgb_scaler, scaler_file)
         
-        # Utilizzo della nuova funzione per salvare le metriche in modo uniforme  
-        save_model_metrics(metrics, "xgb", timeframe, trained_models_dir)
+        try:
+            with open(metrics_file, "w") as f:
+                json.dump(metrics, f, indent=4)
+            logging.info("XGBoost model, scaler and metrics saved in trained_models directory")
+        except Exception as e:
+            logging.error("Error saving XGBoost metrics: %s", e)
         
-        return model, scaler, metrics
+        return xgb_model, xgb_scaler, metrics
 
-# Aggiungo una funzione per centralizzare il salvataggio delle metriche
-def save_model_metrics(metrics, model_type, timeframe, trained_models_dir):
-    """
-    Funzione centralizzata per salvare le metriche dei modelli.
+def train_lstm_model(X_train, y_train, X_val, y_val, timeframe):
+    # Save model and metrics
+    model_path = os.path.join('trained_models', f'lstm_model_{timeframe}')
+    metrics_path = os.path.join('trained_models', f'lstm_model_{timeframe}_metrics.json')
     
-    Args:
-        metrics (dict): Dizionario contenente tutte le metriche del modello
-        model_type (str): Tipo di modello ('lstm', 'rf', o 'xgb')
-        timeframe (str): Timeframe utilizzato per il training
-        trained_models_dir (str): Directory dove salvare le metriche
+    # Save model
+    model.save(model_path)
     
-    Returns:
-        bool: True se il salvataggio è avvenuto con successo, False altrimenti
-    """
-    metrics_file = os.path.join(trained_models_dir, f'{model_type}_model_{timeframe}_metrics.json')
-    
-    # Aggiungi un timestamp al salvataggio delle metriche
-    metrics["saved_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Aggiungi una versione del formato delle metriche
-    metrics["metrics_version"] = "1.0"
-    
-    try:
-        with open(metrics_file, "w") as f:
-            json.dump(metrics, f, indent=4)
-        logging.info(f"{model_type.upper()} metrics saved to {metrics_file}")
-        return True
-    except Exception as e:
-        logging.error(f"Error saving {model_type.upper()} metrics: {e}")
-        return False
+    # Save metrics
+    with open(metrics_path, 'w') as f:
+        json.dump(metrics, f, indent=4)
