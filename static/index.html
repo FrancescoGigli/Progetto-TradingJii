@@ -329,6 +329,283 @@
             50% { transform: scale(1.2); }
             100% { transform: scale(1); }
         }
+
+        /* Aggiungi stili per i controlli */
+        .btn-group-sm .btn {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+        
+        .btn-check:checked + .btn-outline-primary {
+            background-color: #0d6efd;
+            color: white;
+        }
+        
+        .btn-check:checked + .btn-outline-secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+        
+        .gap-2 {
+            gap: 0.5rem !important;
+        }
+
+        /* Stili per i contenitori di selezione */
+        .selection-container {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 8px 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .selection-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+        }
+
+        .selection-title {
+            color: #6c757d;
+            font-weight: 500;
+        }
+
+        .selection-counter {
+            background-color: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            color: #495057;
+        }
+
+        .selection-counter.warning {
+            background-color: #ffc107;
+            color: #000;
+        }
+
+        .selection-counter.error {
+            background-color: #dc3545;
+            color: #fff;
+        }
+
+        .selection-group {
+            background-color: #fff;
+            padding: 2px;
+            border-radius: 6px;
+        }
+
+        /* Stili per i pulsanti */
+        .btn-group-sm .btn {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+            border-radius: 4px;
+            margin: 0 1px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-check:checked + .btn-outline-primary {
+            background-color: #0d6efd;
+            color: white;
+            box-shadow: 0 2px 4px rgba(13, 110, 253, 0.25);
+        }
+
+        .btn-check:checked + .btn-outline-secondary {
+            background-color: #6c757d;
+            color: white;
+            box-shadow: 0 2px 4px rgba(108, 117, 125, 0.25);
+        }
+
+        .btn-check:disabled + .btn,
+        .btn-check[disabled] + .btn {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Stili per il pulsante di controllo */
+        #predictions-control-btn {
+            min-width: 100px;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        #predictions-control-btn:not(:disabled):hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        #predictions-control-btn:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        /* Animazioni */
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        .selection-counter.warning {
+            animation: pulse 1s infinite;
+        }
+
+        /* Stili per la sezione di inizializzazione */
+        .initialization-container {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .initialization-header h6 {
+            color: #495057;
+            font-weight: 600;
+        }
+
+        .initialization-header i {
+            color: #6c757d;
+        }
+
+        #init-status-badge {
+            padding: 0.5em 1em;
+            font-weight: 500;
+            background-color: #6c757d;
+            transition: all 0.3s ease;
+        }
+
+        #init-status-badge.running {
+            background-color: #17a2b8;
+            animation: pulse 1.5s infinite;
+        }
+
+        #init-status-badge.completed {
+            background-color: #28a745;
+        }
+
+        #init-status-badge.error {
+            background-color: #dc3545;
+        }
+
+        .initialization-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .step {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem;
+            background-color: white;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .step.active {
+            background-color: #e8f4f8;
+            transform: translateX(5px);
+        }
+
+        .step.completed {
+            background-color: #e8f8ef;
+        }
+
+        .step.error {
+            background-color: #f8e8e8;
+        }
+
+        .step-icon {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #e9ecef;
+            border-radius: 50%;
+            transition: all 0.3s ease;
+        }
+
+        .step.active .step-icon {
+            background-color: #17a2b8;
+            color: white;
+            transform: scale(1.1);
+        }
+
+        .step.completed .step-icon {
+            background-color: #28a745;
+            color: white;
+        }
+
+        .step.error .step-icon {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        .step-content {
+            flex-grow: 1;
+        }
+
+        .step-title {
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 0.25rem;
+        }
+
+        .step-description {
+            font-size: 0.875rem;
+            color: #6c757d;
+        }
+
+        .step-status {
+            width: 24px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .step-status i {
+            color: #adb5bd;
+            transition: all 0.3s ease;
+        }
+
+        .step.active .step-status i {
+            color: #17a2b8;
+            animation: spin 1s linear infinite;
+        }
+
+        .step.completed .step-status i {
+            color: #28a745;
+        }
+
+        .step.error .step-status i {
+            color: #dc3545;
+        }
+
+        .initialization-progress {
+            margin-top: 1.5rem;
+        }
+
+        .initialization-progress .progress {
+            background-color: #e9ecef;
+            overflow: hidden;
+            border-radius: 4px;
+        }
+
+        .initialization-progress .progress-bar {
+            background-color: #17a2b8;
+            transition: width 0.3s ease;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -507,8 +784,48 @@
                             <div class="card">
                                 <div class="card-header d-flex justify-content-between align-items-center">
                                     <h5>Predizioni Modelli</h5>
-                                    <div class="d-flex">
-                                        <button id="predictions-control-btn" class="btn btn-sm btn-success">
+                                    <div class="d-flex gap-3 align-items-center">
+                                        <div class="selection-container">
+                                            <div class="selection-header mb-1">
+                                                <span class="selection-title">Modelli</span>
+                                                <span class="selection-counter" id="models-counter">0/3</span>
+                                            </div>
+                                            <div class="btn-group btn-group-sm selection-group" role="group" aria-label="Selezione Modelli">
+                                                <input type="checkbox" class="btn-check model-select" id="lstm-model" autocomplete="off">
+                                                <label class="btn btn-outline-primary" for="lstm-model" data-bs-toggle="tooltip" title="Long Short-Term Memory">LSTM</label>
+                                                
+                                                <input type="checkbox" class="btn-check model-select" id="rf-model" autocomplete="off">
+                                                <label class="btn btn-outline-primary" for="rf-model" data-bs-toggle="tooltip" title="Random Forest">RF</label>
+                                                
+                                                <input type="checkbox" class="btn-check model-select" id="xgb-model" autocomplete="off">
+                                                <label class="btn btn-outline-primary" for="xgb-model" data-bs-toggle="tooltip" title="XGBoost">XGB</label>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="selection-container">
+                                            <div class="selection-header mb-1">
+                                                <span class="selection-title">Timeframes</span>
+                                                <span class="selection-counter" id="timeframes-counter">0/3</span>
+                                            </div>
+                                            <div class="btn-group btn-group-sm selection-group" role="group" aria-label="Selezione Timeframe">
+                                                <input type="checkbox" class="btn-check timeframe-select" id="tf-5m" autocomplete="off">
+                                                <label class="btn btn-outline-secondary" for="tf-5m" data-bs-toggle="tooltip" title="5 minuti">5m</label>
+                                                
+                                                <input type="checkbox" class="btn-check timeframe-select" id="tf-15m" autocomplete="off">
+                                                <label class="btn btn-outline-secondary" for="tf-15m" data-bs-toggle="tooltip" title="15 minuti">15m</label>
+                                                
+                                                <input type="checkbox" class="btn-check timeframe-select" id="tf-30m" autocomplete="off">
+                                                <label class="btn btn-outline-secondary" for="tf-30m" data-bs-toggle="tooltip" title="30 minuti">30m</label>
+                                                
+                                                <input type="checkbox" class="btn-check timeframe-select" id="tf-1h" autocomplete="off">
+                                                <label class="btn btn-outline-secondary" for="tf-1h" data-bs-toggle="tooltip" title="1 ora">1h</label>
+                                                
+                                                <input type="checkbox" class="btn-check timeframe-select" id="tf-4h" autocomplete="off">
+                                                <label class="btn btn-outline-secondary" for="tf-4h" data-bs-toggle="tooltip" title="4 ore">4h</label>
+                                            </div>
+                                        </div>
+                                        
+                                        <button id="predictions-control-btn" class="btn btn-sm btn-success" disabled>
                                             <i class="fas fa-play me-1"></i> Avvia
                                         </button>
                                     </div>
@@ -520,6 +837,91 @@
                                     <div class="alert alert-danger d-none" id="predictions-error">
                                         <i class="fas fa-exclamation-triangle me-2"></i> <span id="predictions-error-message"></span>
                                     </div>
+                                    
+                                    <!-- Aggiungi la sezione di stato inizializzazione -->
+                                    <div id="initialization-status" class="initialization-container d-none mb-4">
+                                        <div class="initialization-header d-flex justify-content-between align-items-center mb-3">
+                                            <h6 class="mb-0">
+                                                <i class="fas fa-cog"></i> 
+                                                Stato Inizializzazione
+                                            </h6>
+                                            <span class="badge" id="init-status-badge">In attesa...</span>
+                                        </div>
+                                        
+                                        <div class="initialization-steps">
+                                            <div class="step" id="step-connect">
+                                                <div class="step-icon">
+                                                    <i class="fas fa-plug"></i>
+                                                </div>
+                                                <div class="step-content">
+                                                    <div class="step-title">Connessione</div>
+                                                    <div class="step-description">Connessione all'exchange</div>
+                                                </div>
+                                                <div class="step-status">
+                                                    <i class="fas fa-circle-notch"></i>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="step" id="step-markets">
+                                                <div class="step-icon">
+                                                    <i class="fas fa-chart-line"></i>
+                                                </div>
+                                                <div class="step-content">
+                                                    <div class="step-title">Mercati</div>
+                                                    <div class="step-description">Caricamento mercati disponibili</div>
+                                                </div>
+                                                <div class="step-status">
+                                                    <i class="fas fa-circle-notch"></i>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="step" id="step-data">
+                                                <div class="step-icon">
+                                                    <i class="fas fa-database"></i>
+                                                </div>
+                                                <div class="step-content">
+                                                    <div class="step-title">Dati</div>
+                                                    <div class="step-description">Recupero dati storici</div>
+                                                </div>
+                                                <div class="step-status">
+                                                    <i class="fas fa-circle-notch"></i>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="step" id="step-models">
+                                                <div class="step-icon">
+                                                    <i class="fas fa-brain"></i>
+                                                </div>
+                                                <div class="step-content">
+                                                    <div class="step-title">Modelli</div>
+                                                    <div class="step-description">Caricamento modelli</div>
+                                                </div>
+                                                <div class="step-status">
+                                                    <i class="fas fa-circle-notch"></i>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="step" id="step-predictions">
+                                                <div class="step-icon">
+                                                    <i class="fas fa-robot"></i>
+                                                </div>
+                                                <div class="step-content">
+                                                    <div class="step-title">Predizioni</div>
+                                                    <div class="step-description">Generazione predizioni</div>
+                                                </div>
+                                                <div class="step-status">
+                                                    <i class="fas fa-circle-notch"></i>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="initialization-progress mt-3">
+                                            <div class="progress" style="height: 4px;">
+                                                <div id="init-progress-bar" class="progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
                                     <div class="table-responsive">
                                         <table class="table table-hover" id="predictions-table">
                                             <thead>

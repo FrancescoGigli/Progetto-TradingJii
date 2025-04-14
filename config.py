@@ -1,14 +1,7 @@
 # config.py
 # ------------------------------
-import os
-from dotenv import load_dotenv
-
-# Carica le variabili dal file .env
-load_dotenv()
-
-# Ottieni le chiavi API dalle variabili d'ambiente
-API_KEY = os.getenv("API_KEY")
-API_SECRET = os.getenv("API_SECRET")
+API_KEY = "hRI4q8EB3ryaURdyBm"
+API_SECRET = "xQpYxVtEinsD6yqa84PGbYVsgYrT9O3k0MRf"
 
 # Exchange configuration
 exchange_config = {
@@ -24,10 +17,8 @@ exchange_config = {
 MARGIN_USDT = 40.0
 LEVERAGE = 10
 
-ENABLED_TIMEFRAMES = ["15m", "30m", "1h"]
-SELECTED_MODELS = ["lstm", "rf", "xgb"]
-TIMEFRAME_DEFAULT = "15m"
-
+ENABLED_TIMEFRAMES = []          # DA AGGIORNARE CON L'INPUT DELL'UTENTE
+TIMEFRAME_DEFAULT = None         # DA AGGIORNARE CON L'INPUT DELL'UTENTE
 TIME_STEPS = 10
 
 MODEL_RATES = {
@@ -69,13 +60,14 @@ def get_xgb_model_file(tf):
 def get_xgb_scaler_file(tf):
     return f"trained_models/xgb_scaler_{tf}.pkl"  # Updated to match trainer.py
 
-EXCLUDED_SYMBOLS = ['BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT']
-TOP_TRAIN_CRYPTO = 50          # Numero totale di criptovalute da considerare per il training
-TOP_ANALYSIS_CRYPTO = 150      # Numero totale di criptovalute da considerare per l'analisi
+DB_FILE = "trade_history.db"
+RESET_DB_ON_STARTUP = True
+TRADE_STATISTICS_DAYS = 30
+USE_DATABASE = True
 
-# Numero di simboli da processare per ciclo
-SYMBOLS_PER_ANALYSIS_CYCLE = 60  # Numero di simboli da analizzare in ciascun ciclo di trading
-SYMBOLS_FOR_VALIDATION = 10     # Numero di simboli da validare prima del training
+EXCLUDED_SYMBOLS = ['BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT']
+TOP_TRAIN_CRYPTO = 50
+TOP_ANALYSIS_CRYPTO = 150
 
 EXPECTED_COLUMNS = [
     'open', 'high', 'low', 'close', 'volume',

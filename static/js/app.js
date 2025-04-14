@@ -3824,27 +3824,167 @@ function initializePredictionsControl() {
     controlBtn.addEventListener('click', togglePredictions);
 }
 
-// Funzione per avviare/fermare le predizioni
+// Funzione per gestire lo stato di inizializzazione
+function initializationManager() {
+    const container = document.getElementById('initialization-status');
+    const badge = document.getElementById('init-status-badge');
+    const progressBar = document.getElementById('init-progress-bar');
+    const steps = ['connect', 'markets', 'data', 'models', 'predictions'];
+    let currentStep = -1;
+    
+    function showContainer() {
+        container.classList.remove('d-none');
+    }
+    
+    function hideContainer() {
+        container.classList.add('d-none');
+    }
+    
+    function updateProgress() {
+        const progress = ((currentStep + 1) / steps.length) * 100;
+        progressBar.style.width = `${progress}%`;
+        progressBar.setAttribute('aria-valuenow', progress);
+    }
+    
+    function updateBadge(status) {
+        badge.className = 'badge';
+        switch (status) {
+            case 'running':
+                badge.classList.add('running');
+                badge.textContent = 'In corso...';
+                break;
+            case 'completed':
+                badge.classList.add('completed');
+                badge.textContent = 'Completato';
+                break;
+            case 'error':
+                badge.classList.add('error');
+                badge.textContent = 'Errore';
+                break;
+            default:
+                badge.textContent = 'In attesa...';
+        }
+    }
+    
+    function setStepStatus(stepIndex, status) {
+        const stepElement = document.getElementById(`step-${steps[stepIndex]}`);
+        if (!stepElement) return;
+        
+        // Rimuovi tutte le classi di stato
+        stepElement.classList.remove('active', 'completed', 'error');
+        
+        // Aggiorna l'icona di stato
+        const statusIcon = stepElement.querySelector('.step-status i');
+        statusIcon.className = 'fas';
+        
+        switch (status) {
+            case 'active':
+                stepElement.classList.add('active');
+                statusIcon.classList.add('fa-circle-notch', 'fa-spin');
+                break;
+            case 'completed':
+                stepElement.classList.add('completed');
+                statusIcon.classList.add('fa-check');
+                break;
+            case 'error':
+                stepElement.classList.add('error');
+                statusIcon.classList.add('fa-times');
+                break;
+            default:
+                statusIcon.classList.add('fa-circle-notch');
+        }
+    }
+    
+    return {
+        start() {
+            currentStep = -1;
+            showContainer();
+            updateBadge('running');
+            steps.forEach((_, index) => setStepStatus(index, 'waiting'));
+            updateProgress();
+        },
+        
+        nextStep() {
+            if (currentStep >= 0) {
+                setStepStatus(currentStep, 'completed');
+            }
+            currentStep++;
+            if (currentStep < steps.length) {
+                setStepStatus(currentStep, 'active');
+                updateProgress();
+            }
+        },
+        
+        complete() {
+            setStepStatus(currentStep, 'completed');
+            updateBadge('completed');
+            updateProgress();
+            // Nascondi il container dopo 2 secondi
+            setTimeout(hideContainer, 2000);
+        },
+        
+        error(stepIndex) {
+            setStepStatus(stepIndex, 'error');
+            updateBadge('error');
+        },
+        
+        reset() {
+            hideContainer();
+            currentStep = -1;
+            updateBadge('waiting');
+            steps.forEach((_, index) => setStepStatus(index, 'waiting'));
+            updateProgress();
+        }
+    };
+}
+
+// Crea l'istanza del manager
+const initManager = initializationManager();
+
+// Modifica la funzione togglePredictions per utilizzare il manager
 async function togglePredictions() {
     const controlBtn = document.getElementById('predictions-control-btn');
     
     if (!isPredictionsRunning) {
         try {
-            // Mostra loader sul pulsante
-            controlBtn.disabled = true;
-            controlBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Inizializzazione...';
+            // Valida la selezione
+            if (!validateSelection()) {
+                return;
+            }
             
-            // Inizializza il bot
-            const initResult = await makeApiRequest('/initialize', 'POST');
+            // Disabilita il pulsante e mostra il loader
+            controlBtn.disabled = true;
+            
+            // Inizia la sequenza di inizializzazione
+            initManager.start();
+            
+            // Step 1: Connessione
+            initManager.nextStep();
+            const initResult = await makeApiRequest('/initialize', 'POST', {
+                models: getSelectedModels(),
+                timeframes: getSelectedTimeframes()
+            });
+            
             if (!initResult) {
                 throw new Error('Errore durante l\'inizializzazione');
             }
             
-            // Avvia il bot
+            // Step 2: Mercati
+            initManager.nextStep();
             const startResult = await makeApiRequest('/start', 'POST');
             if (!startResult) {
                 throw new Error('Errore durante l\'avvio');
             }
+            
+            // Step 3: Dati
+            initManager.nextStep();
+            await loadPredictions();
+            
+            // Step 4: Modelli
+            initManager.nextStep();
+            
+            // Step 5: Predizioni
+            initManager.nextStep();
             
             // Avvia le predizioni
             isPredictionsRunning = true;
@@ -3852,8 +3992,10 @@ async function togglePredictions() {
             controlBtn.disabled = false;
             controlBtn.innerHTML = '<i class="fas fa-stop me-1"></i> Ferma';
             
-            // Carica le predizioni immediatamente
-            await loadPredictions();
+            // Disabilita i controlli durante l'esecuzione
+            document.querySelectorAll('.btn-check').forEach(checkbox => {
+                checkbox.disabled = true;
+            });
             
             // Imposta l'intervallo per gli aggiornamenti
             predictionsInterval = setInterval(async () => {
@@ -3862,24 +4004,33 @@ async function togglePredictions() {
                 }
             }, 60000); // Aggiorna ogni minuto
             
+            // Completa l'inizializzazione
+            initManager.complete();
+            
         } catch (error) {
             console.error('Errore durante l\'avvio:', error);
+            initManager.error(currentStep);
+            
             controlBtn.disabled = false;
             controlBtn.innerHTML = '<i class="fas fa-play me-1"></i> Avvia';
             
-            // Mostra errore all'utente
-            const errorEl = document.getElementById('predictions-error');
-            const errorMsgEl = document.getElementById('predictions-error-message');
-            if (errorEl && errorMsgEl) {
-                errorEl.classList.remove('d-none');
-                errorMsgEl.textContent = error.message || 'Errore durante l\'avvio delle predizioni';
-            }
+            showAlert(error.message || 'Errore durante l\'avvio delle predizioni', 'danger');
         }
     } else {
         // Ferma le predizioni
         stopPredictions();
+        
+        // Riabilita i controlli
+        document.querySelectorAll('.btn-check').forEach(checkbox => {
+            checkbox.disabled = false;
+        });
+        
+        // Resetta il manager
+        initManager.reset();
     }
 }
+
+// ... existing code ...
 
 // Funzione per fermare le predizioni
 function stopPredictions() {
@@ -3910,3 +4061,321 @@ function stopPredictions() {
         timestamp.remove();
     }
 }
+
+// ... existing code ...
+
+// Funzione per ottenere i modelli selezionati
+function getSelectedModels() {
+    const models = [];
+    if (document.getElementById('lstm-model').checked) models.push('lstm');
+    if (document.getElementById('rf-model').checked) models.push('rf');
+    if (document.getElementById('xgb-model').checked) models.push('xgb');
+    return models;
+}
+
+// Funzione per ottenere i timeframe selezionati
+function getSelectedTimeframes() {
+    const timeframes = [];
+    if (document.getElementById('tf-5m').checked) timeframes.push('5m');
+    if (document.getElementById('tf-15m').checked) timeframes.push('15m');
+    if (document.getElementById('tf-30m').checked) timeframes.push('30m');
+    if (document.getElementById('tf-1h').checked) timeframes.push('1h');
+    if (document.getElementById('tf-4h').checked) timeframes.push('4h');
+    return timeframes;
+}
+
+// Funzione per validare la selezione
+function validateSelection() {
+    const models = getSelectedModels();
+    const timeframes = getSelectedTimeframes();
+    
+    if (models.length === 0) {
+        showAlert('Seleziona almeno un modello', 'warning');
+        return false;
+    }
+    
+    if (timeframes.length === 0) {
+        showAlert('Seleziona almeno un timeframe', 'warning');
+        return false;
+    }
+    
+    return true;
+}
+
+// Funzione per mostrare alert
+function showAlert(message, type = 'warning') {
+    const alertsContainer = document.createElement('div');
+    alertsContainer.className = 'predictions-alerts';
+    alertsContainer.style.position = 'absolute';
+    alertsContainer.style.top = '10px';
+    alertsContainer.style.right = '10px';
+    alertsContainer.style.zIndex = '1000';
+    
+    const alert = document.createElement('div');
+    alert.className = `alert alert-${type} alert-dismissible fade show`;
+    alert.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    
+    alertsContainer.appendChild(alert);
+    
+    // Rimuovi eventuali alert esistenti
+    const existingAlerts = document.querySelector('.predictions-alerts');
+    if (existingAlerts) existingAlerts.remove();
+    
+    // Aggiungi il nuovo alert
+    const cardBody = document.querySelector('#predictions-table').closest('.card-body');
+    cardBody.style.position = 'relative';
+    cardBody.appendChild(alertsContainer);
+    
+    // Auto-dismiss dopo 3 secondi
+    setTimeout(() => {
+        alert.classList.remove('show');
+        setTimeout(() => alertsContainer.remove(), 150);
+    }, 3000);
+}
+
+// Funzione per inizializzare i controlli delle predizioni
+function initializePredictionsControl() {
+    const controlBtn = document.getElementById('predictions-control-btn');
+    if (!controlBtn) return;
+    
+    // Aggiungi event listener per i checkbox
+    document.querySelectorAll('.btn-check').forEach(checkbox => {
+        checkbox.addEventListener('change', () => {
+            const models = getSelectedModels();
+            const timeframes = getSelectedTimeframes();
+            
+            // Aggiorna lo stato del pulsante
+            controlBtn.disabled = models.length === 0 || timeframes.length === 0;
+        });
+    });
+
+    controlBtn.addEventListener('click', togglePredictions);
+}
+
+// Modifica la funzione togglePredictions per includere la validazione
+async function togglePredictions() {
+    const controlBtn = document.getElementById('predictions-control-btn');
+    
+    if (!isPredictionsRunning) {
+        // Valida la selezione
+        if (!validateSelection()) {
+            return;
+        }
+        
+        try {
+            // Mostra loader sul pulsante
+            controlBtn.disabled = true;
+            controlBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Inizializzazione...';
+            
+            // Ottieni i modelli e timeframe selezionati
+            const selectedModels = getSelectedModels();
+            const selectedTimeframes = getSelectedTimeframes();
+            
+            // Inizializza il bot con le selezioni
+            const initResult = await makeApiRequest('/initialize', 'POST', {
+                models: selectedModels,
+                timeframes: selectedTimeframes
+            });
+            
+            if (!initResult) {
+                throw new Error('Errore durante l\'inizializzazione');
+            }
+            
+            // Avvia il bot
+            const startResult = await makeApiRequest('/start', 'POST');
+            if (!startResult) {
+                throw new Error('Errore durante l\'avvio');
+            }
+            
+            // Avvia le predizioni
+            isPredictionsRunning = true;
+            controlBtn.classList.add('running');
+            controlBtn.disabled = false;
+            controlBtn.innerHTML = '<i class="fas fa-stop me-1"></i> Ferma';
+            
+            // Disabilita i controlli durante l'esecuzione
+            document.querySelectorAll('.btn-check').forEach(checkbox => {
+                checkbox.disabled = true;
+            });
+            
+            // Carica le predizioni immediatamente
+            await loadPredictions();
+            
+            // Imposta l'intervallo per gli aggiornamenti
+            predictionsInterval = setInterval(async () => {
+                if (isPredictionsRunning) {
+                    await loadPredictions();
+                }
+            }, 60000); // Aggiorna ogni minuto
+            
+        } catch (error) {
+            console.error('Errore durante l\'avvio:', error);
+            controlBtn.disabled = false;
+            controlBtn.innerHTML = '<i class="fas fa-play me-1"></i> Avvia';
+            
+            // Mostra errore all'utente
+            showAlert(error.message || 'Errore durante l\'avvio delle predizioni', 'danger');
+        }
+    } else {
+        // Ferma le predizioni
+        stopPredictions();
+        
+        // Riabilita i controlli
+        document.querySelectorAll('.btn-check').forEach(checkbox => {
+            checkbox.disabled = false;
+        });
+    }
+}
+
+// Modifica la funzione loadPredictions per includere i modelli e timeframe selezionati
+async function loadPredictions() {
+    const loadingEl = document.getElementById('predictions-loading');
+    const errorEl = document.getElementById('predictions-error');
+    const errorMsgEl = document.getElementById('predictions-error-message');
+    
+    try {
+        // Mostra il loader solo se è il primo caricamento
+        if (!document.querySelector('#predictions-table tbody').children.length) {
+            loadingEl.classList.remove('d-none');
+        }
+        errorEl.classList.add('d-none');
+        
+        // Ottieni i modelli e timeframe selezionati
+        const selectedModels = getSelectedModels();
+        const selectedTimeframes = getSelectedTimeframes();
+        
+        // Recupera le predizioni dal server con i parametri selezionati
+        const result = await makeApiRequest('/predictions', 'GET', {
+            models: selectedModels,
+            timeframes: selectedTimeframes
+        });
+        
+        if (!result || !result.predictions) {
+            throw new Error('Formato dati predizioni non valido');
+        }
+        
+        // Raggruppa le predizioni per simbolo
+        const groupedPredictions = groupPredictionsBySymbol(result.predictions);
+        
+        // Calcola il consenso ensemble per ogni simbolo
+        const consensusPredictions = calculateEnsembleConsensus(groupedPredictions);
+        
+        // Visualizza le predizioni elaborate
+        await displayPredictions(consensusPredictions, selectedTimeframes, selectedTimeframes[0]);
+        
+        // Aggiorna il timestamp
+        updateLastUpdateTimestamp();
+        
+    } catch (error) {
+        console.error('Errore nel caricamento delle predizioni:', error);
+        errorEl.classList.remove('d-none');
+        errorMsgEl.textContent = error.message || 'Errore durante il caricamento delle predizioni';
+        
+        // Non fermare il loop in caso di errore
+        if (isPredictionsRunning) {
+            const tableBody = document.querySelector('#predictions-table tbody');
+            if (tableBody) {
+                tableBody.innerHTML = '<tr><td colspan="8" class="text-center text-warning">Riprovo tra 1 minuto...</td></tr>';
+            }
+        }
+    } finally {
+        loadingEl.classList.add('d-none');
+    }
+}
+
+// ... existing code ...
+
+// Funzione per gestire la selezione dei modelli e timeframe
+function initializeSelectionHandlers() {
+    const modelCheckboxes = document.querySelectorAll('.model-select');
+    const timeframeCheckboxes = document.querySelectorAll('.timeframe-select');
+    const modelsCounter = document.getElementById('models-counter');
+    const timeframesCounter = document.getElementById('timeframes-counter');
+    const controlBtn = document.getElementById('predictions-control-btn');
+    
+    function updateCounter(counter, checkboxes) {
+        const selected = Array.from(checkboxes).filter(cb => cb.checked).length;
+        counter.textContent = `${selected}/3`;
+        
+        // Aggiorna lo stile del counter in base al numero di selezioni
+        counter.className = 'selection-counter';
+        if (selected === 0) {
+            counter.classList.add('error');
+        } else if (selected > 3) {
+            counter.classList.add('error');
+        } else if (selected === 3) {
+            counter.classList.add('warning');
+        }
+        
+        return selected;
+    }
+    
+    function updateControlButton() {
+        const selectedModels = Array.from(modelCheckboxes).filter(cb => cb.checked).length;
+        const selectedTimeframes = Array.from(timeframeCheckboxes).filter(cb => cb.checked).length;
+        
+        const isValid = selectedModels > 0 && selectedModels <= 3 && 
+                       selectedTimeframes > 0 && selectedTimeframes <= 3;
+        
+        controlBtn.disabled = !isValid;
+    }
+    
+    function handleSelection(e, checkboxes, counter) {
+        const selected = Array.from(checkboxes).filter(cb => cb.checked).length;
+        
+        // Se si sta cercando di selezionare più di 3 elementi
+        if (selected > 3 && e.target.checked) {
+            e.preventDefault();
+            e.target.checked = false;
+            showAlert('Puoi selezionare al massimo 3 elementi', 'warning');
+            return;
+        }
+        
+        updateCounter(counter, checkboxes);
+        updateControlButton();
+    }
+    
+    // Aggiungi event listeners per i modelli
+    modelCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', (e) => {
+            handleSelection(e, modelCheckboxes, modelsCounter);
+        });
+    });
+    
+    // Aggiungi event listeners per i timeframe
+    timeframeCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', (e) => {
+            handleSelection(e, timeframeCheckboxes, timeframesCounter);
+        });
+    });
+    
+    // Inizializza i contatori
+    updateCounter(modelsCounter, modelCheckboxes);
+    updateCounter(timeframesCounter, timeframeCheckboxes);
+    updateControlButton();
+    
+    // Inizializza i tooltip
+    const tooltips = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+    tooltips.forEach(tooltip => {
+        new bootstrap.Tooltip(tooltip, {
+            placement: 'top',
+            trigger: 'hover'
+        });
+    });
+}
+
+// Modifica la funzione initializePredictionsControl per includere la nuova gestione
+function initializePredictionsControl() {
+    const controlBtn = document.getElementById('predictions-control-btn');
+    if (!controlBtn) return;
+    
+    // Inizializza i gestori di selezione
+    initializeSelectionHandlers();
+    
+    controlBtn.addEventListener('click', togglePredictions);
+}
+
+// ... existing code ...
