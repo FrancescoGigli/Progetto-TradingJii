@@ -17,9 +17,13 @@ exchange_config = {
 MARGIN_USDT = 40.0
 LEVERAGE = 10
 
-ENABLED_TIMEFRAMES = []          # DA AGGIORNARE CON L'INPUT DELL'UTENTE
-TIMEFRAME_DEFAULT = None         # DA AGGIORNARE CON L'INPUT DELL'UTENTE
+# Timeframes predefiniti per l'ambiente di produzione
+ENABLED_TIMEFRAMES = ['15m', '1h', '4h']  # Timeframes predefiniti per l'ambiente di produzione
+TIMEFRAME_DEFAULT = '15m'  # Timeframe predefinito per l'ambiente di produzione
 TIME_STEPS = 10
+
+# Modelli predefiniti per l'ambiente di produzione
+SELECTED_MODELS = ['lstm', 'rf', 'xgb']  # Modelli predefiniti per l'ambiente di produzione
 
 MODEL_RATES = {
     'lstm': 0.6,

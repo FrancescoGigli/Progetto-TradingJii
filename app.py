@@ -21,8 +21,6 @@ from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 import ccxt
 import ta
-import threading
-import queue
 
 # Moduli locali
 from trainer import (
@@ -38,6 +36,9 @@ from fetcher import (
     fetch_markets, get_top_symbols, fetch_min_amounts,
     fetch_data_for_multiple_symbols, get_data_async
 )
+
+# Caricamento delle variabili d'ambiente (opzionale, se hai un file .env)
+load_dotenv()
 
 # === CONFIGURAZIONE FILE CHIAVI ===
 API_KEY_FILE = Path("api_keys.enc")
@@ -115,6 +116,10 @@ def verify_auth_token(api_key: str = Header(None, alias="api-key"),
 def get_state(request: Request):
     return request.app.state
 
+# ---
+# Importazione del task Celery (definito in tasks.py)
+from tasks import train_model_task
+
 # === ENDPOINTS API ===
 
 @app.post("/initialize")
@@ -150,9 +155,20 @@ async def initialize_bot(config: BotConfig,
 
         # Aggiorna la configurazione nel modulo principale
         import main
-        main.ENABLED_TIMEFRAMES = config.timeframes
-        main.TIMEFRAME_DEFAULT = config.timeframes[0]
-        main.selected_models = config.models
+        import config as cfg
+        
+        # Utilizza i timeframe specificati dall'utente o quelli predefiniti dal config.py
+        timeframes = config.timeframes if config.timeframes else cfg.ENABLED_TIMEFRAMES
+        main.ENABLED_TIMEFRAMES = timeframes
+        main.TIMEFRAME_DEFAULT = timeframes[0]
+        
+        # Utilizza i modelli specificati dall'utente o quelli predefiniti dal config.py
+        models = config.models if config.models else cfg.SELECTED_MODELS
+        main.selected_models = models
+        
+        # Aggiorna anche la configurazione globale
+        cfg.ENABLED_TIMEFRAMES = timeframes
+        cfg.TIMEFRAME_DEFAULT = timeframes[0]
         
         state.initialized = True
 
@@ -535,195 +551,43 @@ async def close_position_endpoint(request: ClosePositionRequest,
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Errore nella chiusura della posizione: {str(e)}")
 
-# === TRAINING MODEL ===
-# La struttura training_status viene gestita internamente a questo file
-training_status = {}
-
+# === TRAINING MODEL VIA CELERY ===
 @app.post("/api/train-model")
 async def train_model(request: Request,
                       auth: None = Depends(verify_auth_token)):
     """
-    Avvia il processo di training per il modello specificato in un thread separato.
+    Avvia il processo di training tramite Celery.
+    Il task viene inviato al worker e l’endpoint restituisce l'ID del task.
     """
     try:
         data = await request.json()
         model_type = data.get("model_type")
         timeframe = data.get("timeframe")
         data_limit_days = data.get("data_limit_days", 30)
-        top_train_crypto = data.get("top_train_crypto", 5)
+        top_train_crypto = data.get("top_train_crypto", None)
         
-        training_key = f"{model_type}_{timeframe}"
-        training_status[training_key] = {
-            "status": "running",
-            "progress": 0,
-            "current_step": "Inizializzazione...",
-            "error": None,
-            "metrics": None,
-            "start_time": time.time()
+        # Invia il task a Celery
+        task = train_model_task.delay(model_type, timeframe, data_limit_days, top_train_crypto)
+        return {
+            "message": f"Training avviato per il modello {model_type} con timeframe {timeframe}",
+            "task_id": task.id
         }
-        thread = threading.Thread(
-            target=run_model_training,
-            args=(model_type, timeframe, data_limit_days, top_train_crypto, training_key)
-        )
-        thread.daemon = True
-        thread.start()
-        
-        return {"message": f"Training avviato per il modello {model_type} con timeframe {timeframe}"}
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=f"Errore nell'avvio del training: {str(e)}")
 
-@app.get("/api/training-status/{model_type}/{timeframe}")
-async def get_training_status(model_type: str, timeframe: str,
-                              auth: None = Depends(verify_auth_token)):
+@app.get("/api/training-status/{task_id}")
+async def get_training_status(task_id: str, auth: None = Depends(verify_auth_token)):
     """
-    Restituisce lo stato del training per il modello e timeframe richiesti.
+    Recupera lo stato del task di training a partire dal task_id.
     """
-    training_key = f"{model_type}_{timeframe}"
-    if training_key not in training_status:
-        raise HTTPException(status_code=404, detail="Training non trovato")
-    
-    status_info = training_status[training_key]
-    if status_info["status"] == "running":
-        elapsed_time = time.time() - status_info["start_time"]
-        if status_info["progress"] > 0:
-            estimated_total = elapsed_time / (status_info["progress"] / 100)
-            remaining_time = max(0, estimated_total - elapsed_time)
-            status_info["estimated_time"] = f"{int(remaining_time / 60)}:{int(remaining_time % 60):02d}"
-        else:
-            status_info["estimated_time"] = "--:--"
-    
-    return status_info
-
-def run_model_training(model_type, timeframe, data_limit_days, top_train_crypto, training_key):
-    """
-    Esegue il training del modello in un thread separato gestendo l'event loop.
-    """
-    try:
-        if sys.platform.startswith('win'):
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(train_process(model_type, timeframe, data_limit_days, top_train_crypto, training_key))
-        finally:
-            try:
-                pending = asyncio.all_tasks(loop)
-                if pending:
-                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            except Exception as e:
-                logging.warning(f"Errore durante la chiusura dei task pendenti: {e}")
-            finally:
-                loop.close()
-    except Exception as e:
-        logging.error(f"Errore durante il training: {e}")
-        logging.error(traceback.format_exc())
-        if training_key in training_status:
-            training_status[training_key]["status"] = "error"
-            training_status[training_key]["error"] = str(e)
-            training_status[training_key]["current_step"] = f"Errore durante il training: {str(e)}"
-        raise
-
-async def train_process(model_type, timeframe, data_limit_days, top_train_crypto, training_key):
-    """
-    Processo asincrono che esegue il training del modello utilizzando i dati e i simboli validati.
-    """
-    try:
-        from config import (
-            exchange_config, EXCLUDED_SYMBOLS, TIME_STEPS, 
-            TOP_TRAIN_CRYPTO, TOP_ANALYSIS_CRYPTO, EXPECTED_COLUMNS,
-            SYMBOLS_PER_ANALYSIS_CYCLE, SYMBOLS_FOR_VALIDATION,
-            TRAIN_IF_NOT_FOUND, ENABLED_TIMEFRAMES, TIMEFRAME_DEFAULT, 
-            SELECTED_MODELS as selected_models
-        )
-        from fetcher import (
-            fetch_markets, get_top_symbols, fetch_min_amounts,
-            fetch_data_for_multiple_symbols, get_data_async
-        )
-        training_status[training_key]["current_step"] = "Inizializzazione dell'exchange..."
-        training_status[training_key]["progress"] = 5
-        
-        exchange = ccxt_async.bybit(exchange_config)
-        try:
-            await exchange.load_markets()
-            await exchange.load_time_difference()
-            
-            training_status[training_key]["current_step"] = "Recupero dei mercati disponibili..."
-            training_status[training_key]["progress"] = 10
-            
-            markets = await fetch_markets(exchange)
-            all_symbols = [m['symbol'] for m in markets.values() if m.get('quote') == 'USDT'
-                           and m.get('active') and m.get('type') == 'swap']
-            
-            all_symbols_analysis = [s for s in all_symbols if not re.search('|'.join(EXCLUDED_SYMBOLS), s)]
-            
-            training_status[training_key]["current_step"] = f"Recupero dei top {top_train_crypto} simboli per il training..."
-            training_status[training_key]["progress"] = 20
-            
-            top_symbols_training = await get_top_symbols(exchange, all_symbols, top_n=top_train_crypto)
-            
-            training_status[training_key]["current_step"] = "Validazione dei dati..."
-            training_status[training_key]["progress"] = 30
-            
-            valid_symbols = []
-            for tf in ENABLED_TIMEFRAMES:
-                result_dict = await fetch_data_for_multiple_symbols(
-                    exchange, 
-                    top_symbols_training[:SYMBOLS_FOR_VALIDATION],
-                    timeframe=tf
-                )
-                valid_for_tf = []
-                for symbol, df in result_dict.items():
-                    if df is not None and not (df.isnull().any().any() or np.isinf(df).any().any()):
-                        valid_for_tf.append(symbol)
-                if not valid_symbols:
-                    valid_symbols = valid_for_tf
-                else:
-                    valid_symbols = [s for s in valid_symbols if s in valid_for_tf]
-            
-            training_status[training_key]["current_step"] = "Preparazione dei dati per il training..."
-            training_status[training_key]["progress"] = 40
-            
-            top_symbols_training = valid_symbols
-            ensure_trained_models_dir()
-            
-            training_status[training_key]["current_step"] = f"Training del modello {model_type}..."
-            training_status[training_key]["progress"] = 50
-            
-            if model_type == 'lstm':
-                model, scaler, metrics = await train_lstm_model_for_timeframe(
-                    exchange, top_symbols_training, timeframe=timeframe, timestep=TIME_STEPS)
-            elif model_type == 'rf':
-                model, scaler, metrics = await train_random_forest_model_wrapper(
-                    top_symbols_training, exchange, timestep=TIME_STEPS, timeframe=timeframe)
-            elif model_type == 'xgb':
-                model, scaler, metrics = await train_xgboost_model_wrapper(
-                    top_symbols_training, exchange, timestep=TIME_STEPS, timeframe=timeframe)
-            else:
-                raise ValueError(f"Tipo di modello non supportato: {model_type}")
-            
-            training_status[training_key]["status"] = "completed"
-            training_status[training_key]["progress"] = 100
-            training_status[training_key]["current_step"] = "Training completato con successo!"
-            training_status[training_key]["metrics"] = metrics
-            
-            try:
-                await exchange.close()
-            except Exception as e:
-                logging.warning(f"Errore durante la chiusura dell'exchange: {e}")
-        except Exception as e:
-            try:
-                await exchange.close()
-            except:
-                pass
-            raise e
-        
-    except Exception as e:
-        training_status[training_key]["status"] = "error"
-        training_status[training_key]["error"] = str(e)
-        training_status[training_key]["current_step"] = f"Errore durante il training: {str(e)}"
-        logging.error(f"Errore durante il training: {e}")
-        logging.error(traceback.format_exc())
-        raise
+    from celery_worker import celery_app
+    task_result = celery_app.AsyncResult(task_id)
+    if task_result.state == "PENDING":
+        return {"status": "pending"}
+    elif task_result.state == "FAILURE":
+        raise HTTPException(status_code=500, detail=str(task_result.info))
+    else:
+        return {"status": task_result.state, "result": task_result.result}
 
 # === AVVIO MANUALE DELL'APPLICAZIONE ===
 if __name__ == "__main__":

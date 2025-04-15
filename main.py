@@ -49,9 +49,10 @@ first_cycle = True
 
 # --- Sezione: Configurazione interattiva ---
 def select_config():
-    # Valori predefiniti che verranno sovrascritti dall'interfaccia web
-    default_timeframes = ["15m", "30m", "1h"]
-    default_models = ["lstm", "rf", "xgb"]
+    # Utilizza i valori predefiniti dal file config.py
+    import config
+    default_timeframes = config.ENABLED_TIMEFRAMES
+    default_models = config.SELECTED_MODELS  # Utilizza i modelli predefiniti dal config.py
     return default_timeframes, default_models
 
 # Esegui la selezione e aggiorna la configurazione
