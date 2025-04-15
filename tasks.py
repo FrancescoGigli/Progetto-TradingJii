@@ -17,9 +17,12 @@ from fetcher import get_top_symbols, fetch_markets
 def train_model_task(self, model_type, timeframe, data_limit_days=30, top_train_crypto=TOP_TRAIN_CRYPTO):
     """
     Task Celery per eseguire il training del modello.
-    model_type: 'lstm', 'rf' o 'xgb'
-    timeframe: ad es. '15m'
-    data_limit_days e top_train_crypto possono avere valori predefiniti.
+    
+    Parametri:
+      - model_type: 'lstm', 'rf' o 'xgb'
+      - timeframe: ad es. '15m'
+      - data_limit_days: numero di giorni di dati (default 30)
+      - top_train_crypto: numero di simboli da usare per il training (default da config)
     """
     start_time = time.time()
     try:
@@ -37,14 +40,17 @@ def train_model_task(self, model_type, timeframe, data_limit_days=30, top_train_
         # Recupera i mercati disponibili
         markets = loop.run_until_complete(fetch_markets(exchange))
         
-        # Filtra i simboli per ottenere solo quelli USDT
-        all_symbols = [m['symbol'] for m in markets.values() if m.get('quote') == 'USDT'
-                       and m.get('active') and m.get('type') == 'swap']
+        # Filtra i simboli per ottenere solo quelli USDT attivi e di tipo swap
+        all_symbols = [
+            m['symbol'] for m in markets.values() 
+            if m.get('quote') == 'USDT' and m.get('active') and m.get('type') == 'swap'
+        ]
         
-        # Ottieni i simboli con il maggior volume
+        # Ottieni i simboli con il maggior volume tra quelli filtrati
         top_symbols = loop.run_until_complete(get_top_symbols(exchange, all_symbols, top_n=top_train_crypto))
+        logging.info("Simboli per il training: %s", top_symbols)
         
-        # Determina la directory dove salvare i modelli (se necessario)
+        # Se necessario, crea (o verifica) la directory per salvare i modelli
         trained_models_dir = ensure_trained_models_dir()
         
         # Esegui il training in base al tipo di modello richiesto
@@ -63,9 +69,10 @@ def train_model_task(self, model_type, timeframe, data_limit_days=30, top_train_
         else:
             raise ValueError(f"Tipo di modello non supportato: {model_type}")
         
-        # Chiudi l'exchange e calcola il tempo impiegato
+        # Chiudi l'exchange
         loop.run_until_complete(exchange.close())
         duration = time.time() - start_time
+        
         result = {
             "status": "completed",
             "model_type": model_type,

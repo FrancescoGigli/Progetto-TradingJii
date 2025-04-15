@@ -1,5 +1,5 @@
 # app.py
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Header, Request
+from fastapi import FastAPI, HTTPException, Depends, Header, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
@@ -37,7 +37,7 @@ from fetcher import (
     fetch_data_for_multiple_symbols, get_data_async
 )
 
-# Caricamento delle variabili d'ambiente (opzionale, se hai un file .env)
+# Carica le variabili d'ambiente
 load_dotenv()
 
 # === CONFIGURAZIONE FILE CHIAVI ===
@@ -48,7 +48,7 @@ FERNET_KEY_FILE = Path("fernet.key")
 app = FastAPI(title="Trading Bot API", version="1.0")
 logger = logging.getLogger("uvicorn")
 
-# Configurazione CORS (in produzione è preferibile restringere i domini ammessi)
+# Configurazione CORS (in produzione limitare i domini ammessi)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -106,9 +106,9 @@ def load_api_keys_secure():
     decrypted = fernet.decrypt(API_KEY_FILE.read_bytes())
     return json.loads(decrypted)
 
-def verify_auth_token(api_key: str = Header(None, alias="api-key"), 
+def verify_auth_token(api_key: str = Header(None, alias="api-key"),
                         api_secret: str = Header(None, alias="api-secret")):
-    """Verifica che le credenziali presenti nell'header siano corrette."""
+    """Verifica che le credenziali siano corrette."""
     if api_key != API_KEY or api_secret != API_SECRET:
         raise HTTPException(status_code=401, detail="Credenziali non autorizzate")
 
@@ -116,36 +116,32 @@ def verify_auth_token(api_key: str = Header(None, alias="api-key"),
 def get_state(request: Request):
     return request.app.state
 
-# ---
-# Importazione del task Celery (definito in tasks.py)
+# --- IMPORTA IL TASK CELERY ---
 from tasks import train_model_task
 
 # === ENDPOINTS API ===
 
 @app.post("/initialize")
-async def initialize_bot(config: BotConfig, 
+async def initialize_bot(config: BotConfig,
                            auth: None = Depends(verify_auth_token),
                            state = Depends(get_state)):
     """
-    Inizializza il bot con i modelli e i timeframe selezionati.
-    Verifica i parametri e inizializza l'exchange.
+    Inizializza il bot con i modelli e i timeframe selezionati,
+    inizializzando anche l'exchange.
     """
     try:
-        # Validazione dei timeframe
         valid_timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
         if not all(tf in valid_timeframes for tf in config.timeframes):
             raise HTTPException(status_code=400, detail="Timeframe non valido")
         if not (1 <= len(config.timeframes) <= 3):
             raise HTTPException(status_code=400, detail="Numero di timeframe non valido (min: 1, max: 3)")
         
-        # Validazione dei modelli
         valid_models = ['lstm', 'rf', 'xgb']
         if not all(model in valid_models for model in config.models):
             raise HTTPException(status_code=400, detail="Modello non valido")
         if not (1 <= len(config.models) <= 3):
             raise HTTPException(status_code=400, detail="Numero di modelli non valido (min: 1, max: 3)")
         
-        # Inizializza l'exchange se non già presente
         if not state.async_exchange:
             state.async_exchange = ccxt_async.bybit(exchange_config)
             await state.async_exchange.load_markets()
@@ -153,27 +149,22 @@ async def initialize_bot(config: BotConfig,
         
         state.current_config = config
 
-        # Aggiorna la configurazione nel modulo principale
         import main
         import config as cfg
-        
-        # Utilizza i timeframe specificati dall'utente o quelli predefiniti dal config.py
         timeframes = config.timeframes if config.timeframes else cfg.ENABLED_TIMEFRAMES
         main.ENABLED_TIMEFRAMES = timeframes
         main.TIMEFRAME_DEFAULT = timeframes[0]
         
-        # Utilizza i modelli specificati dall'utente o quelli predefiniti dal config.py
         models = config.models if config.models else cfg.SELECTED_MODELS
         main.selected_models = models
         
-        # Aggiorna anche la configurazione globale
         cfg.ENABLED_TIMEFRAMES = timeframes
         cfg.TIMEFRAME_DEFAULT = timeframes[0]
         
         state.initialized = True
 
         return {
-            "status": "Bot inizializzato", 
+            "status": "Bot inizializzato",
             "config": config.dict(),
             "exchange": "Bybit",
             "initialized": state.initialized
@@ -184,11 +175,11 @@ async def initialize_bot(config: BotConfig,
         raise HTTPException(status_code=500, detail=f"Errore durante l'inizializzazione: {str(e)}")
 
 @app.post("/start")
-async def start_bot(background_tasks: BackgroundTasks, 
+async def start_bot(background_tasks: BackgroundTasks,
                     auth: None = Depends(verify_auth_token),
                     state = Depends(get_state)):
     """
-    Avvia il bot se non è già in esecuzione.
+    Avvia il bot se non già in esecuzione.
     """
     if state.bot_running:
         raise HTTPException(status_code=400, detail="Bot già in esecuzione")
@@ -203,7 +194,7 @@ async def start_bot(background_tasks: BackgroundTasks,
 async def stop_bot(auth: None = Depends(verify_auth_token),
                    state = Depends(get_state)):
     """
-    Richiede l'arresto del bot se in esecuzione.
+    Richiede l'arresto del bot.
     """
     if state.bot_task and not state.bot_task.done():
         state.bot_task.cancel()
@@ -224,10 +215,10 @@ def status(auth: None = Depends(verify_auth_token),
     }
 
 @app.post("/set-keys")
-def set_api_keys(keys: ApiKeys, 
+def set_api_keys(keys: ApiKeys,
                  auth: None = Depends(verify_auth_token)):
     """
-    Salva le chiavi API in maniera sicura.
+    Salva le chiavi API in modo sicuro.
     """
     try:
         save_api_keys_secure(keys)
@@ -250,7 +241,7 @@ def get_api_keys(auth: None = Depends(verify_auth_token)):
 async def get_balance(auth: None = Depends(verify_auth_token),
                       state = Depends(get_state)):
     """
-    Recupera il bilancio completo dall'exchange e restituisce una struttura dettagliata.
+    Recupera il bilancio completo dall'exchange.
     """
     if not state.async_exchange:
         state.async_exchange = ccxt_async.bybit(exchange_config)
@@ -291,7 +282,7 @@ async def get_balance(auth: None = Depends(verify_auth_token),
         if detailed_balance["pnl"] == 0:
             try:
                 positions = await state.async_exchange.fetch_positions(None, {
-                    'limit': 100, 
+                    'limit': 100,
                     'category': 'linear',
                     'settleCoin': 'USDT'
                 })
@@ -336,14 +327,13 @@ async def get_open_orders(auth: None = Depends(verify_auth_token),
     try:
         open_orders = await state.async_exchange.fetch_open_orders()
         positions = await state.async_exchange.fetch_positions(None, {
-            'limit': 100, 
+            'limit': 100,
             'category': 'linear',
             'settleCoin': 'USDT'
         })
         from config import LEVERAGE, MARGIN_USDT
         leverage = LEVERAGE
         
-        # Mappa le posizioni attive per simbolo e lato
         active_position_keys = {}
         for p in positions:
             if float(p.get("contracts", 0)) > 0:
@@ -357,9 +347,7 @@ async def get_open_orders(auth: None = Depends(verify_auth_token),
             symbol = order.get('symbol')
             order_side = order.get('side', '').lower()
             is_related = False
-            if order.get('info', {}).get('stopOrderType') == 'Stop':
-                is_related = True
-            elif 'stopPrice' in order.get('info', {}):
+            if order.get('info', {}).get('stopOrderType') == 'Stop' or 'stopPrice' in order.get('info', {}):
                 is_related = True
             elif order.get('info', {}).get('reduceOnly') is True:
                 is_related = True
@@ -567,6 +555,7 @@ async def train_model(request: Request,
         top_train_crypto = data.get("top_train_crypto", None)
         
         # Invia il task a Celery
+        from tasks import train_model_task
         task = train_model_task.delay(model_type, timeframe, data_limit_days, top_train_crypto)
         return {
             "message": f"Training avviato per il modello {model_type} con timeframe {timeframe}",
@@ -592,7 +581,6 @@ async def get_training_status(task_id: str, auth: None = Depends(verify_auth_tok
 # === AVVIO MANUALE DELL'APPLICAZIONE ===
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
-    # Rimuove eventuali handler esistenti e ne aggiunge uno per il terminale
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
     console_handler = logging.StreamHandler()
