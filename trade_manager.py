@@ -106,7 +106,7 @@ def save_trade_db(trade):
         ))
         conn.commit()
     except Exception as e:
-        logging.error(colored(f"❌ Errore nel salvataggio del trade: {e}", "red"))
+        logging.error(colored(f"Errore nel salvataggio del trade: {e}", "red"))
     finally:
         if USE_DATABASE:
             conn.close()
@@ -128,17 +128,17 @@ def close_trade_record(trade_record, exit_price):
     trade_record["trade_time"] = now_iso
     trade_record["timestamp"] = now_iso
     save_trade_db(trade_record)
-    logging.info(colored(f"✅ Trade chiuso: {trade_record}", "green"))
+    logging.info(colored(f"Trade chiuso: {trade_record}", "green"))
 
 async def get_real_balance(exchange):
     try:
         balance = await exchange.fetch_balance()
         usdt_balance = balance.get('USDT', {}).get('free', 0)
         if usdt_balance == 0:
-            logging.warning(colored("⚠️ Il saldo USDT è zero o non trovato.", "yellow"))
+            logging.warning(colored("Il saldo USDT è zero o non trovato.", "yellow"))
         return usdt_balance
     except Exception as e:
-        logging.error(colored(f"❌ Errore nel recupero del saldo: {e}", "red"))
+        logging.error(colored(f"Errore nel recupero del saldo: {e}", "red"))
         return None
 
 async def get_open_positions(exchange):
@@ -146,7 +146,7 @@ async def get_open_positions(exchange):
         positions = await exchange.fetch_positions(None, {'limit': 100, 'type': 'swap'})
         return len([p for p in positions if float(p.get('contracts', 0)) > 0])
     except Exception as e:
-        logging.error(colored(f"❌ Errore nel recupero delle posizioni aperte: {e}", "red"))
+        logging.error(colored(f"Errore nel recupero delle posizioni aperte: {e}", "red"))
         return 0
 
 async def calculate_position_size(exchange, symbol, usdt_balance, min_amount=0, risk_factor=1.0):
@@ -154,31 +154,44 @@ async def calculate_position_size(exchange, symbol, usdt_balance, min_amount=0, 
         ticker = await exchange.fetch_ticker(symbol)
         current_price = ticker.get('last')
         if current_price is None or not isinstance(current_price, (int, float)):
-            logging.error(colored(f"❌ Prezzo corrente per {symbol} non disponibile", "red"))
+            logging.error(colored(f"Prezzo corrente per {symbol} non disponibile", "red"))
             return None
-        margin = MARGIN_USDT
-        leverage = LEVERAGE
+        
+        # Usa i valori globali di main.py per maggiore flessibilità
+        # Se non disponibili, utilizza i valori da config.py
+        import main
+        margin = getattr(main, 'MARGIN_USDT', MARGIN_USDT)
+        leverage = getattr(main, 'LEVERAGE', LEVERAGE)
+        
+        logging.info(colored(f"Parametri trading: Margine={margin} USDT, Leva={leverage}x", "blue"))
+        
         notional_value = margin * leverage
         position_size = notional_value / current_price
         position_size = float(exchange.amount_to_precision(symbol, position_size))
-        logging.info(colored(f"📏 Dimensione posizione per {symbol}: {position_size} contratti (Margine = {margin})", "cyan"))
+        logging.info(colored(f"Dimensione posizione per {symbol}: {position_size} contratti (Margine = {margin})", "cyan"))
         if position_size < min_amount:
-            logging.warning(colored(f"⚠️ Dimensione posizione {position_size} inferiore al minimo {min_amount} per {symbol}.", "yellow"))
+            logging.warning(colored(f"Dimensione posizione {position_size} inferiore al minimo {min_amount} per {symbol}.", "yellow"))
             position_size = min_amount
         return position_size
     except Exception as e:
-        logging.error(colored(f"❌ Errore nel calcolo della dimensione per {symbol}: {e}", "red"))
+        logging.error(colored(f"Errore nel calcolo della dimensione per {symbol}: {e}", "red"))
         return None
 
 async def manage_position(exchange, symbol, signal, usdt_balance, min_amounts,
                           lstm_model, lstm_scaler, rf_model, rf_scaler, df, predictions=None):
     current_time = time.time()
-    new_im = 30.0
+    
+    # Usa i valori globali di main.py per maggiore flessibilità
+    import main
+    margin = getattr(main, 'MARGIN_USDT', MARGIN_USDT)
+    
+    new_im = margin * 0.75  # Usa una percentuale del margine per il calcolo
     total_im = await get_total_initial_margin(exchange, symbol)
-    if total_im + new_im > 35.0:
+    
+    if total_im + new_im > margin * 0.9:  # Limita l'apertura se supera il 90% del margine
         logging.info(colored(f"{symbol}: Apertura non consentita (IM totale superiore al limite).", "yellow"))
         return
-    margin = MARGIN_USDT
+    
     logging.info(colored(f"{symbol} - Utilizzo margine USDT: {margin:.2f}", "magenta"))
     position_size = await calculate_position_size(exchange, symbol, usdt_balance, min_amount=min_amounts.get(symbol, 0.1))
     if not position_size or position_size < min_amounts.get(symbol, 0.1):
@@ -209,10 +222,10 @@ async def execute_order(exchange, symbol, side, position_size, price, current_ti
     except Exception as e:
         error_str = str(e)
         if "110007" in error_str or "not enough" in error_str:
-            logging.warning(colored(f"⚠️ Errore ordine per {symbol}: {error_str}", "yellow"))
+            logging.warning(colored(f"Errore ordine per {symbol}: {error_str}", "yellow"))
             return "insufficient_balance"
         else:
-            logging.error(colored(f"❌ Errore eseguendo ordine {side} per {symbol}: {error_str}", "red"))
+            logging.error(colored(f"Errore eseguendo ordine {side} per {symbol}: {error_str}", "red"))
             return None
     entry_price = order.get('average') or price
     trade_id = order.get("id") or f"{symbol}-{datetime.utcnow().timestamp()}"
@@ -239,7 +252,7 @@ async def execute_order(exchange, symbol, side, position_size, price, current_ti
         "status": "open"
     }
     save_trade_db(new_trade)
-    logging.info(colored(f"🔔 Trade aperto: {new_trade}", "green"))
+    logging.info(colored(f"Trade aperto: {new_trade}", "green"))
     return new_trade
 
 async def get_total_initial_margin(exchange, symbol):
@@ -252,7 +265,7 @@ async def get_total_initial_margin(exchange, symbol):
                 total_im += float(im)
         return total_im
     except Exception as e:
-        logging.error(colored(f"❌ Errore nel recupero del margine iniziale per {symbol}: {e}", "red"))
+        logging.error(colored(f"Errore nel recupero del margine iniziale per {symbol}: {e}", "red"))
         return 0.0
 
 async def update_orders_status(exchange):
@@ -267,7 +280,7 @@ async def save_orders_tracker():
         async with aiofiles.open("orders_status.json", 'w') as f:
             await f.write(json.dumps([], indent=2))
     except Exception as e:
-        logging.error(colored(f"❌ Errore nel salvataggio dello stato degli ordini: {e}", "red"))
+        logging.error(colored(f"Errore nel salvataggio dello stato degli ordini: {e}", "red"))
 
 async def monitor_open_trades(exchange):
     while True:
@@ -305,9 +318,9 @@ async def load_existing_positions(exchange):
                     "status": "open"
                 }
                 save_trade_db(new_trade)
-        logging.info(colored("✅ Posizioni aperte caricate/aggiornate.", "green"))
+        logging.info(colored("Posizioni aperte caricate/aggiornate.", "green"))
     except Exception as e:
-        logging.error(colored(f"❌ Errore nel caricamento delle posizioni aperte: {e}", "red"))
+        logging.error(colored(f"Errore nel caricamento delle posizioni aperte: {e}", "red"))
 
 def build_trade_key(pos):
     tid = pos.get("id")
@@ -491,9 +504,9 @@ def save_trade_statistics():
                     total_realizedpnl = excluded.total_realizedpnl
             ''', row)
         conn.commit()
-        logging.info(colored("✅ Statistiche dei trade salvate nel DB.", "green"))
+        logging.info(colored("Statistiche dei trade salvate nel DB.", "green"))
     except Exception as e:
-        logging.error(colored(f"❌ Errore nel salvataggio delle statistiche dei trade: {e}", "red"))
+        logging.error(colored(f"Errore nel salvataggio delle statistiche dei trade: {e}", "red"))
     finally:
         if USE_DATABASE:
             conn.close()

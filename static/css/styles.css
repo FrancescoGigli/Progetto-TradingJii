@@ -841,4 +841,347 @@ main {
     .log-entry {
         border-bottom: 1px solid #444;
     }
+}
+
+/* Stili generali */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Stili per la visualizzazione attività del bot */
+.activity-visualization-container {
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.activity-visualization-container:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+#current-activity-marker {
+    animation: pulse 1.5s infinite;
+}
+
+.trading-event {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 12px;
+    transition: all 0.3s ease;
+    opacity: 0;
+    transform: scale(0);
+    z-index: 5;
+}
+
+.trading-event.appear {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.trading-event.buy {
+    background-color: rgba(40, 167, 69, 0.8);
+    box-shadow: 0 0 8px rgba(40, 167, 69, 0.5);
+}
+
+.trading-event.sell {
+    background-color: rgba(220, 53, 69, 0.8);
+    box-shadow: 0 0 8px rgba(220, 53, 69, 0.5);
+}
+
+.trading-event.analysis {
+    background-color: rgba(255, 193, 7, 0.8);
+    box-shadow: 0 0 8px rgba(255, 193, 7, 0.5);
+}
+
+.stat-item {
+    padding: 10px 15px;
+    border-radius: 8px;
+    background-color: #fff;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    transition: all 0.3s ease;
+}
+
+.stat-item:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+/* Animazioni */
+@keyframes pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(13, 110, 253, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(13, 110, 253, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(13, 110, 253, 0);
+    }
+}
+
+@keyframes slide-in {
+    0% {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Stili per la timeline di attività recenti */
+.timeline-container {
+    position: relative;
+    padding-left: 40px;
+}
+
+.timeline-container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 15px;
+    height: 100%;
+    width: 2px;
+    background-color: #dee2e6;
+}
+
+.timeline-item {
+    position: relative;
+    margin-bottom: 20px;
+    animation: slide-in 0.3s ease;
+}
+
+.timeline-badge {
+    position: absolute;
+    left: -40px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    z-index: 1;
+}
+
+.timeline-content {
+    padding: 12px 15px;
+    background-color: #fff;
+    border-radius: 6px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+.timeline-time {
+    font-size: 0.75rem;
+    color: #6c757d;
+    margin-bottom: 5px;
+}
+
+.timeline-title {
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.timeline-details {
+    font-size: 0.875rem;
+}
+
+/* Stili per il grafico di performance */
+#performance-visualization {
+    transition: all 0.3s ease;
+}
+
+#performance-visualization:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+/* Animazioni per nuovi eventi di trading */
+.new-event {
+    animation: pop-in 0.5s ease;
+}
+
+@keyframes pop-in {
+    0% {
+        opacity: 0;
+        transform: scale(0);
+    }
+    70% {
+        transform: scale(1.2);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Stili per le notifiche di trading */
+.trade-notification {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 15px 20px;
+    border-radius: 8px;
+    background-color: white;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    z-index: 1050;
+    display: flex;
+    align-items: center;
+    min-width: 300px;
+    transform: translateX(400px);
+    transition: transform 0.5s ease;
+}
+
+.trade-notification.show {
+    transform: translateX(0);
+}
+
+.trade-notification-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    margin-right: 15px;
+}
+
+.trade-notification-content {
+    flex-grow: 1;
+}
+
+.trade-notification-title {
+    font-weight: 600;
+    margin-bottom: 3px;
+}
+
+.trade-notification-message {
+    font-size: 0.875rem;
+    color: #6c757d;
+}
+
+.trade-notification-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #6c757d;
+    font-size: 1.2rem;
+}
+
+.trade-notification.buy .trade-notification-icon {
+    background-color: #28a745;
+}
+
+.trade-notification.sell .trade-notification-icon {
+    background-color: #dc3545;
+}
+
+.trade-notification.analysis .trade-notification-icon {
+    background-color: #17a2b8;
+}
+
+/* Stili per le predizioni */
+.prediction-card {
+    transition: all 0.3s ease;
+    border: 1px solid #e0e0e0;
+    margin-bottom: 15px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.prediction-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.prediction-card .card-header {
+    padding: 10px 15px;
+    font-weight: bold;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.prediction-card .card-body {
+    padding: 15px;
+}
+
+/* Animazione per le nuove predizioni */
+@keyframes highlight-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
+        transform: scale(1);
+    }
+    50% {
+        box-shadow: 0 0 0 10px rgba(40, 167, 69, 0);
+        transform: scale(1.03);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
+        transform: scale(1);
+    }
+}
+
+.highlight-prediction {
+    animation: highlight-pulse 1.5s ease-in-out;
+    border: 1px solid #28a745;
+}
+
+/* Stili per la notifica di nuove predizioni */
+.prediction-notification {
+    opacity: 0;
+    transform: translateX(50px);
+    animation: slide-in-notification 0.5s forwards;
+}
+
+@keyframes slide-in-notification {
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Container per le predizioni */
+#prediction-cards-container {
+    min-height: 200px;
+}
+
+/* Stili per gli indicatori di direzione */
+.direction-indicator {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    margin-right: 8px;
+    text-align: center;
+    line-height: 24px;
+}
+
+.direction-up {
+    background-color: #28a745;
+    color: white;
+}
+
+.direction-down {
+    background-color: #dc3545;
+    color: white;
+}
+
+.direction-neutral {
+    background-color: #ffc107;
+    color: #212529;
 } 

@@ -1,8 +1,8 @@
 # app.py
-from fastapi import FastAPI, HTTPException, Depends, Header, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, Header, Request, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 import asyncio
 import os
 import sys
@@ -30,8 +30,8 @@ from trainer import (
     ensure_trained_models_dir
 )
 from main import main as run_bot
-from trade_manager import get_real_balance, get_open_positions
-from config import exchange_config, API_KEY, API_SECRET, EXCLUDED_SYMBOLS, TOP_ANALYSIS_CRYPTO
+from trade_manager import get_real_balance, get_open_positions, save_trade_db
+from config import exchange_config, API_KEY, API_SECRET, EXCLUDED_SYMBOLS, TOP_ANALYSIS_CRYPTO, LEVERAGE, MARGIN_USDT
 from fetcher import (
     fetch_markets, get_top_symbols, fetch_min_amounts,
     fetch_data_for_multiple_symbols, get_data_async
@@ -72,6 +72,7 @@ class ApiKeys(BaseModel):
 class BotConfig(BaseModel):
     models: List[str]
     timeframes: List[str]
+    trading_params: Optional[dict] = None
 
 class ClosePositionRequest(BaseModel):
     symbol: str
@@ -160,6 +161,29 @@ async def initialize_bot(config: BotConfig,
         
         cfg.ENABLED_TIMEFRAMES = timeframes
         cfg.TIMEFRAME_DEFAULT = timeframes[0]
+        
+        # Aggiorna i parametri di trading se presenti
+        if config.trading_params:
+            if 'top_analysis_crypto' in config.trading_params:
+                top_analysis = config.trading_params['top_analysis_crypto']
+                if 10 <= top_analysis <= 100:
+                    cfg.TOP_ANALYSIS_CRYPTO = top_analysis
+                    main.TOP_ANALYSIS_CRYPTO = top_analysis
+                    logging.info(f"Numero di cripto da analizzare impostato a: {top_analysis}")
+            
+            if 'leverage' in config.trading_params:
+                leverage = config.trading_params['leverage']
+                if 1 <= leverage <= 10:
+                    cfg.LEVERAGE = leverage
+                    main.LEVERAGE = leverage
+                    logging.info(f"Leva finanziaria impostata a: {leverage}x")
+            
+            if 'margin_usdt' in config.trading_params:
+                margin = config.trading_params['margin_usdt']
+                if 10 <= margin <= 100:
+                    cfg.MARGIN_USDT = margin
+                    main.MARGIN_USDT = margin
+                    logging.info(f"Margine USDT impostato a: {margin}")
         
         state.initialized = True
 
@@ -545,7 +569,7 @@ async def train_model(request: Request,
                       auth: None = Depends(verify_auth_token)):
     """
     Avvia il processo di training tramite Celery.
-    Il task viene inviato al worker e l’endpoint restituisce l'ID del task.
+    Il task viene inviato al worker e l'endpoint restituisce l'ID del task.
     """
     try:
         data = await request.json()
@@ -577,6 +601,262 @@ async def get_training_status(task_id: str, auth: None = Depends(verify_auth_tok
         raise HTTPException(status_code=500, detail=str(task_result.info))
     else:
         return {"status": task_result.state, "result": task_result.result}
+
+@app.get("/predictions")
+async def get_predictions(
+    models: list[str] = Query([]),
+    timeframes: list[str] = Query([]),
+    auth: None = Depends(verify_auth_token),
+    state = Depends(get_state)
+):
+    """
+    Restituisce le predizioni per i modelli e timeframe selezionati.
+    Versione semplificata che recupera solo le monete e genera predizioni.
+    """
+    try:
+        # Valida i modelli e timeframe
+        valid_models = ['lstm', 'rf', 'xgb']
+        valid_timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
+        
+        filtered_models = [m for m in models if m in valid_models]
+        filtered_timeframes = [tf for tf in timeframes if tf in valid_timeframes]
+        
+        if not filtered_models:
+            filtered_models = ['lstm', 'rf', 'xgb']
+        if not filtered_timeframes:
+            filtered_timeframes = ['15m', '1h', '4h']
+        
+        # Log dei parametri selezionati
+        logging.info(f"Generazione predizioni per: Modelli={filtered_models}, Timeframes={filtered_timeframes}")
+        
+        # Importa temporaneamente il modulo main
+        import importlib
+        import main
+        import config as cfg
+        from fetcher import fetch_markets
+        
+        # Imposta la configurazione con i valori selezionati dall'utente
+        cfg.ENABLED_TIMEFRAMES = filtered_timeframes
+        cfg.TIMEFRAME_DEFAULT = filtered_timeframes[0] if filtered_timeframes else '15m'
+        main.selected_models = filtered_models
+        
+        # Inizializza l'exchange se necessario
+        if not state.async_exchange:
+            state.async_exchange = ccxt_async.bybit(exchange_config)
+            await state.async_exchange.load_markets()
+        
+        # Ottieni i mercati per l'analisi
+        markets = await fetch_markets(state.async_exchange)
+        
+        # Filtriamo solo i mercati USDT e derivati
+        usdt_markets = [
+            symbol for symbol in markets 
+            if symbol.endswith(':USDT') and not any(excluded in symbol for excluded in EXCLUDED_SYMBOLS)
+        ]
+        
+        # Ottieni il parametro TOP_ANALYSIS_CRYPTO da config
+        top_analysis_crypto = getattr(cfg, 'TOP_ANALYSIS_CRYPTO', 3)  # valore predefinito 3
+        top_n = min(top_analysis_crypto, len(usdt_markets))
+        symbols = usdt_markets[:top_n]  # primi N simboli
+        logging.info(f"Analisi predizioni per le top {top_n} criptovalute: {symbols}")
+        
+        # Genera predizioni per ciascun timeframe e modello
+        all_predictions = []
+        successful_symbols = 0
+        
+        for symbol in symbols:
+            symbol_predictions = []
+            try:
+                for timeframe in filtered_timeframes:
+                    try:
+                        # Ottieni i dati per questo simbolo e timeframe
+                        data = await main.get_data_for_symbol(state.async_exchange, symbol, timeframe)
+                        if data is None or len(data) < main.TIME_STEPS * 2:
+                            continue
+                        
+                        # Calcola RSI
+                        import ta
+                        rsi = ta.momentum.RSIIndicator(data['close']).rsi()
+                        rsi_value = float(rsi.iloc[-1]) if not rsi.empty else 50.0
+                        
+                        # Calcola predizioni per ciascun modello
+                        model_predictions = {}
+                        for model_type in filtered_models:
+                            try:
+                                # Carica il modello
+                                model_obj, scaler = await main.load_model(model_type, timeframe)
+                                if model_obj is None:
+                                    continue
+                                    
+                                # Genera predizione
+                                prediction = await main.predict_with_model(model_obj, scaler, data, model_type)
+                                model_predictions[model_type] = float(prediction)
+                            except Exception as model_error:
+                                logging.error(f"Errore nel modello {model_type} per {symbol}/{timeframe}: {model_error}")
+                        
+                        if model_predictions:
+                            # Aggiungi la predizione con informazioni complete
+                            symbol_predictions.append({
+                                "symbol": symbol,
+                                "timeframe": timeframe,
+                                "models": model_predictions,
+                                "rsi_value": float(rsi_value)
+                            })
+                    except Exception as tf_error:
+                        logging.error(f"Errore nel timeframe {timeframe} per {symbol}: {tf_error}")
+                
+                # Aggiungi le predizioni di questo simbolo all'insieme totale
+                if symbol_predictions:
+                    all_predictions.extend(symbol_predictions)
+                    successful_symbols += 1
+                    
+            except Exception as symbol_error:
+                logging.error(f"Errore completo per il simbolo {symbol}: {symbol_error}")
+        
+        logging.info(f"Generate predizioni per {successful_symbols}/{len(symbols)} simboli")
+        return {"predictions": all_predictions}
+    
+    except Exception as e:
+        logging.error(f"Errore nell'endpoint predictions: {str(e)}")
+        logging.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Errore nel recupero delle predizioni: {str(e)}")
+
+@app.post("/execute-trade")
+async def execute_trade(request: Request,
+                       auth: None = Depends(verify_auth_token),
+                       state = Depends(get_state)):
+    """
+    Esegue un trade diretto per il simbolo indicato.
+    """
+    try:
+        data = await request.json()
+        symbol = data.get("symbol")
+        side = data.get("side")
+        leverage = data.get("leverage", LEVERAGE)
+        margin = data.get("margin", MARGIN_USDT)
+        
+        if not symbol or not side:
+            raise HTTPException(status_code=400, detail="Symbol e side sono richiesti")
+        
+        if side not in ["Buy", "Sell"]:
+            raise HTTPException(status_code=400, detail="Side deve essere 'Buy' o 'Sell'")
+        
+        if not state.async_exchange:
+            state.async_exchange = ccxt_async.bybit(exchange_config)
+            await state.async_exchange.load_markets()
+        
+        # Ottieni il bilancio corrente
+        usdt_balance = await get_real_balance(state.async_exchange)
+        if usdt_balance is None or usdt_balance < 10:
+            raise HTTPException(status_code=400, detail="Saldo USDT insufficiente")
+        
+        # Ottieni i mercati per calcolare min_amount
+        markets = await fetch_markets(state.async_exchange)
+        min_amounts = await fetch_min_amounts(state.async_exchange, [symbol], markets)
+        
+        # Imposta la leva finanziaria
+        try:
+            await state.async_exchange.set_leverage(leverage, symbol)
+        except Exception as lev_err:
+            logging.warning(f"Impossibile impostare la leva per {symbol}: {lev_err}")
+        
+        # Calcola la dimensione della posizione
+        position_size = await calculate_position_size(
+            state.async_exchange, 
+            symbol, 
+            usdt_balance, 
+            min_amount=min_amounts.get(symbol, 0.1),
+            margin=margin
+        )
+        
+        # Recupera il prezzo attuale
+        ticker = await state.async_exchange.fetch_ticker(symbol)
+        price = ticker.get('last')
+        
+        if not position_size or position_size < min_amounts.get(symbol, 0.1):
+            raise HTTPException(status_code=400, detail=f"Dimensione posizione {position_size} inferiore al minimo {min_amounts.get(symbol, 0.1)}")
+        
+        # Esegui l'ordine
+        try:
+            if side == "Buy":
+                order = await state.async_exchange.create_market_buy_order(symbol, position_size)
+            else:
+                order = await state.async_exchange.create_market_sell_order(symbol, position_size)
+        except Exception as e:
+            error_str = str(e)
+            if "110007" in error_str or "not enough" in error_str:
+                raise HTTPException(status_code=400, detail="Saldo insufficiente per eseguire l'ordine")
+            else:
+                raise HTTPException(status_code=500, detail=f"Errore nell'esecuzione dell'ordine: {error_str}")
+        
+        # Salva il trade nel database
+        entry_price = order.get('average') or price
+        trade_id = order.get("id") or f"{symbol}-{datetime.utcnow().timestamp()}"
+        
+        new_trade = {
+            "trade_id": trade_id,
+            "symbol": symbol,
+            "side": side,
+            "entry_price": entry_price,
+            "exit_price": None,
+            "trade_type": "Open",
+            "closed_pnl": None,
+            "result": None,
+            "open_trade_volume": None,
+            "closed_trade_volume": None,
+            "opening_fee": None,
+            "closing_fee": None,
+            "funding_fee": None,
+            "trade_time": datetime.utcnow().isoformat(),
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": "open"
+        }
+        
+        # Utilizza la funzione dal modulo trade_manager per salvare il trade
+        save_trade_db(new_trade)
+        
+        return {
+            "status": "success",
+            "message": f"Ordine {side} eseguito per {symbol} a {entry_price}",
+            "order_id": trade_id,
+            "entry_price": entry_price,
+            "position_size": position_size
+        }
+    except HTTPException as e:
+        # Rilancia le eccezioni HTTP precedentemente generate
+        raise e
+    except Exception as e:
+        logging.error(f"Errore nell'esecuzione del trade: {e}")
+        raise HTTPException(status_code=500, detail=f"Errore nell'esecuzione del trade: {str(e)}")
+
+# Aggiorna la funzione calculate_position_size in trade_manager per accettare un parametro margin
+async def calculate_position_size(exchange, symbol, usdt_balance, min_amount=0, margin=None):
+    try:
+        ticker = await exchange.fetch_ticker(symbol)
+        current_price = ticker.get('last')
+        if current_price is None or not isinstance(current_price, (int, float)):
+            logging.error(colored(f"Prezzo corrente per {symbol} non disponibile", "red"))
+            return None
+        
+        # Usa i valori globali di main.py per maggiore flessibilità
+        # Se non disponibili, utilizza i valori da config.py
+        import main
+        margin_value = margin or getattr(main, 'MARGIN_USDT', MARGIN_USDT)
+        leverage = getattr(main, 'LEVERAGE', LEVERAGE)
+        
+        logging.info(colored(f"Parametri trading: Margine={margin_value} USDT, Leva={leverage}x", "blue"))
+        
+        notional_value = margin_value * leverage
+        position_size = notional_value / current_price
+        position_size = float(exchange.amount_to_precision(symbol, position_size))
+        logging.info(colored(f"Dimensione posizione per {symbol}: {position_size} contratti (Margine = {margin_value})", "cyan"))
+        if position_size < min_amount:
+            logging.warning(colored(f"Dimensione posizione {position_size} inferiore al minimo {min_amount} per {symbol}.", "yellow"))
+            position_size = min_amount
+        return position_size
+    except Exception as e:
+        logging.error(colored(f"Errore nel calcolo della dimensione per {symbol}: {e}", "red"))
+        return None
 
 # === AVVIO MANUALE DELL'APPLICAZIONE ===
 if __name__ == "__main__":

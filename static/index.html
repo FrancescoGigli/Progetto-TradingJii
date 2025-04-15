@@ -11,6 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-matrix"></script>
+    <script src="https://cdn.jsdelivr.net/npm/anime.js@3.2.1/lib/anime.min.js"></script>
     <style>
         /* Nascondi la sezione Log di Training */
         .training-logs {
@@ -630,6 +631,200 @@
             color: #6c757d;
             margin-right: 10px;
         }
+
+        /* Stili aggiuntivi per gli slider e i parametri di trading */
+        .icon-wrapper {
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+        
+        .card:hover .icon-wrapper {
+            transform: scale(1.1);
+        }
+        
+        .slider-container {
+            margin: 10px 0;
+        }
+        
+        .position-relative {
+            position: relative;
+        }
+        
+        .slider-track {
+            position: absolute;
+            width: 100%;
+            height: 6px;
+            background: #e9ecef;
+            border-radius: 3px;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 0;
+        }
+        
+        .leverage-slider, .margin-slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: transparent;
+            z-index: 1;
+            transition: background 0.3s ease;
+        }
+        
+        .leverage-slider::-webkit-slider-thumb, .margin-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 2;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        
+        .leverage-slider::-webkit-slider-thumb:hover, .margin-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.15);
+            box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+        }
+        
+        .leverage-slider::-webkit-slider-thumb:active, .margin-slider::-webkit-slider-thumb:active {
+            transform: scale(1.1);
+        }
+        
+        .leverage-slider::-webkit-slider-thumb {
+            background: #28a745;
+        }
+        
+        .margin-slider::-webkit-slider-thumb {
+            background: #17a2b8;
+        }
+        
+        .leverage-slider:focus, .margin-slider:focus {
+            outline: none;
+        }
+        
+        /* Card stile migliorato per i parametri */
+        .trading-controls .card {
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+        
+        .trading-controls .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1) !important;
+        }
+        
+        .trading-controls .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -50px;
+            width: 50px;
+            height: 5px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.8), transparent);
+            transition: all 0.5s ease;
+            transform: translateX(-100%);
+        }
+        
+        .trading-controls .card:hover::before {
+            transform: translateX(450%);
+        }
+        
+        /* Indicatore di rischio */
+        .risk-indicator {
+            display: flex;
+            gap: 4px;
+            margin-top: 5px;
+        }
+        
+        .risk-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #e9ecef;
+            transition: all 0.3s ease;
+        }
+        
+        .risk-dot.active {
+            background-color: #28a745;
+            transform: scale(1.1);
+        }
+        
+        .risk-dot.medium {
+            background-color: #ffc107;
+            transform: scale(1.1);
+        }
+        
+        .risk-dot.high {
+            background-color: #dc3545;
+            transform: scale(1.1);
+        }
+        
+        /* Badge animato */
+        #total-position-value {
+            transition: all 0.3s ease;
+        }
+
+        /* Stili generali */
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #f5f7fa;
+            color: #333;
+        }
+        
+        /* Stili per le carte di predizione */
+        .prediction-card {
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        
+        .prediction-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.15);
+        }
+        
+        .highlight-prediction {
+            animation: highlight-pulse 1.5s ease;
+        }
+        
+        @keyframes highlight-pulse {
+            0% { transform: scale(1); }
+            10% { transform: scale(1.03); box-shadow: 0 0 15px rgba(0, 123, 255, 0.5); }
+            20% { transform: scale(1); }
+        }
+        
+        .model-prediction {
+            transition: all 0.2s ease;
+        }
+        
+        .model-prediction:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .direction-indicator {
+            font-size: 16px;
+            font-weight: bold;
+            margin: 5px 0;
+        }
+        
+        .direction-up {
+            color: #28a745;
+        }
+        
+        .direction-down {
+            color: #dc3545;
+        }
+        
+        .direction-neutral {
+            color: #ffc107;
+        }
+        
+        /* Stili per la tabella delle predizioni */
     </style>
 </head>
 <body>
@@ -860,11 +1055,274 @@
                                     </div>
                                 </div>
                                 <div class="card-body">
+                                    <!-- Aggiungi la nuova sezione per visualizzazione attività del bot -->
+                                    <div id="bot-activity-visualization" class="mb-4">
+                                        <div class="activity-header d-flex justify-content-between align-items-center mb-3">
+                                            <h6 class="mb-0">
+                                                <i class="fas fa-robot me-2 text-primary"></i> Attività Bot in Tempo Reale
+                                            </h6>
+                                            <div class="activity-status">
+                                                <span id="activity-status-badge" class="badge bg-secondary">In attesa</span>
+                                                <span id="activity-timestamp" class="text-muted small ms-2">--:--:--</span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="activity-visualization-container" style="height: 180px; background-color: #f8f9fa; border-radius: 8px; position: relative; overflow: hidden;">
+                                            <!-- Linea di tempo -->
+                                            <div class="timeline" style="position: absolute; height: 2px; background-color: #dee2e6; width: 100%; top: 50%; transform: translateY(-50%);"></div>
+                                            
+                                            <!-- Indicatore di attività corrente -->
+                                            <div id="current-activity-marker" style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); width: 12px; height: 12px; border-radius: 50%; background-color: #0d6efd; box-shadow: 0 0 8px rgba(13, 110, 253, 0.5); z-index: 10;"></div>
+                                            
+                                            <!-- Container per gli eventi di trading -->
+                                            <div id="trading-events-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+                                                <!-- Gli eventi saranno inseriti qui dinamicamente -->
+                                            </div>
+                                            
+                                            <!-- Legenda -->
+                                            <div class="legend" style="position: absolute; bottom: 5px; right: 10px; font-size: 0.75rem;">
+                                                <span class="me-3"><i class="fas fa-circle text-success"></i> Buy</span>
+                                                <span class="me-3"><i class="fas fa-circle text-danger"></i> Sell</span>
+                                                <span><i class="fas fa-circle text-warning"></i> Analisi</span>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Statistiche di attività recente -->
+                                        <div class="activity-stats d-flex justify-content-around mt-3">
+                                            <div class="stat-item text-center">
+                                                <div class="stat-value" id="analysis-count">0</div>
+                                                <div class="stat-label">Analisi</div>
+                                            </div>
+                                            <div class="stat-item text-center">
+                                                <div class="stat-value text-success" id="buy-count">0</div>
+                                                <div class="stat-label">Buy</div>
+                                            </div>
+                                            <div class="stat-item text-center">
+                                                <div class="stat-value text-danger" id="sell-count">0</div>
+                                                <div class="stat-label">Sell</div>
+                                            </div>
+                                            <div class="stat-item text-center">
+                                                <div class="stat-value" id="total-events">0</div>
+                                                <div class="stat-label">Totale</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Nuova sezione per grafico delle performance -->
+                                    <div id="performance-visualization" class="mb-4">
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <h6 class="mb-0">
+                                                <i class="fas fa-chart-line me-2 text-success"></i> Performance in Tempo Reale
+                                            </h6>
+                                            <div class="d-flex align-items-center">
+                                                <div class="form-check form-switch me-3">
+                                                    <input class="form-check-input" type="checkbox" id="auto-refresh-chart" checked>
+                                                    <label class="form-check-label small" for="auto-refresh-chart">Auto-refresh</label>
+                                                </div>
+                                                <select id="performance-timeframe" class="form-select form-select-sm">
+                                                    <option value="5m">Ultimi 5m</option>
+                                                    <option value="15m">Ultimi 15m</option>
+                                                    <option value="1h" selected>Ultima ora</option>
+                                                    <option value="4h">Ultime 4h</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        
+                                        <div style="height: 200px;">
+                                            <canvas id="performance-chart"></canvas>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Aggiungi la nuova sezione per le attività recenti -->
+                                    <div id="recent-activities" class="mb-4">
+                                        <h6 class="mb-3">
+                                            <i class="fas fa-history me-2 text-info"></i> Attività Recenti
+                                        </h6>
+                                        <div class="recent-activities-list" style="max-height: 200px; overflow-y: auto;">
+                                            <div class="timeline-container">
+                                                <!-- Gli eventi recenti verranno aggiunti qui -->
+                                                <div class="timeline-item" id="no-activities-msg">
+                                                    <div class="timeline-badge bg-secondary">
+                                                        <i class="fas fa-info"></i>
+                                                    </div>
+                                                    <div class="timeline-content">
+                                                        <p class="text-muted">Nessuna attività recente. Avvia il bot per generare attività.</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Aggiungi la nuova sezione per i controlli trading -->
+                                    <div class="trading-controls mb-4">
+                                        <div class="d-flex align-items-center mb-3">
+                                            <i class="fas fa-sliders-h text-primary me-2 fa-lg"></i>
+                                            <h6 class="fw-bold mb-0">Parametri Trading</h6>
+                                        </div>
+                                        
+                                        <div class="row g-3">
+                                            <!-- Card per numero di cripto -->
+                                            <div class="col-md-4">
+                                                <div class="card shadow-sm border-0 h-100">
+                                                    <div class="card-body">
+                                                        <div class="d-flex align-items-center mb-3">
+                                                            <div class="icon-wrapper bg-primary bg-opacity-10 rounded-circle p-2 me-2">
+                                                                <i class="fas fa-coins text-primary"></i>
+                                                            </div>
+                                                            <h6 class="card-title mb-0">Numero di criptovalute</h6>
+                                                        </div>
+                                                        <select id="top-crypto-select" class="form-select form-select-lg border-0 bg-light">
+                                                            <option value="3" selected>Top 3</option>
+                                                            <option value="10">Top 10</option>
+                                                            <option value="30">Top 30</option>
+                                                            <option value="50">Top 50</option>
+                                                            <option value="100">Top 100</option>
+                                                        </select>
+                                                        <p class="card-text text-muted small mt-2">
+                                                            <i class="fas fa-info-circle me-1"></i>
+                                                            Numero di criptovalute analizzate dal sistema
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Card per leva finanziaria -->
+                                            <div class="col-md-4">
+                                                <div class="card shadow-sm border-0 h-100">
+                                                    <div class="card-body">
+                                                        <div class="d-flex align-items-center mb-3">
+                                                            <div class="icon-wrapper bg-success bg-opacity-10 rounded-circle p-2 me-2">
+                                                                <i class="fas fa-chart-line text-success"></i>
+                                                            </div>
+                                                            <h6 class="card-title mb-0">Leva finanziaria</h6>
+                                                            <span class="badge bg-success ms-auto" id="leverage-value">5x</span>
+                                                        </div>
+                                                        
+                                                        <div class="slider-container">
+                                                            <div class="slider-labels d-flex justify-content-between mb-1">
+                                                                <span class="small">Basso rischio</span>
+                                                                <span class="small">Alto rischio</span>
+                                                            </div>
+                                                            <div class="position-relative">
+                                                                <div class="slider-track"></div>
+                                                                <input type="range" class="position-relative leverage-slider" min="1" max="10" value="5" step="1" id="leverage-range">
+                                                            </div>
+                                                            <div class="d-flex justify-content-between mt-1">
+                                                                <small>1x</small>
+                                                                <small>5x</small>
+                                                                <small>10x</small>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <p class="card-text text-muted small mt-2">
+                                                            <i class="fas fa-exclamation-triangle me-1 text-warning"></i>
+                                                            Maggiore leva = Maggiore rischio e profitto
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Card per margine -->
+                                            <div class="col-md-4">
+                                                <div class="card shadow-sm border-0 h-100">
+                                                    <div class="card-body">
+                                                        <div class="d-flex align-items-center mb-3">
+                                                            <div class="icon-wrapper bg-info bg-opacity-10 rounded-circle p-2 me-2">
+                                                                <i class="fas fa-dollar-sign text-info"></i>
+                                                            </div>
+                                                            <h6 class="card-title mb-0">Margine USDT</h6>
+                                                            <span class="badge bg-info ms-auto" id="margin-value">40</span>
+                                                        </div>
+                                                        
+                                                        <div class="slider-container">
+                                                            <div class="slider-labels d-flex justify-content-between mb-1">
+                                                                <span class="small">Piccola posizione</span>
+                                                                <span class="small">Grande posizione</span>
+                                                            </div>
+                                                            <div class="position-relative">
+                                                                <div class="slider-track"></div>
+                                                                <input type="range" class="position-relative margin-slider" min="10" max="100" value="40" step="5" id="margin-range">
+                                                            </div>
+                                                            <div class="slider-ticks d-flex justify-content-between mt-1">
+                                                                <small>10</small>
+                                                                <small>40</small>
+                                                                <small>70</small>
+                                                                <small>100</small>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <p class="card-text text-muted small mt-2">
+                                                            <i class="fas fa-info-circle me-1"></i>
+                                                            USDT impegnati per ogni operazione
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Sezione riepilogo -->
+                                        <div class="card mt-3 border-0 bg-primary bg-opacity-10">
+                                            <div class="card-body d-flex align-items-center">
+                                                <i class="fas fa-calculator text-primary fa-2x me-3"></i>
+                                                <div>
+                                                    <h6 class="mb-1">Riepilogo operazione</h6>
+                                                    <div class="d-flex flex-wrap">
+                                                        <div class="me-4">
+                                                            <span class="fw-bold">Valore totale:</span> 
+                                                            <span id="total-position-value" class="badge bg-primary px-3 py-2 fs-6">200 USDT</span>
+                                                        </div>
+                                                        <div>
+                                                            <span class="fw-bold">Formula:</span> 
+                                                            <span class="text-muted">Margine × Leva</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="ms-auto text-end">
+                                                    <span class="text-muted d-block">Rischio:</span>
+                                                    <div class="risk-indicator" id="risk-indicator">
+                                                        <span class="risk-dot active"></span>
+                                                        <span class="risk-dot active"></span>
+                                                        <span class="risk-dot"></span>
+                                                        <span class="risk-dot"></span>
+                                                        <span class="risk-dot"></span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="table-responsive mt-4">
+                                        <table class="table table-hover table-bordered" id="predictions-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Simbolo</th>
+                                                    <th>Confidenza</th>
+                                                    <th>Direzione</th>
+                                                    <th>RSI</th>
+                                                    <th>LSTM</th>
+                                                    <th>Random Forest</th>
+                                                    <th>XGBoost</th>
+                                                    <th>Azioni</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td colspan="8" class="text-center text-muted">Avvia l'analisi per visualizzare le predizioni</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    
+                                    <!-- Nuovo contenitore per le carte di predizione -->
                                     <div class="alert alert-info d-none" id="predictions-loading">
                                         <i class="fas fa-spinner fa-spin me-2"></i> Caricamento predizioni in corso...
                                     </div>
                                     <div class="alert alert-danger d-none" id="predictions-error">
                                         <i class="fas fa-exclamation-triangle me-2"></i> <span id="predictions-error-message"></span>
+                                    </div>
+                                    
+                                    <div id="prediction-cards-container" class="row mt-4">
+                                        <!-- Le carte delle predizioni verranno generate qui dinamicamente -->
                                     </div>
                                     
                                     <!-- Aggiungi la sezione di stato inizializzazione -->
@@ -951,25 +1409,6 @@
                                         </div>
                                     </div>
                                     
-                                    <div class="table-responsive">
-                                        <table class="table table-hover" id="predictions-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>Symbol</th>
-                                                    <th>Confidence</th>
-                                                    <th>Direction</th>
-                                                    <th>RSI</th>
-                                                    <th>LSTM</th>
-                                                    <th>RandomForest</th>
-                                                    <th>XGBoost</th>
-                                                    <th>Actions</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <!-- Le predizioni verranno inserite qui dinamicamente -->
-                                            </tbody>
-                                        </table>
-                                    </div>
                                     <div class="small text-muted mt-2">
                                         <i class="fas fa-info-circle me-1"></i> Le predizioni mostrano i segnali generati dai modelli per i top symbols. Un valore di confidence più alto indica una maggiore probabilità della direzione prevista.
                                     </div>
