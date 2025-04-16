@@ -17,13 +17,9 @@ exchange_config = {
 MARGIN_USDT = 40.0
 LEVERAGE = 10
 
-# Timeframes predefiniti per l'ambiente di produzione
-ENABLED_TIMEFRAMES = ['15m', '1h', '4h']  # Timeframes predefiniti per l'ambiente di produzione
-TIMEFRAME_DEFAULT = '15m'  # Timeframe predefinito per l'ambiente di produzione
+ENABLED_TIMEFRAMES = ['15m', '30m', '1h']  # Timeframe predefiniti
+TIMEFRAME_DEFAULT = '15m'                  # Timeframe predefinito principale
 TIME_STEPS = 10
-
-# Modelli predefiniti per l'ambiente di produzione
-SELECTED_MODELS = ['lstm', 'rf', 'xgb']  # Modelli predefiniti per l'ambiente di produzione
 
 MODEL_RATES = {
     'lstm': 0.6,
@@ -71,7 +67,7 @@ USE_DATABASE = True
 
 EXCLUDED_SYMBOLS = ['BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT']
 TOP_TRAIN_CRYPTO = 50
-TOP_ANALYSIS_CRYPTO = 3
+TOP_ANALYSIS_CRYPTO = 150
 
 EXPECTED_COLUMNS = [
     'open', 'high', 'low', 'close', 'volume',

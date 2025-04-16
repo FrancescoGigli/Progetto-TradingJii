@@ -62,14 +62,13 @@ export async function makeApiRequest(endpoint, method = 'GET', data = null) {
         
         // Log solo per operazioni importanti o POST/PUT
         if (method !== 'GET' || endpoint === '/status') {
-            console.log(`[${new Date().toLocaleTimeString()}] Risposta ricevuta da ${endpoint}`);
+            console.log(`[${new Date().toLocaleTimeString()}] Risposta ricevuta da ${endpoint}`, result);
         }
         
         return result;
     } catch (error) {
-        console.error(`[${new Date().toLocaleTimeString()}] Errore: ${error.message}`);
-        console.error('API Error:', error);
-        return null;
+        console.error(`[${new Date().toLocaleTimeString()}] Errore API: ${error.message}`);
+        throw error; // Rilancia l'errore invece di restituire null
     }
 }
 

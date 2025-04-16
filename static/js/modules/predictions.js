@@ -49,29 +49,34 @@ export function initializePredictionsControl() {
 function initializeTradeParamsHandlers() {
     // Gestisce la selezione del numero di cripto
     const topCryptoSelect = document.getElementById('top-crypto-select');
-    if (topCryptoSelect) {
+    const topCryptoValue = document.getElementById('top-crypto-value');
+    
+    if (topCryptoSelect && topCryptoValue) {
         topCryptoSelect.addEventListener('change', (e) => {
-            topCryptoCount = parseInt(e.target.value);
-            appendToLog(`Numero cripto da analizzare: ${topCryptoCount}`);
+            const newValue = parseInt(e.target.value);
+            topCryptoCount = newValue;
+            topCryptoValue.textContent = newValue;
+            appendToLog(`Numero cripto da analizzare impostato a: ${newValue}`);
         });
     }
     
     // Gestisce lo slider della leva finanziaria
     const leverageRange = document.getElementById('leverage-range');
     const leverageValueEl = document.getElementById('leverage-value');
+    
     if (leverageRange && leverageValueEl) {
         leverageRange.addEventListener('input', (e) => {
             const newValue = parseInt(e.target.value);
-            window.leverageValue = newValue;
+            leverageValue = newValue;
             leverageValueEl.textContent = `${newValue}x`;
             
             // Aggiorna il colore del badge in base al valore di leva
             if (newValue >= 8) {
-                leverageValueEl.className = 'badge bg-danger ms-auto';
+                leverageValueEl.className = 'badge bg-danger';
             } else if (newValue >= 5) {
-                leverageValueEl.className = 'badge bg-warning ms-auto';
+                leverageValueEl.className = 'badge bg-warning';
             } else {
-                leverageValueEl.className = 'badge bg-success ms-auto';
+                leverageValueEl.className = 'badge bg-success';
             }
             
             updateTotalPositionValue();
@@ -81,51 +86,23 @@ function initializeTradeParamsHandlers() {
     // Gestisce lo slider del margine
     const marginRange = document.getElementById('margin-range');
     const marginValueEl = document.getElementById('margin-value');
+    
     if (marginRange && marginValueEl) {
         marginRange.addEventListener('input', (e) => {
             const newValue = parseInt(e.target.value);
-            window.marginValue = newValue;
+            marginValue = newValue;
             marginValueEl.textContent = `${newValue} USDT`;
             
             // Aggiorna il colore del badge in base al valore del margine
             if (newValue >= 70) {
-                marginValueEl.className = 'badge bg-danger ms-auto';
+                marginValueEl.className = 'badge bg-danger';
             } else if (newValue >= 40) {
-                marginValueEl.className = 'badge bg-warning ms-auto';
+                marginValueEl.className = 'badge bg-info';
             } else {
-                marginValueEl.className = 'badge bg-info ms-auto';
+                marginValueEl.className = 'badge bg-success';
             }
             
             updateTotalPositionValue();
-        });
-    }
-    
-    // Crea l'effetto di sfumatura colorata per gli slider
-    const createGradientForSlider = (slider, startColor, endColor) => {
-        if (!slider) return;
-        
-        // Calcola il valore percentuale attuale
-        const min = parseInt(slider.min) || 1;
-        const max = parseInt(slider.max) || 100;
-        const value = parseInt(slider.value) || min;
-        const percentage = ((value - min) / (max - min)) * 100;
-        
-        // Applica il gradiente
-        slider.style.background = `linear-gradient(to right, ${startColor} 0%, ${startColor} ${percentage}%, #e9ecef ${percentage}%, #e9ecef 100%)`;
-    };
-    
-    // Applica il gradiente iniziale
-    if (leverageRange) {
-        createGradientForSlider(leverageRange, '#28a745', '#dc3545');
-        leverageRange.addEventListener('input', () => {
-            createGradientForSlider(leverageRange, '#28a745', '#dc3545');
-        });
-    }
-    
-    if (marginRange) {
-        createGradientForSlider(marginRange, '#17a2b8', '#dc3545');
-        marginRange.addEventListener('input', () => {
-            createGradientForSlider(marginRange, '#17a2b8', '#dc3545');
         });
     }
     
@@ -261,8 +238,15 @@ function initializeSelectionHandlers() {
 }
 
 // Funzione per controllare lo stato delle predizioni
-export function togglePredictions() {
+export async function togglePredictions() {
     const controlBtn = document.getElementById('predictions-control-btn');
+    
+    // Verifica che il pulsante esista
+    if (!controlBtn) {
+        console.error("Elemento 'predictions-control-btn' non trovato");
+        return false;
+    }
+    
     controlBtn.disabled = true;
     
     // Se non stiamo già eseguendo predizioni, avviale
@@ -274,23 +258,49 @@ export function togglePredictions() {
                 return false;
             }
             
-            // Ottieni i parametri di trading
-            const topCrypto = document.getElementById('top-crypto-select').value;
-            const leverage = document.getElementById('leverage-range').value;
-            const margin = document.getElementById('margin-range').value;
+            // Cambia immediatamente lo stato in "in esecuzione" per mostrare subito l'animazione
+            isPredictionsRunning = true;
+            updateRunningUI(true);
+            
+            // Mostra il loader durante il caricamento iniziale delle predizioni
+            const loadingEl = document.getElementById('predictions-loading');
+            if (loadingEl) loadingEl.classList.remove('d-none');
+            
+            // Imposta i valori predefiniti per i parametri di trading
+            const topCryptoSelect = document.getElementById('top-crypto-select');
+            const topCrypto = topCryptoSelect ? parseInt(topCryptoSelect.value) : 3;
+            
+            // Ottieni i valori di leva e margine dagli slider
+            const leverageRange = document.getElementById('leverage-range');
+            const leverage = leverageRange ? parseInt(leverageRange.value) : 5;
+            
+            const marginRange = document.getElementById('margin-range');
+            const margin = marginRange ? parseInt(marginRange.value) : 40;
             
             // Ottieni i modelli e i timeframe selezionati
             const selectedModels = getSelectedModels();
             const selectedTimeframes = getSelectedTimeframes();
             
+            // Disabilita i controlli durante l'esecuzione
+            document.querySelectorAll('.btn-check').forEach(checkbox => {
+                checkbox.disabled = true;
+            });
+            
+            // Disabilita anche i controlli dei parametri di trading se esistono
+            if (leverageRange) leverageRange.disabled = true;
+            if (marginRange) marginRange.disabled = true;
+            
+            // Aggiorna i parametri nei log
+            appendToLog(`Analisi con: Top ${topCrypto} cripto, Leva ${leverage}x, Margine ${margin} USDT`);
+            
             // Inizializza il bot con le selezioni e i parametri di trading
-            const initResult = makeApiRequest('/initialize', 'POST', {
+            const initResult = await makeApiRequest('/initialize', 'POST', {
                 models: selectedModels,
                 timeframes: selectedTimeframes,
                 trading_params: {
-                    top_analysis_crypto: 3, // Forziamo sempre a 3
-                    leverage: parseInt(leverage),
-                    margin_usdt: parseInt(margin)
+                    top_analysis_crypto: topCrypto,
+                    leverage: leverage,
+                    margin_usdt: margin
                 }
             });
             
@@ -298,96 +308,87 @@ export function togglePredictions() {
                 throw new Error('Errore durante l\'inizializzazione');
             }
             
-            // Aggiorna i parametri nei log
-            appendToLog(`Analisi con: Top ${topCrypto} cripto, Leva ${leverage}x, Margine ${margin} USDT`);
-            
             // Avvia il bot
-            const startResult = makeApiRequest('/start', 'POST');
+            const startResult = await makeApiRequest('/start', 'POST');
             if (!startResult) {
                 throw new Error('Errore durante l\'avvio');
             }
             
-            // Avvia le predizioni
-            isPredictionsRunning = true;
-            controlBtn.classList.add('running');
-            controlBtn.disabled = false;
-            controlBtn.innerHTML = '<i class="fas fa-stop me-1"></i> Ferma';
-            
-            // Disabilita i controlli durante l'esecuzione
-            document.querySelectorAll('.btn-check').forEach(checkbox => {
-                checkbox.disabled = true;
-            });
-            
-            // Disabilita anche i controlli dei parametri di trading
-            document.getElementById('top-crypto-select').disabled = true;
-            document.getElementById('leverage-range').disabled = true;
-            document.getElementById('margin-range').disabled = true;
-            
-            // Mostra il loader durante il caricamento iniziale delle predizioni
-            document.getElementById('predictions-loading').classList.remove('d-none');
-            
-            // Carica le predizioni una volta sola, senza intervallo di refresh
-            loadPredictions().then(() => {
+            // Carica le predizioni e avvia un intervallo per aggiornarle
+            try {
+                await loadPredictions();
+                
                 // Nascondi il loader
-                document.getElementById('predictions-loading').classList.add('d-none');
+                if (loadingEl) loadingEl.classList.add('d-none');
                 
-                // Una volta completato, reimpostiamo lo stato per permettere un nuovo avvio
-                isPredictionsRunning = false;
+                // Imposta un intervallo per ricaricare periodicamente le predizioni
+                if (isPredictionsRunning) {
+                    // Imposta l'intervallo di aggiornamento delle predizioni ogni 30 secondi
+                    predictionsInterval = setInterval(() => {
+                        if (isPredictionsRunning) {
+                            loadPredictions().catch(err => {
+                                console.error("Errore nell'aggiornamento delle predizioni:", err);
+                            });
+                        } else {
+                            clearInterval(predictionsInterval);
+                        }
+                    }, 30000); // Aggiorna ogni 30 secondi
+                    
+                    // Aggiorna la UI con lo stato "in esecuzione"
+                    updateActivityStatus('Attivo', 'success');
+                }
+            } catch (predError) {
+                console.error("Errore nel caricamento delle predizioni:", predError);
+                // Nascondi il loader anche in caso di errore
+                if (loadingEl) loadingEl.classList.add('d-none');
                 
-                // Cambia il pulsante in "Avvia" per consentire all'utente di generare nuove predizioni
-                controlBtn.classList.remove('running');
-                controlBtn.innerHTML = '<i class="fas fa-play me-1"></i> Avvia';
-                
-                // Riabilita i controlli
-                document.querySelectorAll('.btn-check').forEach(checkbox => {
-                    checkbox.disabled = false;
-                });
-                
-                // Riabilita anche i controlli dei parametri di trading
-                document.getElementById('top-crypto-select').disabled = false;
-                document.getElementById('leverage-range').disabled = false;
-                document.getElementById('margin-range').disabled = false;
-            });
+                // Mostra l'errore ma mantieni il bot in esecuzione
+                showAlert("Errore nel caricamento delle predizioni: " + predError.message, 'warning');
+            }
             
         } catch (error) {
             console.error('Errore durante l\'avvio:', error);
-            controlBtn.disabled = false;
-            controlBtn.innerHTML = '<i class="fas fa-play me-1"></i> Avvia';
+            
+            // In caso di errore, ripristina lo stato del pulsante
+            isPredictionsRunning = false;
+            
+            // Aggiorna l'UI solo se il pulsante esiste
+            if (document.getElementById('predictions-control-btn')) {
+                updateRunningUI(false);
+            }
+            
+            // Nascondi il loader in caso di errore
+            const loadingEl = document.getElementById('predictions-loading');
+            if (loadingEl) loadingEl.classList.add('d-none');
+            
+            // Riabilita i controlli
+            document.querySelectorAll('.btn-check').forEach(checkbox => {
+                checkbox.disabled = false;
+            });
+            
+            // Riabilita anche i controlli dei parametri di trading
+            if (leverageRange) leverageRange.disabled = false;
+            if (marginRange) marginRange.disabled = false;
             
             // Mostra errore all'utente
             showAlert(error.message || 'Errore durante l\'avvio delle predizioni', 'danger');
         }
     } else {
         // Ferma le predizioni
-        stopPredictions();
+        await stopPredictions();
         
         // Riabilita i controlli
         document.querySelectorAll('.btn-check').forEach(checkbox => {
             checkbox.disabled = false;
         });
         
-        // Riabilita anche i controlli dei parametri di trading
-        document.getElementById('top-crypto-select').disabled = false;
-        document.getElementById('leverage-range').disabled = false;
-        document.getElementById('margin-range').disabled = false;
-    }
-    
-    // Se le predizioni sono state avviate, inizia a generare eventi simulati
-    if (isPredictionsRunning) {
-        initActivityVisualization();
+        // Riabilita anche i controlli dei parametri di trading se esistono
+        const leverageRange = document.getElementById('leverage-range');
+        const marginRange = document.getElementById('margin-range');
         
-        // Reset delle statistiche
-        activityStats = {
-            analysis: 0,
-            buy: 0,
-            sell: 0,
-            total: 0
-        };
-        updateActivityStats();
+        if (leverageRange) leverageRange.disabled = false;
+        if (marginRange) marginRange.disabled = false;
         
-        // Simulazione di eventi periodici (solo per demo)
-        simulateEvents();
-    } else {
         // Aggiorna lo stato quando le predizioni vengono fermate
         updateActivityStatus('Fermato', 'danger');
     }
@@ -395,9 +396,111 @@ export function togglePredictions() {
     return isPredictionsRunning;
 }
 
+// Aggiorna la funzione updateRunningUI per un'animazione più evidente
+function updateRunningUI(isRunning) {
+    const controlBtn = document.getElementById('predictions-control-btn');
+    
+    // Verifica che il pulsante esista prima di manipolarlo
+    if (!controlBtn) {
+        console.error("Elemento 'predictions-control-btn' non trovato");
+        return;
+    }
+    
+    if (isRunning) {
+        // Cambia il testo e lo stile del pulsante con effetto visivo
+        controlBtn.classList.add('running');
+        controlBtn.innerHTML = '<i class="fas fa-stop me-1"></i> Ferma';
+        
+        // Animazione del pulsante durante la transizione
+        controlBtn.animate([
+            { transform: 'scale(0.95)' },
+            { transform: 'scale(1.05)' },
+            { transform: 'scale(1.0)' }
+        ], {
+            duration: 300,
+            easing: 'ease-out'
+        });
+        
+        // Aggiunge l'animazione di caricamento
+        controlBtn.classList.add('position-relative');
+        
+        // Crea un elemento di progress se non esiste
+        if (!document.getElementById('progress-animation')) {
+            const progressEl = document.createElement('span');
+            progressEl.id = 'progress-animation';
+            progressEl.className = 'position-absolute top-0 start-0 bottom-0 bg-white bg-opacity-25';
+            progressEl.style.width = '10%';
+            progressEl.style.animation = 'button-progress 2s infinite';
+            controlBtn.appendChild(progressEl);
+            
+            // Aggiungi lo stile dell'animazione se non esiste
+            if (!document.getElementById('progress-animation-style')) {
+                const styleEl = document.createElement('style');
+                styleEl.id = 'progress-animation-style';
+                styleEl.textContent = `
+                    @keyframes button-progress {
+                        0% { width: 0%; opacity: 0.2; }
+                        50% { width: 100%; opacity: 0.5; }
+                        100% { width: 0%; opacity: 0.2; }
+                    }
+                    
+                    @keyframes pulse-icon {
+                        0% { transform: scale(1); }
+                        50% { transform: scale(1.2); }
+                        100% { transform: scale(1); }
+                    }
+                    
+                    #predictions-control-btn.running i {
+                        animation: pulse-icon 1s infinite;
+                    }
+                    
+                    .loading-pulse {
+                        animation: pulse-bg 1.5s infinite;
+                    }
+                    
+                    @keyframes pulse-bg {
+                        0% { background-color: rgba(220, 53, 69, 0.1); }
+                        50% { background-color: rgba(220, 53, 69, 0.2); }
+                        100% { background-color: rgba(220, 53, 69, 0.1); }
+                    }
+                `;
+                document.head.appendChild(styleEl);
+            }
+        }
+    } else {
+        // Ripristina lo stile e il testo del pulsante con effetto visivo
+        controlBtn.animate([
+            { transform: 'scale(1.05)' },
+            { transform: 'scale(0.95)' },
+            { transform: 'scale(1.0)' }
+        ], {
+            duration: 300,
+            easing: 'ease-out'
+        });
+        
+        controlBtn.classList.remove('running');
+        controlBtn.innerHTML = '<i class="fas fa-play me-1"></i> Avvia';
+        
+        // Rimuove l'animazione di caricamento
+        const progressEl = document.getElementById('progress-animation');
+        if (progressEl) {
+            progressEl.remove();
+        }
+        
+        controlBtn.classList.remove('position-relative');
+    }
+    
+    // Riabilita il pulsante
+    controlBtn.disabled = false;
+}
+
 // Funzione per fermare le predizioni
-function stopPredictions() {
+async function stopPredictions() {
+    // Cambia lo stato
     isPredictionsRunning = false;
+    
+    // Invia la richiesta al server
+    await makeApiRequest('/stop', 'POST');
     
     // Pulisci l'intervallo se esistente
     if (predictionsInterval) {
@@ -405,29 +508,8 @@ function stopPredictions() {
         predictionsInterval = null;
     }
     
-    // Resetta il pulsante
-    const controlBtn = document.getElementById('predictions-control-btn');
-    if (controlBtn) {
-        controlBtn.classList.remove('running');
-        controlBtn.innerHTML = '<i class="fas fa-play me-1"></i> Avvia';
-    }
-    
-    // Pulisci la tabella delle predizioni
-    const tableBody = document.querySelector('#predictions-table tbody');
-    if (tableBody) {
-        tableBody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">Predizioni fermate</td></tr>';
-    }
-    
-    // Rimuovi il timestamp e il pulsante di esportazione
-    const timestamp = document.querySelector('#predictions-table').parentNode.querySelector('.text-muted');
-    if (timestamp) {
-        timestamp.remove();
-    }
-    
-    const exportBtn = document.getElementById('export-predictions-btn');
-    if (exportBtn) {
-        exportBtn.remove();
-    }
+    // Aggiorna l'interfaccia
+    updateRunningUI(false);
 }
 
 // Funzione per ottenere i modelli selezionati
@@ -471,16 +553,25 @@ function validateSelection() {
 // Funzione per caricare le predizioni
 export async function loadPredictions() {
     try {
-        // Mostra un indicatore di caricamento
+        // Aggiungi un effetto pulsante al pulsante Avvia durante il caricamento
+        const controlBtn = document.getElementById('predictions-control-btn');
+        if (controlBtn && controlBtn.classList.contains('running')) {
+            controlBtn.classList.add('loading-pulse');
+        }
+
+        // Mostra un indicatore di caricamento più evidente
         const predictionContainer = document.getElementById('prediction-cards-container');
         if (predictionContainer) {
             predictionContainer.innerHTML = `
-                <div class="d-flex justify-content-center my-4">
-                    <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">Caricamento predizioni...</span>
+                <div class="d-flex justify-content-center my-5 py-5">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary mb-4" style="width: 3rem; height: 3rem;" role="status">
+                            <span class="visually-hidden">Caricamento predizioni...</span>
+                        </div>
+                        <h5 class="mt-3 fw-bold">Caricamento predizioni in corso...</h5>
+                        <p class="text-muted">Analizzando i modelli per generare i segnali</p>
                     </div>
                 </div>
-                <div class="text-center">Caricamento predizioni in corso...</div>
             `;
         }
         
@@ -495,6 +586,12 @@ export async function loadPredictions() {
         
         // Effettua la richiesta API
         const response = await makeApiRequest(url);
+        
+        // Rimuovi l'effetto pulsante dal pulsante una volta completato il caricamento
+        const controlBtn = document.getElementById('predictions-control-btn');
+        if (controlBtn) {
+            controlBtn.classList.remove('loading-pulse');
+        }
         
         if (response && response.predictions && response.predictions.length > 0) {
             // Raggruppa le predizioni per simbolo
@@ -1271,475 +1368,86 @@ function initPerformanceChart() {
 
 // Funzione per aggiungere un evento all'attività
 function addTradingEvent(type, symbol, details) {
-    // Aggiorna statistiche
-    activityStats[type]++;
-    activityStats.total++;
-    updateActivityStats();
-    
-    // Crea l'evento
-    const event = {
-        id: generateEventId(),
-        type: type,
-        symbol: symbol,
-        details: details,
-        timestamp: new Date()
-    };
-    
-    tradingEvents.push(event);
-    
-    // Aggiorna lo stato dell'attività
-    updateActivityStatus('Attivo', 'success');
-    
-    // Visualizza l'evento nella timeline
-    visualizeEvent(event);
-    
-    // Aggiorna la timeline delle attività recenti
-    addTimelineEvent(event);
-    
-    // Mostra una notifica
-    showTradeNotification(event);
-    
-    // Crea effetto di particelle
-    createParticleEffect(event);
-    
-    // Aggiorna il grafico delle performance se necessario
-    if (type === 'buy' || type === 'sell') {
-        updatePerformanceData(event);
-        if (document.getElementById('auto-refresh-chart').checked) {
-            updatePerformanceChart();
-        }
-    }
+    // Disabilitato - Non aggiungiamo più eventi simulati
+    return;
 }
 
 // Funzione per creare un effetto di particelle
 function createParticleEffect(event) {
-    const container = document.getElementById('trading-events-container');
-    if (!container) return;
-    
-    // Determina il colore delle particelle in base al tipo di evento
-    let particleColor = '#ffc107'; // default per analysis
-    if (event.type === 'buy') {
-        particleColor = '#28a745';
-    } else if (event.type === 'sell') {
-        particleColor = '#dc3545';
-    }
-    
-    // Ottieni le coordinate dell'elemento dell'evento
-    const eventElement = document.getElementById(event.id);
-    if (!eventElement) return;
-    
-    const rect = eventElement.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    
-    // Crea particelle
-    const PARTICLE_COUNT = 10;
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
-        createParticle(
-            rect.left - containerRect.left + rect.width / 2,
-            rect.top - containerRect.top + rect.height / 2,
-            particleColor,
-            container
-        );
-    }
+    // Disabilitato - Non creiamo più effetti particellari
+    return;
 }
 
 // Funzione per creare una singola particella
 function createParticle(x, y, color, container) {
-    const particle = document.createElement('div');
-    particle.style.position = 'absolute';
-    particle.style.width = '6px';
-    particle.style.height = '6px';
-    particle.style.backgroundColor = color;
-    particle.style.borderRadius = '50%';
-    particle.style.left = x + 'px';
-    particle.style.top = y + 'px';
-    particle.style.opacity = '0.8';
-    particle.style.pointerEvents = 'none';
-    
-    container.appendChild(particle);
-    
-    // Animazione della particella
-    const angle = Math.random() * Math.PI * 2;
-    const speed = Math.random() * 50 + 30;
-    const size = Math.random() * 4 + 2;
-    
-    anime({
-        targets: particle,
-        translateX: Math.cos(angle) * speed,
-        translateY: Math.sin(angle) * speed,
-        opacity: 0,
-        easing: 'easeOutExpo',
-        scale: [1, 0],
-        duration: Math.random() * 1000 + 500,
-        complete: function() {
-            if (container.contains(particle)) {
-                container.removeChild(particle);
-            }
-        }
-    });
+    // Disabilitato - Non creiamo più particelle
+    return;
 }
 
 // Genera un ID univoco per l'evento
 function generateEventId() {
-    return 'event-' + Math.random().toString(36).substr(2, 9);
+    // Disabilitato - Non generiamo più ID per eventi simulati
+    return;
 }
 
 // Aggiorna le statistiche di attività
 function updateActivityStats() {
-    document.getElementById('analysis-count').textContent = activityStats.analysis;
-    document.getElementById('buy-count').textContent = activityStats.buy;
-    document.getElementById('sell-count').textContent = activityStats.sell;
-    document.getElementById('total-events').textContent = activityStats.total;
+    // Disabilitato - Non aggiorniamo più le statistiche delle attività
+    return;
 }
 
 // Aggiorna lo stato dell'attività
 function updateActivityStatus(status, type) {
-    const badge = document.getElementById('activity-status-badge');
-    const timestamp = document.getElementById('activity-timestamp');
-    
-    if (badge) {
-        badge.textContent = status;
-        badge.className = `badge bg-${type}`;
-    }
-    
-    if (timestamp) {
-        timestamp.textContent = new Date().toLocaleTimeString();
-    }
+    // Disabilitato - Non aggiorniamo più lo stato delle attività
+    return;
 }
 
 // Funzione per visualizzare un evento nella timeline con anime.js
 function visualizeEvent(event) {
-    const container = document.getElementById('trading-events-container');
-    if (!container) return;
-    
-    // Crea un elemento per l'evento
-    const eventElement = document.createElement('div');
-    eventElement.id = event.id;
-    eventElement.className = `trading-event ${event.type}`;
-    eventElement.style.opacity = '0';
-    eventElement.style.transform = 'scale(0)';
-    
-    // Aggiungi un'icona in base al tipo
-    let icon = '';
-    switch (event.type) {
-        case 'buy':
-            icon = '<i class="fas fa-arrow-up"></i>';
-            break;
-        case 'sell':
-            icon = '<i class="fas fa-arrow-down"></i>';
-            break;
-        case 'analysis':
-            icon = '<i class="fas fa-search"></i>';
-            break;
-    }
-    
-    eventElement.innerHTML = icon;
-    
-    // Aggiungi l'evento al container
-    container.appendChild(eventElement);
-    
-    // Posiziona l'evento nella timeline in base al tipo
-    const containerHeight = container.offsetHeight;
-    
-    // Posiziona verticalmente in base al tipo
-    const yPosition = event.type === 'analysis' 
-        ? containerHeight / 2 + (Math.random() * 20 - 10) 
-        : (event.type === 'buy' ? containerHeight / 3 : 2 * containerHeight / 3);
-    
-    // Calcola una posizione x che si sposti verso destra nel tempo
-    const latestEvents = tradingEvents.slice(-10);
-    const xOffset = Math.min(70, 100 - latestEvents.length * 2);
-    const xPosition = xOffset + Math.random() * 20 + tradingEvents.length * 3;
-    
-    eventElement.style.top = `${yPosition}px`;
-    eventElement.style.left = `${xPosition}%`;
-    
-    // Aggiungi tooltip con informazioni dettagliate
-    const detailsText = event.details || `${event.type.toUpperCase()} - ${event.symbol}`;
-    eventElement.setAttribute('data-bs-toggle', 'tooltip');
-    eventElement.setAttribute('data-bs-placement', 'top');
-    eventElement.setAttribute('title', detailsText);
-    
-    // Animazione con anime.js
-    anime({
-        targets: eventElement,
-        opacity: 1,
-        scale: [0, 1],
-        translateY: [20, 0],
-        easing: 'spring(1, 80, 10, 0)',
-        duration: 800
-    });
-    
-    // Inizializza il tooltip
-    initializeTooltips();
-    
-    // Pulisci eventi vecchi se ci sono troppi
-    cleanupEvents();
-    
-    // Animazione del marker di attività corrente
-    animateActivityMarker();
+    // Disabilitato - Non visualizziamo più gli eventi
+    return;
 }
 
 // Funzione per animare il marker di attività corrente
 function animateActivityMarker() {
-    const marker = document.getElementById('current-activity-marker');
-    if (!marker) return;
-    
-    // Calcola una nuova posizione per il marker
-    const containerWidth = document.querySelector('.activity-visualization-container').offsetWidth;
-    const randomX = 20 + Math.random() * (containerWidth - 40);
-    
-    // Anima il movimento
-    anime({
-        targets: marker,
-        left: randomX,
-        easing: 'spring(1, 80, 10, 0)',
-        duration: 1500
-    });
+    // Disabilitato - Non animiamo più il marker di attività
+    return;
 }
 
 // Funzione per pulire eventi vecchi
 function cleanupEvents() {
-    // Limita a massimo 20 eventi visualizzati
-    const MAX_EVENTS = 20;
-    
-    if (tradingEvents.length > MAX_EVENTS) {
-        // Rimuovi gli eventi più vecchi
-        const eventsToRemove = tradingEvents.length - MAX_EVENTS;
-        
-        for (let i = 0; i < eventsToRemove; i++) {
-            const oldestEvent = tradingEvents.shift();
-            const element = document.getElementById(oldestEvent.id);
-            
-            if (element) {
-                // Anima l'uscita
-                element.classList.remove('appear');
-                setTimeout(() => {
-                    element.remove();
-                }, 300);
-            }
-        }
-    }
+    // Disabilitato - Non facciamo più pulizia degli eventi
+    return;
 }
 
 // Funzione per aggiungere un evento alla timeline delle attività recenti
 function addTimelineEvent(event) {
-    const container = document.querySelector('.timeline-container');
-    const noActivitiesMsg = document.getElementById('no-activities-msg');
-    
-    // Rimuovi il messaggio "nessuna attività"
-    if (noActivitiesMsg) {
-        noActivitiesMsg.remove();
-    }
-    
-    // Crea l'elemento per la timeline
-    const timelineItem = document.createElement('div');
-    timelineItem.className = 'timeline-item new-event';
-    
-    // Determina il colore del badge in base al tipo
-    let badgeClass = 'bg-secondary';
-    let icon = 'fa-info';
-    let title = 'Evento';
-    
-    switch (event.type) {
-        case 'buy':
-            badgeClass = 'bg-success';
-            icon = 'fa-arrow-up';
-            title = 'Acquisto';
-            break;
-        case 'sell':
-            badgeClass = 'bg-danger';
-            icon = 'fa-arrow-down';
-            title = 'Vendita';
-            break;
-        case 'analysis':
-            badgeClass = 'bg-warning';
-            icon = 'fa-search';
-            title = 'Analisi';
-            break;
-    }
-    
-    timelineItem.innerHTML = `
-        <div class="timeline-badge ${badgeClass}">
-            <i class="fas ${icon}"></i>
-        </div>
-        <div class="timeline-content">
-            <div class="timeline-time">${event.timestamp.toLocaleTimeString()}</div>
-            <div class="timeline-title">${title} - ${event.symbol}</div>
-            <div class="timeline-details">${event.details || 'Nessun dettaglio disponibile'}</div>
-        </div>
-    `;
-    
-    // Inserisci l'evento all'inizio della timeline
-    container.insertBefore(timelineItem, container.firstChild);
-    
-    // Rimuovi eventi vecchi se ce ne sono troppi
-    const MAX_TIMELINE_ITEMS = 10;
-    const timelineItems = container.querySelectorAll('.timeline-item');
-    
-    if (timelineItems.length > MAX_TIMELINE_ITEMS) {
-        container.removeChild(timelineItems[timelineItems.length - 1]);
-    }
+    // Disabilitato - Non aggiungiamo più eventi alla timeline
+    return;
 }
 
 // Mostra una notifica toast per eventi di trading
 function showTradeNotification(event) {
-    // Crea l'elemento di notifica
-    const notification = document.createElement('div');
-    notification.className = `trade-notification ${event.type}`;
-    
-    // Determina icona e titolo
-    let icon = 'fa-info';
-    let title = 'Evento';
-    
-    switch (event.type) {
-        case 'buy':
-            icon = 'fa-arrow-up';
-            title = 'Nuovo Acquisto';
-            break;
-        case 'sell':
-            icon = 'fa-arrow-down';
-            title = 'Nuova Vendita';
-            break;
-        case 'analysis':
-            icon = 'fa-search';
-            title = 'Nuova Analisi';
-            break;
-    }
-    
-    notification.innerHTML = `
-        <div class="trade-notification-icon">
-            <i class="fas ${icon}"></i>
-        </div>
-        <div class="trade-notification-content">
-            <div class="trade-notification-title">${title} - ${event.symbol}</div>
-            <div class="trade-notification-message">${event.details || 'Nessun dettaglio disponibile'}</div>
-        </div>
-        <button class="trade-notification-close">
-            <i class="fas fa-times"></i>
-        </button>
-    `;
-    
-    // Aggiungi al corpo del documento
-    document.body.appendChild(notification);
-    
-    // Mostra la notifica
-    setTimeout(() => {
-        notification.classList.add('show');
-    }, 100);
-    
-    // Configura il pulsante di chiusura
-    const closeButton = notification.querySelector('.trade-notification-close');
-    closeButton.addEventListener('click', () => {
-        notification.classList.remove('show');
-        setTimeout(() => {
-            notification.remove();
-        }, 500);
-    });
-    
-    // Rimuovi automaticamente dopo 5 secondi
-    setTimeout(() => {
-        if (document.body.contains(notification)) {
-            notification.classList.remove('show');
-            setTimeout(() => {
-                if (document.body.contains(notification)) {
-                    notification.remove();
-                }
-            }, 500);
-        }
-    }, 5000);
+    // Disabilitato - Non mostriamo più notifiche di trade simulate
+    return;
 }
 
 // Funzione per aggiornare i dati di performance
 function updatePerformanceData(event) {
-    // Aggiungi timestamp
-    const timestamp = event.timestamp.toLocaleTimeString();
-    performanceData.labels.push(timestamp);
-    
-    // Genera un valore casuale per il profit (da -5 a +15)
-    // Questo è solo simulato - in un'implementazione reale dovresti usare i dati effettivi
-    const lastProfit = performanceData.profit.length > 0 ? performanceData.profit[performanceData.profit.length - 1] : 0;
-    let profitChange = 0;
-    
-    if (event.type === 'buy') {
-        // Per i segnali di acquisto, tendenzialmente positivo
-        profitChange = (Math.random() * 8) - 2;
-    } else if (event.type === 'sell') {
-        // Per i segnali di vendita, mix di positivo e negativo
-        profitChange = (Math.random() * 6) - 3;
-    }
-    
-    const newProfit = lastProfit + profitChange;
-    performanceData.profit.push(newProfit);
-    
-    // Aggiungi punti per segnali buy/sell
-    const buyPoint = event.type === 'buy' ? newProfit : null;
-    const sellPoint = event.type === 'sell' ? newProfit : null;
-    
-    performanceData.buySignals.push(buyPoint);
-    performanceData.sellSignals.push(sellPoint);
-    
-    // Limita la dimensione dei dati
-    const MAX_DATA_POINTS = 50;
-    if (performanceData.labels.length > MAX_DATA_POINTS) {
-        performanceData.labels = performanceData.labels.slice(-MAX_DATA_POINTS);
-        performanceData.profit = performanceData.profit.slice(-MAX_DATA_POINTS);
-        performanceData.buySignals = performanceData.buySignals.slice(-MAX_DATA_POINTS);
-        performanceData.sellSignals = performanceData.sellSignals.slice(-MAX_DATA_POINTS);
-    }
+    // Disabilitato - Non aggiorniamo più i dati di performance simulati
+    return;
 }
 
 // Funzione per aggiornare il grafico delle performance
 function updatePerformanceChart() {
-    // Controlla il riferimento al grafico da window
-    if (!window.performanceChart) {
-        // Se il grafico non esiste, inizializzalo
-        initPerformanceChart();
-        return;
-    }
-    
-    try {
-        window.performanceChart.data.labels = performanceData.labels;
-        window.performanceChart.data.datasets[0].data = performanceData.profit;
-        window.performanceChart.data.datasets[1].data = performanceData.buySignals;
-        window.performanceChart.data.datasets[2].data = performanceData.sellSignals;
-        
-        window.performanceChart.update();
-    } catch (error) {
-        console.error('Errore nell\'aggiornamento del grafico delle performance:', error);
-        // Se riscontriamo un errore, reinizializziamo il grafico
-        initPerformanceChart();
-    }
+    // Disabilitato - Non aggiorniamo più il grafico delle performance simulate
+    return;
 }
 
 // Funzione per simulare eventi (solo per demo)
 function simulateEvents() {
-    if (!isPredictionsRunning) return;
-    
-    // Ottieni simboli dalle predizioni salvate
-    const availableSymbols = window.savedPredictions 
-        ? window.savedPredictions.map(p => p.symbol) 
-        : ['BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT', 'DOGE/USDT:USDT'];
-    
-    // Genera un evento casuale
-    const randomType = Math.random() < 0.7 ? 'analysis' : (Math.random() < 0.5 ? 'buy' : 'sell');
-    const randomSymbol = availableSymbols[Math.floor(Math.random() * availableSymbols.length)];
-    
-    let details = '';
-    if (randomType === 'analysis') {
-        details = `Analisi tecnica per ${randomSymbol} completata`;
-    } else if (randomType === 'buy') {
-        details = `Segnale di acquisto rilevato per ${randomSymbol} - Confidenza: ${(Math.random() * 30 + 70).toFixed(1)}%`;
-    } else {
-        details = `Segnale di vendita rilevato per ${randomSymbol} - Confidenza: ${(Math.random() * 30 + 70).toFixed(1)}%`;
-    }
-    
-    // Aggiungi l'evento
-    addTradingEvent(randomType, randomSymbol, details);
-    
-    // Pianifica il prossimo evento
-    const delay = Math.random() * 5000 + 2000; // 2-7 secondi
-    setTimeout(simulateEvents, delay);
+    // Disabilitato - Non generiamo più eventi simulati
+    return;
 }
 
 // Funzione per mostrare una notifica quando arrivano nuove predizioni
@@ -1821,14 +1529,8 @@ function showNewPredictionsNotification(count) {
 
 // Funzione per riprodurre un suono di notifica
 function playNotificationSound() {
-    try {
-        // Crea un elemento audio e riproducilo
-        const audio = new Audio('/static/sounds/notification.mp3');
-        audio.volume = 0.5;
-        audio.play().catch(e => console.log('Notifica audio non supportata:', e));
-    } catch (error) {
-        console.log('Impossibile riprodurre il suono di notifica:', error);
-    }
+    // Disabilitato temporaneamente
+    return;
 }
 
 // Funzione per creare indicatori di direzione per i modelli

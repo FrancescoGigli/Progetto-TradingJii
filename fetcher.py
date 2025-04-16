@@ -4,7 +4,7 @@ import asyncio
 import logging
 import pandas as pd
 from datetime import datetime, timedelta
-from config import TIMEFRAME_DEFAULT, DATA_LIMIT_DAYS, TOP_ANALYSIS_CRYPTO, exchange_config
+from config import TIMEFRAME_DEFAULT, DATA_LIMIT_DAYS, TOP_ANALYSIS_CRYPTO
 from termcolor import colored
 import re
 import sqlite3
@@ -75,73 +75,10 @@ async def get_data_async(exchange, symbol, timeframe=TIMEFRAME_DEFAULT, limit=10
         logging.info(f"Nessun dato disponibile per {symbol} negli ultimi {DATA_LIMIT_DAYS} giorni.")
         return None
 
-async def fetch_and_save_data(exchange, symbol, timeframe=TIMEFRAME_DEFAULT, limit=1000, use_db=True):
+async def fetch_and_save_data(exchange, symbol, timeframe=TIMEFRAME_DEFAULT, limit=1000):
     df = await get_data_async(exchange, symbol, timeframe, limit)
     if df is not None:
         from data_utils import add_technical_indicators
         df_indicators = add_technical_indicators(df.copy())
-        # Salva i dati nel DB solo se richiesto
-        if use_db:
-            save_data(symbol, df_indicators, timeframe)
+        save_data(symbol, df_indicators, timeframe)
     return df
-
-async def fetch_data_for_multiple_symbols(exchange, symbols, timeframes, limit=1000):
-    """
-    Recupera i dati per più simboli e timeframe contemporaneamente.
-    
-    Args:
-        exchange: Istanza dell'exchange
-        symbols: Lista di simboli
-        timeframes: Lista di timeframe
-        limit: Numero di candele da recuperare
-    
-    Returns:
-        dict: Dizionario con i dati per ogni combinazione simbolo/timeframe
-    """
-    results = {}
-    tasks = []
-    
-    # Crea una task per ogni combinazione simbolo/timeframe
-    for symbol in symbols:
-        results[symbol] = {}
-        for timeframe in timeframes:
-            task = fetch_and_save_data(exchange, symbol, timeframe, limit)
-            tasks.append((symbol, timeframe, asyncio.create_task(task)))
-    
-    # Esegui tutte le task in parallelo e attendi i risultati
-    for symbol, timeframe, task in tasks:
-        try:
-            df = await task
-            if df is not None:
-                results[symbol][timeframe] = df
-            else:
-                logging.warning(f"Nessun dato disponibile per {symbol} ({timeframe})")
-        except Exception as e:
-            logging.error(f"Errore nel recupero dati per {symbol} ({timeframe}): {e}")
-            results[symbol][timeframe] = None
-    
-    return results
-
-# Funzione per recuperare i dati OHLCV direttamente dall'exchange
-async def fetch_ohlcv_data(exchange, symbol, timeframe=TIMEFRAME_DEFAULT, limit=1000):
-    """
-    Recupera i dati OHLCV direttamente dall'exchange senza salvarli nel database.
-    Utile per recuperi occasionali o in caso di errori del database.
-    
-    Args:
-        exchange: Istanza dell'exchange
-        symbol: Simbolo da recuperare
-        timeframe: Timeframe da recuperare
-        limit: Numero di candele da recuperare
-        
-    Returns:
-        list: Lista di candele OHLCV o None in caso di errore
-    """
-    try:
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-        if ohlcv and len(ohlcv) > 0:
-            return ohlcv
-        return None
-    except Exception as e:
-        logging.error(f"Errore nel recupero diretto OHLCV per {symbol} ({timeframe}): {e}")
-        return None

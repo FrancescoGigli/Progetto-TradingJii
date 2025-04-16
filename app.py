@@ -34,7 +34,7 @@ from trade_manager import get_real_balance, get_open_positions, save_trade_db
 from config import exchange_config, API_KEY, API_SECRET, EXCLUDED_SYMBOLS, TOP_ANALYSIS_CRYPTO, LEVERAGE, MARGIN_USDT
 from fetcher import (
     fetch_markets, get_top_symbols, fetch_min_amounts,
-    fetch_data_for_multiple_symbols, get_data_async
+    fetch_and_save_data, get_data_async
 )
 
 # Carica le variabili d'ambiente
@@ -166,7 +166,7 @@ async def initialize_bot(config: BotConfig,
         if config.trading_params:
             if 'top_analysis_crypto' in config.trading_params:
                 top_analysis = config.trading_params['top_analysis_crypto']
-                if 10 <= top_analysis <= 100:
+                if 3 <= top_analysis <= 150:
                     cfg.TOP_ANALYSIS_CRYPTO = top_analysis
                     main.TOP_ANALYSIS_CRYPTO = top_analysis
                     logging.info(f"Numero di cripto da analizzare impostato a: {top_analysis}")
@@ -180,7 +180,7 @@ async def initialize_bot(config: BotConfig,
             
             if 'margin_usdt' in config.trading_params:
                 margin = config.trading_params['margin_usdt']
-                if 10 <= margin <= 100:
+                if 5 <= margin <= 100:
                     cfg.MARGIN_USDT = margin
                     main.MARGIN_USDT = margin
                     logging.info(f"Margine USDT impostato a: {margin}")
@@ -674,8 +674,12 @@ async def get_predictions(
                         if data is None or len(data) < main.TIME_STEPS * 2:
                             continue
                         
+                        # Aggiungi log per le date di inizio e fine dei campioni
+                        start_date = data.index[0].strftime('%Y-%m-%d %H:%M')
+                        end_date = data.index[-1].strftime('%Y-%m-%d %H:%M')
+                        logging.info(f"Dati recuperati per {symbol} ({timeframe}): {len(data)} campioni dal {start_date} al {end_date}")
+                        
                         # Calcola RSI
-                        import ta
                         rsi = ta.momentum.RSIIndicator(data['close']).rsi()
                         rsi_value = float(rsi.iloc[-1]) if not rsi.empty else 50.0
                         
@@ -835,7 +839,7 @@ async def calculate_position_size(exchange, symbol, usdt_balance, min_amount=0, 
         ticker = await exchange.fetch_ticker(symbol)
         current_price = ticker.get('last')
         if current_price is None or not isinstance(current_price, (int, float)):
-            logging.error(colored(f"Prezzo corrente per {symbol} non disponibile", "red"))
+            logging.error(f"Prezzo corrente per {symbol} non disponibile")
             return None
         
         # Usa i valori globali di main.py per maggiore flessibilità
@@ -844,18 +848,18 @@ async def calculate_position_size(exchange, symbol, usdt_balance, min_amount=0, 
         margin_value = margin or getattr(main, 'MARGIN_USDT', MARGIN_USDT)
         leverage = getattr(main, 'LEVERAGE', LEVERAGE)
         
-        logging.info(colored(f"Parametri trading: Margine={margin_value} USDT, Leva={leverage}x", "blue"))
+        logging.info(f"Parametri trading: Margine={margin_value} USDT, Leva={leverage}x")
         
         notional_value = margin_value * leverage
         position_size = notional_value / current_price
         position_size = float(exchange.amount_to_precision(symbol, position_size))
-        logging.info(colored(f"Dimensione posizione per {symbol}: {position_size} contratti (Margine = {margin_value})", "cyan"))
+        logging.info(f"Dimensione posizione per {symbol}: {position_size} contratti (Margine = {margin_value})")
         if position_size < min_amount:
-            logging.warning(colored(f"Dimensione posizione {position_size} inferiore al minimo {min_amount} per {symbol}.", "yellow"))
+            logging.warning(f"Dimensione posizione {position_size} inferiore al minimo {min_amount} per {symbol}.")
             position_size = min_amount
         return position_size
     except Exception as e:
-        logging.error(colored(f"Errore nel calcolo della dimensione per {symbol}: {e}", "red"))
+        logging.error(f"Errore nel calcolo della dimensione per {symbol}: {e}")
         return None
 
 # === AVVIO MANUALE DELL'APPLICAZIONE ===
