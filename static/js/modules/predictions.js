@@ -238,7 +238,7 @@ function initializeSelectionHandlers() {
 }
 
 // Funzione per controllare lo stato delle predizioni
-export async function togglePredictions() {
+export function togglePredictions() {
     const controlBtn = document.getElementById('predictions-control-btn');
     
     // Verifica che il pulsante esista
@@ -258,14 +258,6 @@ export async function togglePredictions() {
                 return false;
             }
             
-            // Cambia immediatamente lo stato in "in esecuzione" per mostrare subito l'animazione
-            isPredictionsRunning = true;
-            updateRunningUI(true);
-            
-            // Mostra il loader durante il caricamento iniziale delle predizioni
-            const loadingEl = document.getElementById('predictions-loading');
-            if (loadingEl) loadingEl.classList.remove('d-none');
-            
             // Imposta i valori predefiniti per i parametri di trading
             const topCryptoSelect = document.getElementById('top-crypto-select');
             const topCrypto = topCryptoSelect ? parseInt(topCryptoSelect.value) : 3;
@@ -281,20 +273,8 @@ export async function togglePredictions() {
             const selectedModels = getSelectedModels();
             const selectedTimeframes = getSelectedTimeframes();
             
-            // Disabilita i controlli durante l'esecuzione
-            document.querySelectorAll('.btn-check').forEach(checkbox => {
-                checkbox.disabled = true;
-            });
-            
-            // Disabilita anche i controlli dei parametri di trading se esistono
-            if (leverageRange) leverageRange.disabled = true;
-            if (marginRange) marginRange.disabled = true;
-            
-            // Aggiorna i parametri nei log
-            appendToLog(`Analisi con: Top ${topCrypto} cripto, Leva ${leverage}x, Margine ${margin} USDT`);
-            
             // Inizializza il bot con le selezioni e i parametri di trading
-            const initResult = await makeApiRequest('/initialize', 'POST', {
+            const initResult = makeApiRequest('/initialize', 'POST', {
                 models: selectedModels,
                 timeframes: selectedTimeframes,
                 trading_params: {
@@ -308,27 +288,45 @@ export async function togglePredictions() {
                 throw new Error('Errore durante l\'inizializzazione');
             }
             
+            // Aggiorna i parametri nei log
+            appendToLog(`Analisi con: Top ${topCrypto} cripto, Leva ${leverage}x, Margine ${margin} USDT`);
+            
             // Avvia il bot
-            const startResult = await makeApiRequest('/start', 'POST');
+            const startResult = makeApiRequest('/start', 'POST');
             if (!startResult) {
                 throw new Error('Errore durante l\'avvio');
             }
             
+            // Cambia lo stato in "in esecuzione"
+            isPredictionsRunning = true;
+            
+            // Aggiorna il pulsante e l'interfaccia
+            updateRunningUI(true);
+            
+            // Disabilita i controlli durante l'esecuzione
+            document.querySelectorAll('.btn-check').forEach(checkbox => {
+                checkbox.disabled = true;
+            });
+            
+            // Disabilita anche i controlli dei parametri di trading se esistono
+            if (leverageRange) leverageRange.disabled = true;
+            if (marginRange) marginRange.disabled = true;
+            
+            // Mostra il loader durante il caricamento iniziale delle predizioni
+            document.getElementById('predictions-loading').classList.remove('d-none');
+            
             // Carica le predizioni e avvia un intervallo per aggiornarle
-            try {
-                await loadPredictions();
-                
-                // Nascondi il loader
-                if (loadingEl) loadingEl.classList.add('d-none');
+            loadPredictions().then(() => {
+                // Nascondi il loader una volta caricate le predizioni
+                document.getElementById('predictions-loading').classList.add('d-none');
                 
                 // Imposta un intervallo per ricaricare periodicamente le predizioni
+                // Ma solo se siamo ancora in modalità "running"
                 if (isPredictionsRunning) {
                     // Imposta l'intervallo di aggiornamento delle predizioni ogni 30 secondi
                     predictionsInterval = setInterval(() => {
                         if (isPredictionsRunning) {
-                            loadPredictions().catch(err => {
-                                console.error("Errore nell'aggiornamento delle predizioni:", err);
-                            });
+                            loadPredictions();
                         } else {
                             clearInterval(predictionsInterval);
                         }
@@ -337,14 +335,7 @@ export async function togglePredictions() {
                     // Aggiorna la UI con lo stato "in esecuzione"
                     updateActivityStatus('Attivo', 'success');
                 }
-            } catch (predError) {
-                console.error("Errore nel caricamento delle predizioni:", predError);
-                // Nascondi il loader anche in caso di errore
-                if (loadingEl) loadingEl.classList.add('d-none');
-                
-                // Mostra l'errore ma mantieni il bot in esecuzione
-                showAlert("Errore nel caricamento delle predizioni: " + predError.message, 'warning');
-            }
+            });
             
         } catch (error) {
             console.error('Errore durante l\'avvio:', error);
@@ -357,25 +348,12 @@ export async function togglePredictions() {
                 updateRunningUI(false);
             }
             
-            // Nascondi il loader in caso di errore
-            const loadingEl = document.getElementById('predictions-loading');
-            if (loadingEl) loadingEl.classList.add('d-none');
-            
-            // Riabilita i controlli
-            document.querySelectorAll('.btn-check').forEach(checkbox => {
-                checkbox.disabled = false;
-            });
-            
-            // Riabilita anche i controlli dei parametri di trading
-            if (leverageRange) leverageRange.disabled = false;
-            if (marginRange) marginRange.disabled = false;
-            
             // Mostra errore all'utente
             showAlert(error.message || 'Errore durante l\'avvio delle predizioni', 'danger');
         }
     } else {
         // Ferma le predizioni
-        await stopPredictions();
+        stopPredictions();
         
         // Riabilita i controlli
         document.querySelectorAll('.btn-check').forEach(checkbox => {
@@ -396,7 +374,7 @@ export async function togglePredictions() {
     return isPredictionsRunning;
 }
 
-// Aggiorna la funzione updateRunningUI per un'animazione più evidente
+// Nuova funzione per aggiornare l'interfaccia quando lo stato running cambia
 function updateRunningUI(isRunning) {
     const controlBtn = document.getElementById('predictions-control-btn');
     
@@ -407,19 +385,9 @@ function updateRunningUI(isRunning) {
     }
     
     if (isRunning) {
-        // Cambia il testo e lo stile del pulsante con effetto visivo
+        // Cambia il testo e lo stile del pulsante
         controlBtn.classList.add('running');
         controlBtn.innerHTML = '<i class="fas fa-stop me-1"></i> Ferma';
-        
-        // Animazione del pulsante durante la transizione
-        controlBtn.animate([
-            { transform: 'scale(0.95)' },
-            { transform: 'scale(1.05)' },
-            { transform: 'scale(1.0)' }
-        ], {
-            duration: 300,
-            easing: 'ease-out'
-        });
         
         // Aggiunge l'animazione di caricamento
         controlBtn.classList.add('position-relative');
@@ -443,41 +411,12 @@ function updateRunningUI(isRunning) {
                         50% { width: 100%; opacity: 0.5; }
                         100% { width: 0%; opacity: 0.2; }
                     }
-                    
-                    @keyframes pulse-icon {
-                        0% { transform: scale(1); }
-                        50% { transform: scale(1.2); }
-                        100% { transform: scale(1); }
-                    }
-                    
-                    #predictions-control-btn.running i {
-                        animation: pulse-icon 1s infinite;
-                    }
-                    
-                    .loading-pulse {
-                        animation: pulse-bg 1.5s infinite;
-                    }
-                    
-                    @keyframes pulse-bg {
-                        0% { background-color: rgba(220, 53, 69, 0.1); }
-                        50% { background-color: rgba(220, 53, 69, 0.2); }
-                        100% { background-color: rgba(220, 53, 69, 0.1); }
-                    }
                 `;
                 document.head.appendChild(styleEl);
             }
         }
     } else {
-        // Ripristina lo stile e il testo del pulsante con effetto visivo
-        controlBtn.animate([
-            { transform: 'scale(1.05)' },
-            { transform: 'scale(0.95)' },
-            { transform: 'scale(1.0)' }
-        ], {
-            duration: 300,
-            easing: 'ease-out'
-        });
-        
+        // Ripristina lo stile e il testo del pulsante
         controlBtn.classList.remove('running');
         controlBtn.innerHTML = '<i class="fas fa-play me-1"></i> Avvia';
         
@@ -495,12 +434,14 @@ function updateRunningUI(isRunning) {
 }
 
 // Funzione per fermare le predizioni
-async function stopPredictions() {
+function stopPredictions() {
     // Cambia lo stato
     isPredictionsRunning = false;
     
     // Invia la richiesta al server
-    await makeApiRequest('/stop', 'POST');
+    makeApiRequest('/stop', 'POST').catch(error => {
+        console.error('Errore durante l\'arresto:', error);
+    });
     
     // Pulisci l'intervallo se esistente
     if (predictionsInterval) {
@@ -553,25 +494,16 @@ function validateSelection() {
 // Funzione per caricare le predizioni
 export async function loadPredictions() {
     try {
-        // Aggiungi un effetto pulsante al pulsante Avvia durante il caricamento
-        const controlBtn = document.getElementById('predictions-control-btn');
-        if (controlBtn && controlBtn.classList.contains('running')) {
-            controlBtn.classList.add('loading-pulse');
-        }
-
-        // Mostra un indicatore di caricamento più evidente
+        // Mostra un indicatore di caricamento
         const predictionContainer = document.getElementById('prediction-cards-container');
         if (predictionContainer) {
             predictionContainer.innerHTML = `
-                <div class="d-flex justify-content-center my-5 py-5">
-                    <div class="text-center">
-                        <div class="spinner-border text-primary mb-4" style="width: 3rem; height: 3rem;" role="status">
-                            <span class="visually-hidden">Caricamento predizioni...</span>
-                        </div>
-                        <h5 class="mt-3 fw-bold">Caricamento predizioni in corso...</h5>
-                        <p class="text-muted">Analizzando i modelli per generare i segnali</p>
+                <div class="d-flex justify-content-center my-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Caricamento predizioni...</span>
                     </div>
                 </div>
+                <div class="text-center">Caricamento predizioni in corso...</div>
             `;
         }
         
@@ -586,12 +518,6 @@ export async function loadPredictions() {
         
         // Effettua la richiesta API
         const response = await makeApiRequest(url);
-        
-        // Rimuovi l'effetto pulsante dal pulsante una volta completato il caricamento
-        const controlBtn = document.getElementById('predictions-control-btn');
-        if (controlBtn) {
-            controlBtn.classList.remove('loading-pulse');
-        }
         
         if (response && response.predictions && response.predictions.length > 0) {
             // Raggruppa le predizioni per simbolo

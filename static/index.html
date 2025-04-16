@@ -312,25 +312,23 @@
         #predictions-control-btn.running {
             background-color: #dc3545;
             border-color: #dc3545;
-            box-shadow: 0 0 10px rgba(220, 53, 69, 0.5);
-            animation: pulse-button 1.5s infinite;
         }
-        
+
         #predictions-control-btn.running:hover {
             background-color: #bb2d3b;
             border-color: #b02a37;
         }
-        
+
         #predictions-control-btn i {
             transition: all 0.3s ease;
             position: relative;
             z-index: 2;
         }
-        
+
         #predictions-control-btn.running i {
             animation: pulse 1s infinite;
         }
-        
+
         /* Animazione per il progresso del pulsante */
         #progress-animation {
             position: absolute;
@@ -341,36 +339,17 @@
             z-index: 1;
             border-radius: 4px;
         }
-        
-        .loading-pulse {
-            background-color: rgba(220, 53, 69, 0.1) !important;
-            animation: pulse-bg 1.5s infinite !important;
+
+        @keyframes button-progress {
+            0% { width: 0%; opacity: 0.2; }
+            50% { width: 100%; opacity: 0.5; }
+            100% { width: 0%; opacity: 0.2; }
         }
-        
-        @keyframes pulse-bg {
-            0% { background-color: rgba(220, 53, 69, 0.1) !important; }
-            50% { background-color: rgba(220, 53, 69, 0.2) !important; }
-            100% { background-color: rgba(220, 53, 69, 0.1) !important; }
-        }
-        
-        /* Animazione per le predizioni che appaiono */
-        .prediction-appear {
-            animation: prediction-appear 0.5s ease-out forwards;
-            opacity: 0;
-            transform: translateY(20px);
-        }
-        
-        @keyframes prediction-appear {
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        /* Miglior feedback visivo per il caricamento */
-        .spinner-grow-sm {
-            width: 0.5rem;
-            height: 0.5rem;
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
         }
 
         /* Aggiungi stili per i controlli */
@@ -484,7 +463,7 @@
         /* Animazioni */
         @keyframes pulse {
             0% { transform: scale(1); }
-            50% { transform: scale(1.2); }
+            50% { transform: scale(1.05); }
             100% { transform: scale(1); }
         }
 
@@ -866,23 +845,6 @@
         }
         
         /* Stili per la tabella delle predizioni */
-        @keyframes button-progress {
-            0% { width: 0%; opacity: 0.2; }
-            50% { width: 100%; opacity: 0.5; }
-            100% { width: 0%; opacity: 0.2; }
-        }
-        
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.2); }
-            100% { transform: scale(1); }
-        }
-        
-        @keyframes pulse-button {
-            0% { box-shadow: 0 0 5px rgba(220, 53, 69, 0.5); }
-            50% { box-shadow: 0 0 15px rgba(220, 53, 69, 0.7); }
-            100% { box-shadow: 0 0 5px rgba(220, 53, 69, 0.5); }
-        }
     </style>
 </head>
 <body>
@@ -1137,9 +1099,9 @@
                                                         <option value="150" selected>150 (Massimo)</option>
                                                     </select>
                                                     <div class="form-text">Maggiore è il numero, più completa sarà l'analisi ma richiederà più tempo.</div>
-                                                </div>
                                             </div>
-                                            
+                                        </div>
+                                        
                                             <div class="row mt-3">
                                                 <div class="col-md-6 mb-3">
                                                     <label for="leverage-range" class="form-label d-flex justify-content-between">
@@ -1153,8 +1115,8 @@
                                                         <small>10x</small>
                                                     </div>
                                                     <div class="form-text">Una leva più alta aumenta sia il potenziale profitto che il rischio.</div>
-                                                </div>
-                                                
+                                            </div>
+                                            
                                                 <div class="col-md-6 mb-3">
                                                     <label for="margin-range" class="form-label d-flex justify-content-between">
                                                         <span>Margine per operazione (USDT)</span>
@@ -1167,9 +1129,9 @@
                                                         <small>100</small>
                                                     </div>
                                                     <div class="form-text">Margine utilizzato per ogni posizione.</div>
-                                                </div>
                                             </div>
-                                            
+                                        </div>
+                                        
                                             <div class="row mt-2">
                                                 <div class="col-md-12">
                                                     <div class="card bg-light">
@@ -1177,10 +1139,10 @@
                                                             <div>
                                                                 <span class="fw-bold">Valore posizione totale:</span>
                                                                 <span class="text-secondary">(Leva × Margine)</span>
-                                                            </div>
+                                            </div>
                                                             <span id="total-position-value" class="badge bg-primary px-3 py-2 fs-6">200 USDT</span>
-                                                        </div>
-                                                    </div>
+                                            </div>
+                                            </div>
                                                     <div class="mt-2 d-flex justify-content-between align-items-center">
                                                         <span class="text-muted">Livello di rischio:</span>
                                                         <div id="risk-indicator" class="d-flex gap-1">
@@ -1199,51 +1161,51 @@
                                     <!-- Controlli delle predizioni -->
                                     <div class="d-none">
                                         <!-- Performance in Tempo Reale -->
-                                        <div id="performance-visualization" class="mb-4">
-                                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                                <h6 class="mb-0">
-                                                    <i class="fas fa-chart-line me-2 text-success"></i> Performance in Tempo Reale
-                                                </h6>
-                                                <div class="d-flex align-items-center">
-                                                    <div class="form-check form-switch me-3">
-                                                        <input class="form-check-input" type="checkbox" id="auto-refresh-chart" checked>
-                                                        <label class="form-check-label small" for="auto-refresh-chart">Auto-refresh</label>
-                                                    </div>
-                                                    <select id="performance-timeframe" class="form-select form-select-sm">
-                                                        <option value="5m">Ultimi 5m</option>
-                                                        <option value="15m">Ultimi 15m</option>
-                                                        <option value="1h" selected>Ultima ora</option>
-                                                        <option value="4h">Ultime 4h</option>
-                                                    </select>
+                                    <div id="performance-visualization" class="mb-4">
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <h6 class="mb-0">
+                                                <i class="fas fa-chart-line me-2 text-success"></i> Performance in Tempo Reale
+                                            </h6>
+                                            <div class="d-flex align-items-center">
+                                                <div class="form-check form-switch me-3">
+                                                    <input class="form-check-input" type="checkbox" id="auto-refresh-chart" checked>
+                                                    <label class="form-check-label small" for="auto-refresh-chart">Auto-refresh</label>
                                                 </div>
-                                            </div>
-                                            
-                                            <div style="height: 200px;">
-                                                <canvas id="performance-chart"></canvas>
+                                                <select id="performance-timeframe" class="form-select form-select-sm">
+                                                    <option value="5m">Ultimi 5m</option>
+                                                    <option value="15m">Ultimi 15m</option>
+                                                    <option value="1h" selected>Ultima ora</option>
+                                                    <option value="4h">Ultime 4h</option>
+                                                </select>
                                             </div>
                                         </div>
-
+                                        
+                                        <div style="height: 200px;">
+                                            <canvas id="performance-chart"></canvas>
+                                        </div>
+                                    </div>
+                                    
                                         <!-- Attività Recenti -->
-                                        <div id="recent-activities" class="mb-4">
-                                            <h6 class="mb-3">
-                                                <i class="fas fa-history me-2 text-info"></i> Attività Recenti
-                                            </h6>
-                                            <div class="recent-activities-list" style="max-height: 200px; overflow-y: auto;">
-                                                <div class="timeline-container">
-                                                    <!-- Gli eventi recenti verranno aggiunti qui -->
-                                                    <div class="timeline-item" id="no-activities-msg">
-                                                        <div class="timeline-badge bg-secondary">
-                                                            <i class="fas fa-info"></i>
-                                                        </div>
-                                                        <div class="timeline-content">
-                                                            <p class="text-muted">Nessuna attività recente. Avvia il bot per generare attività.</p>
-                                                        </div>
+                                    <div id="recent-activities" class="mb-4">
+                                        <h6 class="mb-3">
+                                            <i class="fas fa-history me-2 text-info"></i> Attività Recenti
+                                        </h6>
+                                        <div class="recent-activities-list" style="max-height: 200px; overflow-y: auto;">
+                                            <div class="timeline-container">
+                                                <!-- Gli eventi recenti verranno aggiunti qui -->
+                                                <div class="timeline-item" id="no-activities-msg">
+                                                    <div class="timeline-badge bg-secondary">
+                                                        <i class="fas fa-info"></i>
+                                                    </div>
+                                                    <div class="timeline-content">
+                                                        <p class="text-muted">Nessuna attività recente. Avvia il bot per generare attività.</p>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
-                                    
+                                        </div>
+                                        
                                     <!-- Nuova sezione per inizializzazione del bot -->
                                     <div id="initialization-status" class="initialization-container d-none mb-4">
                                         <div class="initialization-header d-flex justify-content-between align-items-center mb-3">
