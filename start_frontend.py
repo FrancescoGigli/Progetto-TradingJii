@@ -6,6 +6,7 @@ import webbrowser
 import time
 import os
 import socket
+import argparse
 
 # Aggiungi supporto per i colori su Windows con colorama
 try:
@@ -203,14 +204,24 @@ def run_frontend_server():
     
     return process
 
-def open_browser():
+def open_browser(auto_open=True):
     """Apre il browser dopo un breve ritardo."""
+    if not auto_open:
+        print(colored_text("Apertura automatica del browser disabilitata.", "yellow"))
+        return
+        
     time.sleep(8)
     url = "http://localhost:5000"
     print(colored_text(f"Apertura del browser su {url}", "yellow"))
     webbrowser.open(url)
 
 def main():
+    # Configura l'analisi degli argomenti della riga di comando
+    parser = argparse.ArgumentParser(description='Avvia l\'applicazione Trading Bot')
+    parser.add_argument('--no-auto-open', action='store_true', help='Non aprire automaticamente il browser')
+    parser.add_argument('--no-auto-start', action='store_true', help='Non avviare automaticamente le predizioni')
+    args = parser.parse_args()
+    
     try:
         print("\n" + "="*40)
         print(colored_text("=== AVVIO APPLICAZIONE TRADING BOT ===", "cyan"))
@@ -229,8 +240,24 @@ def main():
             api_process.terminate()
             return
         
+        # Se --no-auto-start è specificato, crea un file segnale per il frontend
+        if args.no_auto_start:
+            try:
+                with open("static/no_auto_start", "w") as f:
+                    f.write("1")
+                print(colored_text("Predizioni automatiche disabilitate all'avvio.", "yellow"))
+            except Exception as e:
+                print(colored_text(f"Errore nella creazione del file segnale: {e}", "red"))
+        else:
+            # Rimuovi il file segnale se esiste
+            if os.path.exists("static/no_auto_start"):
+                try:
+                    os.remove("static/no_auto_start")
+                except Exception as e:
+                    print(colored_text(f"Errore nella rimozione del file segnale: {e}", "red"))
+        
         # Avvia l'apertura del browser in un thread separato
-        threading.Thread(target=open_browser).start()
+        threading.Thread(target=open_browser, args=(not args.no_auto_open,)).start()
         print(colored_text("Premi Ctrl+C per terminare i server", "yellow"))
         while True:
             time.sleep(1)

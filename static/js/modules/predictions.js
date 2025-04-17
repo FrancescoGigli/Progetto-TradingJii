@@ -2,6 +2,7 @@
 import { makeApiRequest } from './api.js';
 import { appendToLog, showAlert, initializeTooltips } from './ui.js';
 import { loadChartData } from './charts.js';
+import { autoStartDisabled } from '../app.js';
 
 // Variabili globali per lo stato delle predizioni
 let isPredictionsRunning = false;
@@ -43,6 +44,17 @@ export function initializePredictionsControl() {
     
     // Inizializza anche la visualizzazione
     initActivityVisualization();
+    
+    // Avvia automaticamente le predizioni se non disabilitato
+    if (!autoStartDisabled) {
+        // Avvia le predizioni con un leggero ritardo per dare tempo al caricamento completo
+        setTimeout(() => {
+            if (!isPredictionsRunning) {
+                appendToLog('Avvio automatico delle predizioni...');
+                togglePredictions();
+            }
+        }, 2000);
+    }
 }
 
 // Funzione per inizializzare i gestori dei parametri di trading

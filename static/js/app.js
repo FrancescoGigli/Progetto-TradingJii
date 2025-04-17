@@ -10,6 +10,7 @@ const DEFAULT_API_SECRET = 'xQpYxVtEinsD6yqa84PGbYVsgYrT9O3k0MRf';
 let botRunning = false;
 let apiKey = localStorage.getItem(LOCAL_STORAGE_API_KEY) || DEFAULT_API_KEY;
 let apiSecret = localStorage.getItem(LOCAL_STORAGE_API_SECRET) || DEFAULT_API_SECRET;
+let autoStartDisabled = false;
 
 // Elementi DOM principali
 const botStatusBtn = document.getElementById('botStatusBtn');
@@ -30,12 +31,13 @@ export {
     sections,
     botRunning,
     apiKey,
-    apiSecret
+    apiSecret,
+    autoStartDisabled
 };
 
 // Importazione dei moduli
 import { initializeUI, appendToLog, showAlert } from './modules/ui.js';
-import { testConnection, setupApiService } from './modules/api.js';
+import { testConnection, setupApiService, makeApiRequest } from './modules/api.js';
 import { loadBalance, loadPositions, loadOpenOrders, setupDashboardEventListeners } from './modules/dashboard.js';
 import { initializePredictionsControl } from './modules/predictions.js';
 import { loadChartSymbols } from './modules/charts.js';
@@ -50,6 +52,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         // Configura il servizio API con le chiavi di default
         setupApiService(apiKey, apiSecret, API_BASE_URL);
+        
+        // Controlla se esiste il file no_auto_start
+        try {
+            const response = await fetch('/no_auto_start', { method: 'HEAD' });
+            if (response.ok) {
+                appendToLog('Avvio automatico predizioni disabilitato');
+                autoStartDisabled = true;
+            }
+        } catch (error) {
+            // File non trovato, autoStartDisabled rimane false
+            console.log('Il file no_auto_start non esiste, predizioni saranno avviate automaticamente');
+        }
         
         // Inizializza l'interfaccia utente
         initializeUI();
@@ -127,6 +141,11 @@ function safeInitialize() {
         const predictionControlBtn = document.getElementById('predictions-control-btn');
         if (predictionControlBtn) {
             initializePredictionsControl();
+            
+            // Se autoStartDisabled è false, fai un log ma non avviare automaticamente
+            if (autoStartDisabled) {
+                appendToLog('Predizioni non avviate automaticamente (--no-auto-start attivo)');
+            }
         }
         
         // Inizializza i simboli del grafico se gli elementi esistono
