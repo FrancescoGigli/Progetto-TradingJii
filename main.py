@@ -56,7 +56,6 @@ from predictor import predict_signal_ensemble, get_color_normal
 from trade_manager import (
     get_real_balance, manage_position, get_open_positions,
     update_orders_status, load_existing_positions, monitor_open_trades,
-    print_trade_statistics, save_trade_statistics, compute_trade_statistics_for_period,
     wait_and_update_closed_trades
 )
 from data_utils import prepare_data
@@ -104,8 +103,7 @@ async def trade_signals():
             predicted_sells = []
             predicted_neutrals = []
 
-            logging.info(colored("Statistiche iniziali (DB):", "cyan"))
-            print_trade_statistics()
+            logging.info(colored("Inizio ciclo di trading", "cyan"))
             await load_existing_positions(async_exchange)
 
             markets = await fetch_markets(async_exchange)
@@ -191,9 +189,7 @@ async def trade_signals():
                     logging.error(f"{colored('[ERRORE] Error processing', 'red')} {symbol}: {e}")
                 logging.info(colored("-" * 60, "white"))
 
-            logging.info(colored("Fine ciclo: aggiornamento statistiche.", "cyan"))
-            print_trade_statistics()
-            save_trade_statistics()
+            logging.info(colored("Fine ciclo di trading", "cyan"))
             logging.info(colored("Bot is running", "green"))
 
             await countdown_timer(TRADE_CYCLE_INTERVAL)
@@ -279,7 +275,6 @@ async def main():
                 else:
                     raise Exception(f"XGBoost model for timeframe {tf} not available. Train models first.")
 
-        save_trade_statistics()
         logging.info(colored("Modelli caricati da disco o allenati per tutti i timeframe abilitati.", "magenta"))
         await load_existing_positions(async_exchange)
 

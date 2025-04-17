@@ -247,113 +247,139 @@ export function togglePredictions() {
         return false;
     }
     
+    // Disabilita temporaneamente il pulsante durante l'operazione
     controlBtn.disabled = true;
     
     // Se non stiamo già eseguendo predizioni, avviale
     if (!isPredictionsRunning) {
-        try {
-            // Verifica che ci sia almeno un modello e un timeframe selezionato
-            if (!validateSelection()) {
-                controlBtn.disabled = false;
-                return false;
-            }
-            
-            // Imposta i valori predefiniti per i parametri di trading
-            const topCryptoSelect = document.getElementById('top-crypto-select');
-            const topCrypto = topCryptoSelect ? parseInt(topCryptoSelect.value) : 3;
-            
-            // Ottieni i valori di leva e margine dagli slider
-            const leverageRange = document.getElementById('leverage-range');
-            const leverage = leverageRange ? parseInt(leverageRange.value) : 5;
-            
-            const marginRange = document.getElementById('margin-range');
-            const margin = marginRange ? parseInt(marginRange.value) : 40;
-            
-            // Ottieni i modelli e i timeframe selezionati
-            const selectedModels = getSelectedModels();
-            const selectedTimeframes = getSelectedTimeframes();
-            
-            // Inizializza il bot con le selezioni e i parametri di trading
-            const initResult = makeApiRequest('/initialize', 'POST', {
-                models: selectedModels,
-                timeframes: selectedTimeframes,
-                trading_params: {
-                    top_analysis_crypto: topCrypto,
-                    leverage: leverage,
-                    margin_usdt: margin
-                }
-            });
-            
-            if (!initResult) {
-                throw new Error('Errore durante l\'inizializzazione');
-            }
-            
-            // Aggiorna i parametri nei log
-            appendToLog(`Analisi con: Top ${topCrypto} cripto, Leva ${leverage}x, Margine ${margin} USDT`);
-            
-            // Avvia il bot
-            const startResult = makeApiRequest('/start', 'POST');
-            if (!startResult) {
-                throw new Error('Errore durante l\'avvio');
-            }
-            
-            // Cambia lo stato in "in esecuzione"
-            isPredictionsRunning = true;
-            
-            // Aggiorna il pulsante e l'interfaccia
-            updateRunningUI(true);
-            
-            // Disabilita i controlli durante l'esecuzione
-            document.querySelectorAll('.btn-check').forEach(checkbox => {
-                checkbox.disabled = true;
-            });
-            
-            // Disabilita anche i controlli dei parametri di trading se esistono
-            if (leverageRange) leverageRange.disabled = true;
-            if (marginRange) marginRange.disabled = true;
-            
-            // Mostra il loader durante il caricamento iniziale delle predizioni
-            document.getElementById('predictions-loading').classList.remove('d-none');
-            
-            // Carica le predizioni e avvia un intervallo per aggiornarle
-            loadPredictions().then(() => {
-                // Nascondi il loader una volta caricate le predizioni
-                document.getElementById('predictions-loading').classList.add('d-none');
-                
-                // Imposta un intervallo per ricaricare periodicamente le predizioni
-                // Ma solo se siamo ancora in modalità "running"
-                if (isPredictionsRunning) {
-                    // Imposta l'intervallo di aggiornamento delle predizioni ogni 30 secondi
-                    predictionsInterval = setInterval(() => {
-                        if (isPredictionsRunning) {
-                            loadPredictions();
-                        } else {
-                            clearInterval(predictionsInterval);
-                        }
-                    }, 30000); // Aggiorna ogni 30 secondi
-                    
-                    // Aggiorna la UI con lo stato "in esecuzione"
-                    updateActivityStatus('Attivo', 'success');
-                }
-            });
-            
-        } catch (error) {
-            console.error('Errore durante l\'avvio:', error);
-            
-            // In caso di errore, ripristina lo stato del pulsante
-            isPredictionsRunning = false;
-            
-            // Aggiorna l'UI solo se il pulsante esiste
-            if (document.getElementById('predictions-control-btn')) {
-                updateRunningUI(false);
-            }
-            
-            // Mostra errore all'utente
-            showAlert(error.message || 'Errore durante l\'avvio delle predizioni', 'danger');
-        }
+        startPredictions(controlBtn);
     } else {
-        // Ferma le predizioni
-        stopPredictions();
+        stopPredictions(controlBtn);
+    }
+    
+    return isPredictionsRunning;
+}
+
+// Funzione per avviare le predizioni
+async function startPredictions(controlBtn) {
+    try {
+        // Verifica che ci sia almeno un modello e un timeframe selezionato
+        if (!validateSelection()) {
+            controlBtn.disabled = false;
+            return false;
+        }
+        
+        // Imposta i valori predefiniti per i parametri di trading
+        const topCryptoSelect = document.getElementById('top-crypto-select');
+        const topCrypto = topCryptoSelect ? parseInt(topCryptoSelect.value) : 3;
+        
+        // Ottieni i valori di leva e margine dagli slider
+        const leverageRange = document.getElementById('leverage-range');
+        const leverage = leverageRange ? parseInt(leverageRange.value) : 5;
+        
+        const marginRange = document.getElementById('margin-range');
+        const margin = marginRange ? parseInt(marginRange.value) : 40;
+        
+        // Ottieni i modelli e i timeframe selezionati
+        const selectedModels = getSelectedModels();
+        const selectedTimeframes = getSelectedTimeframes();
+        
+        // Aggiorna l'UI prima della chiamata API
+        updateRunningUI(true);
+        
+        // Inizializza il bot con le selezioni e i parametri di trading
+        const initResult = await makeApiRequest('/initialize', 'POST', {
+            models: selectedModels,
+            timeframes: selectedTimeframes,
+            trading_params: {
+                top_analysis_crypto: topCrypto,
+                leverage: leverage,
+                margin_usdt: margin
+            }
+        });
+
+        if (!initResult) {
+            throw new Error('Errore durante l\'inizializzazione');
+        }
+        
+        // Aggiorna i parametri nei log
+        appendToLog(`Analisi con: Top ${topCrypto} cripto, Leva ${leverage}x, Margine ${margin} USDT`);
+        
+        // Avvia il bot
+        const startResult = await makeApiRequest('/start', 'POST');
+        if (!startResult) {
+            throw new Error('Errore durante l\'avvio');
+        }
+        
+        // Cambia lo stato in "in esecuzione"
+        isPredictionsRunning = true;
+        
+        // Disabilita i controlli durante l'esecuzione
+        document.querySelectorAll('.btn-check').forEach(checkbox => {
+            checkbox.disabled = true;
+        });
+        
+        // Disabilita anche i controlli dei parametri di trading se esistono
+        if (leverageRange) leverageRange.disabled = true;
+        if (marginRange) marginRange.disabled = true;
+        
+        // Mostra il loader durante il caricamento iniziale delle predizioni
+        document.getElementById('predictions-loading').classList.remove('d-none');
+        
+        // Carica le predizioni e avvia un intervallo per aggiornarle
+        await loadPredictions();
+        
+        // Nascondi il loader una volta caricate le predizioni
+        document.getElementById('predictions-loading').classList.add('d-none');
+        
+        // Imposta un intervallo per ricaricare periodicamente le predizioni
+        if (isPredictionsRunning) {
+            predictionsInterval = setInterval(() => {
+                if (isPredictionsRunning) {
+                    loadPredictions();
+                } else {
+                    clearInterval(predictionsInterval);
+                }
+            }, 30000); // Aggiorna ogni 30 secondi
+            
+            // Aggiorna la UI con lo stato "in esecuzione"
+            updateActivityStatus('Attivo', 'success');
+        }
+        
+        // Riabilita il pulsante
+        controlBtn.disabled = false;
+        
+    } catch (error) {
+        console.error('Errore durante l\'avvio:', error);
+        
+        // In caso di errore, ripristina lo stato del pulsante
+        isPredictionsRunning = false;
+        updateRunningUI(false);
+        
+        // Mostra errore all'utente
+        showAlert(error.message || 'Errore durante l\'avvio delle predizioni', 'danger');
+        
+        // Riabilita il pulsante
+        controlBtn.disabled = false;
+    }
+}
+
+// Funzione per fermare le predizioni
+async function stopPredictions(controlBtn) {
+    try {
+        const response = await makeApiRequest('/stop', 'POST');
+        if (!response) {
+            throw new Error('Errore durante l\'arresto');
+        }
+        
+        // Pulisci l'intervallo
+        if (predictionsInterval) {
+            clearInterval(predictionsInterval);
+            predictionsInterval = null;
+        }
+        
+        // Aggiorna lo stato
+        isPredictionsRunning = false;
         
         // Riabilita i controlli
         document.querySelectorAll('.btn-check').forEach(checkbox => {
@@ -369,9 +395,17 @@ export function togglePredictions() {
         
         // Aggiorna lo stato quando le predizioni vengono fermate
         updateActivityStatus('Fermato', 'danger');
+        
+        // Aggiorna l'UI
+        updateRunningUI(false);
+        
+    } catch (error) {
+        console.error('Errore durante l\'arresto:', error);
+        showAlert('Errore durante l\'arresto delle predizioni', 'danger');
+    } finally {
+        // Riabilita sempre il pulsante
+        controlBtn.disabled = false;
     }
-    
-    return isPredictionsRunning;
 }
 
 // Nuova funzione per aggiornare l'interfaccia quando lo stato running cambia
@@ -386,71 +420,48 @@ function updateRunningUI(isRunning) {
     
     if (isRunning) {
         // Cambia il testo e lo stile del pulsante
-        controlBtn.classList.add('running');
-        controlBtn.innerHTML = '<i class="fas fa-stop me-1"></i> Ferma';
+        controlBtn.classList.remove('btn-primary');
+        controlBtn.classList.add('btn-danger', 'running');
+        controlBtn.innerHTML = '<i class="fas fa-stop me-2"></i>Ferma';
         
-        // Aggiunge l'animazione di caricamento
+        // Aggiungi l'animazione di caricamento
         controlBtn.classList.add('position-relative');
         
-        // Crea un elemento di progress se non esiste
-        if (!document.getElementById('progress-animation')) {
-            const progressEl = document.createElement('span');
-            progressEl.id = 'progress-animation';
-            progressEl.className = 'position-absolute top-0 start-0 bottom-0 bg-white bg-opacity-25';
-            progressEl.style.width = '10%';
-            progressEl.style.animation = 'button-progress 2s infinite';
-            controlBtn.appendChild(progressEl);
-            
-            // Aggiungi lo stile dell'animazione se non esiste
-            if (!document.getElementById('progress-animation-style')) {
-                const styleEl = document.createElement('style');
-                styleEl.id = 'progress-animation-style';
-                styleEl.textContent = `
-                    @keyframes button-progress {
-                        0% { width: 0%; opacity: 0.2; }
-                        50% { width: 100%; opacity: 0.5; }
-                        100% { width: 0%; opacity: 0.2; }
+        // Aggiungi l'animazione di pulsazione
+        controlBtn.style.animation = 'pulse 2s infinite';
+        
+        // Aggiungi lo stile dell'animazione se non esiste
+        if (!document.getElementById('pulse-animation-style')) {
+            const styleEl = document.createElement('style');
+            styleEl.id = 'pulse-animation-style';
+            styleEl.textContent = `
+                @keyframes pulse {
+                    0% {
+                        transform: scale(1);
+                        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
                     }
-                `;
-                document.head.appendChild(styleEl);
-            }
+                    70% {
+                        transform: scale(1.05);
+                        box-shadow: 0 0 0 10px rgba(220, 53, 69, 0);
+                    }
+                    100% {
+                        transform: scale(1);
+                        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
+                    }
+                }
+            `;
+            document.head.appendChild(styleEl);
         }
     } else {
         // Ripristina lo stile e il testo del pulsante
-        controlBtn.classList.remove('running');
-        controlBtn.innerHTML = '<i class="fas fa-play me-1"></i> Avvia';
+        controlBtn.classList.remove('btn-danger', 'running');
+        controlBtn.classList.add('btn-primary');
+        controlBtn.innerHTML = '<i class="fas fa-play me-2"></i>Avvia';
         
-        // Rimuove l'animazione di caricamento
-        const progressEl = document.getElementById('progress-animation');
-        if (progressEl) {
-            progressEl.remove();
-        }
-        
+        // Rimuovi l'animazione
+        controlBtn.style.animation = '';
         controlBtn.classList.remove('position-relative');
     }
-    
-    // Riabilita il pulsante
-    controlBtn.disabled = false;
-}
-
-// Funzione per fermare le predizioni
-function stopPredictions() {
-    // Cambia lo stato
-    isPredictionsRunning = false;
-    
-    // Invia la richiesta al server
-    makeApiRequest('/stop', 'POST').catch(error => {
-        console.error('Errore durante l\'arresto:', error);
-    });
-    
-    // Pulisci l'intervallo se esistente
-    if (predictionsInterval) {
-        clearInterval(predictionsInterval);
-        predictionsInterval = null;
-    }
-    
-    // Aggiorna l'interfaccia
-    updateRunningUI(false);
 }
 
 // Funzione per ottenere i modelli selezionati

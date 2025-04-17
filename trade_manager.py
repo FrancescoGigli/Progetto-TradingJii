@@ -12,7 +12,7 @@ import json
 
 from config import (
     MARGIN_USDT, LEVERAGE, EXCLUDED_SYMBOLS, DB_FILE,
-    TRADE_STATISTICS_DAYS, TOP_ANALYSIS_CRYPTO, USE_DATABASE
+    TOP_ANALYSIS_CRYPTO, USE_DATABASE
 )
 from fetcher import get_top_symbols, get_data_async
 
@@ -46,26 +46,6 @@ def init_db():
             status TEXT
         )
     ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS trade_statistics (
-            period TEXT PRIMARY KEY,
-            timestamp TEXT,
-            total_closed_trades INTEGER,
-            total_wins INTEGER,
-            total_losses INTEGER,
-            win_rate_percent REAL,
-            total_realizedpnl REAL
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS weights (
-            symbol TEXT PRIMARY KEY,
-            weight_5m REAL,
-            weight_15m REAL,
-            weight_rf5 REAL,
-            weight_rf15 REAL
-        )
-    ''')
     conn.commit()
     conn.close()
     logging.info(colored("Database inizializzato.", "green"))
@@ -76,7 +56,7 @@ def clean_old_trades():
     if not USE_DATABASE:
         logging.info(colored("Uso del database disattivato. Pulizia delle vecchie tabelle sul database saltata.", "cyan"))
         return
-    cutoff = datetime.utcnow() - timedelta(days=TRADE_STATISTICS_DAYS)
+    cutoff = datetime.utcnow() - timedelta(days=30)
     cutoff_iso = cutoff.isoformat()
     try:
         conn = sqlite3.connect(DB_FILE)
@@ -349,7 +329,7 @@ async def update_closed_orders_from_account(exchange, since_date=None, limit=100
     if not exchange.symbols:
         await exchange.load_markets()
     try:
-        since_str = (datetime.utcnow() - timedelta(days=TRADE_STATISTICS_DAYS)).isoformat() + "Z" if since_date is None else since_date
+        since_str = (datetime.utcnow() - timedelta(days=30)).isoformat() + "Z" if since_date is None else since_date
         since_ts = exchange.parse8601(since_str)
         logging.info(colored(f"Recupero ordini chiusi da {since_str} (timestamp: {since_ts})", "cyan"))
     except Exception as e:
@@ -454,182 +434,3 @@ def parse_position_side(position):
     if "positionSide" in position:
         return "Sell" if position["positionSide"].upper() == "SHORT" else "Buy"
     return "Buy"
-
-def compute_trade_statistics_for_trades(trades):
-    total_closed = len(trades)
-    total_wins = sum(1 for trade in trades if trade.get("result") == "Win")
-    total_losses = sum(1 for trade in trades if trade.get("result") == "Loss")
-    win_rate_percent = (total_wins / (total_wins + total_losses) * 100) if (total_wins + total_losses) > 0 else 0
-    total_realizedpnl = sum((trade.get("closed_pnl") or 0) for trade in trades)
-    return total_closed, total_wins, total_losses, win_rate_percent, total_realizedpnl
-
-def compute_trade_statistics():
-    if not USE_DATABASE:
-        logging.info(colored("Uso del database disattivato. Nessuna statistica disponibile.", "cyan"))
-        return (0, 0, 0, 0, 0)
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM trades WHERE status = 'closed'")
-    rows = cursor.fetchall()
-    conn.close()
-    trades_list = []
-    for row in rows:
-        trades_list.append({
-            "trade_id": row[0],
-            "symbol": row[1],
-            "side": row[2],
-            "entry_price": row[3],
-            "exit_price": row[4],
-            "trade_type": row[5],
-            "closed_pnl": row[6],
-            "result": row[7],
-            "open_trade_volume": row[8],
-            "closed_trade_volume": row[9],
-            "opening_fee": row[10],
-            "closing_fee": row[11],
-            "funding_fee": row[12],
-            "trade_time": row[13],
-            "timestamp": row[14],
-            "status": row[15]
-        })
-    return compute_trade_statistics_for_trades(trades_list)
-
-def compute_trade_statistics_for_period(period: timedelta):
-    if not USE_DATABASE:
-        logging.info(colored("Uso del database disattivato. Nessuna statistica disponibile per il periodo richiesto.", "cyan"))
-        return (0, 0, 0, 0, 0)
-    now = datetime.utcnow()
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM trades WHERE status='closed'")
-    rows = cursor.fetchall()
-    conn.close()
-    trades_list = []
-    for row in rows:
-        try:
-            ts = row[14]
-            if ts.endswith("Z"):
-                ts = ts[:-1]
-            # Gestione di formati ISO diversi
-            try:
-                trade_time = datetime.fromisoformat(ts)
-            except ValueError:
-                # Prova un formato alternativo se il primo fallisce
-                try:
-                    trade_time = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%f")
-                except ValueError:
-                    try:
-                        trade_time = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S")
-                    except ValueError:
-                        logging.warning(f"Impossibile analizzare il timestamp: {ts}")
-                        continue
-        except Exception as e:
-            logging.warning(f"Errore nell'analisi del timestamp: {e}")
-            continue
-        if now - trade_time <= period:
-            trades_list.append({
-                "trade_id": row[0],
-                "symbol": row[1],
-                "side": row[2],
-                "entry_price": row[3],
-                "exit_price": row[4],
-                "trade_type": row[5],
-                "closed_pnl": row[6],
-                "result": row[7],
-                "open_trade_volume": row[8],
-                "closed_trade_volume": row[9],
-                "opening_fee": row[10],
-                "closing_fee": row[11],
-                "funding_fee": row[12],
-                "trade_time": row[13],
-                "timestamp": row[14],
-                "status": row[15]
-            })
-    return compute_trade_statistics_for_trades(trades_list)
-
-def get_trade_statistics_text():
-    overall = compute_trade_statistics()
-    last_24h = compute_trade_statistics_for_period(timedelta(hours=24))
-    last_4h = compute_trade_statistics_for_period(timedelta(hours=4))
-    last_1h = compute_trade_statistics_for_period(timedelta(hours=1))
-    lines = []
-    lines.append("============================================")
-    lines.append("           STATISTICHE DEI TRADE")
-    lines.append("============================================")
-    lines.append(f"Ultimi {TRADE_STATISTICS_DAYS} giorni:")
-    lines.append(f"   Trade chiusi : {overall[0]}")
-    lines.append(f"   Vincite      : {overall[1]}")
-    lines.append(f"   Perse        : {overall[2]}")
-    lines.append(f"   Win Rate     : {overall[3]:.2f}%")
-    lines.append(f"   PnL          : {overall[4]:.2f}")
-    lines.append("--------------------------------------------")
-    lines.append("Ultime 24h:")
-    lines.append(f"   Trade chiusi : {last_24h[0]}")
-    lines.append(f"   Vincite      : {last_24h[1]}")
-    lines.append(f"   Perse        : {last_24h[2]}")
-    lines.append(f"   Win Rate     : {last_24h[3]:.2f}%")
-    lines.append(f"   PnL          : {last_24h[4]:.2f}")
-    lines.append("--------------------------------------------")
-    lines.append("Ultime 4h:")
-    lines.append(f"   Trade chiusi : {last_4h[0]}")
-    lines.append(f"   Vincite      : {last_4h[1]}")
-    lines.append(f"   Perse        : {last_4h[2]}")
-    lines.append(f"   Win Rate     : {last_4h[3]:.2f}%")
-    lines.append(f"   PnL          : {last_4h[4]:.2f}")
-    lines.append("--------------------------------------------")
-    lines.append("Ultima 1h:")
-    lines.append(f"   Trade chiusi : {last_1h[0]}")
-    lines.append(f"   Vincite      : {last_1h[1]}")
-    lines.append(f"   Perse        : {last_1h[2]}")
-    lines.append(f"   Win Rate     : {last_1h[3]:.2f}%")
-    lines.append(f"   PnL          : {last_1h[4]:.2f}")
-    lines.append("============================================")
-    return "\n".join(lines)
-
-def save_trade_statistics():
-    if not USE_DATABASE:
-        logging.info(colored("Uso del database disattivato. Salvataggio statistiche saltato.", "cyan"))
-        return
-    timestamp = datetime.utcnow().isoformat()
-    overall = compute_trade_statistics()
-    last_24h = compute_trade_statistics_for_period(timedelta(hours=24))
-    last_4h = compute_trade_statistics_for_period(timedelta(hours=4))
-    last_1h = compute_trade_statistics_for_period(timedelta(hours=1))
-    data = [
-        (timestamp, f"Ultimi {TRADE_STATISTICS_DAYS} giorni",   *overall),
-        (timestamp, "last_24h",  *last_24h),
-        (timestamp, "last_4h",   *last_4h),
-        (timestamp, "last_1h",   *last_1h),
-    ]
-    try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        for row in data:
-            cursor.execute('''
-                INSERT INTO trade_statistics (
-                    timestamp, period, total_closed_trades, total_wins,
-                    total_losses, win_rate_percent, total_realizedpnl
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(period) DO UPDATE SET
-                    timestamp = excluded.timestamp,
-                    total_closed_trades = excluded.total_closed_trades,
-                    total_wins = excluded.total_wins,
-                    total_losses = excluded.total_losses,
-                    win_rate_percent = excluded.win_rate_percent,
-                    total_realizedpnl = excluded.total_realizedpnl
-            ''', row)
-        conn.commit()
-        logging.info(colored("[OK] Statistiche dei trade salvate nel DB.", "green"))
-    except Exception as e:
-        logging.error(colored(f"[ERRORE] Errore nel salvataggio delle statistiche dei trade: {e}", "red"))
-    finally:
-        if USE_DATABASE:
-            conn.close()
-
-def print_trade_statistics():
-    if not USE_DATABASE:
-        logging.info(colored("Uso del database disattivato. Nessuna statistica da mostrare.", "cyan"))
-        return
-    stats_text = get_trade_statistics_text()
-    logging.info(colored(stats_text, "cyan"))
