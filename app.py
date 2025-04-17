@@ -78,10 +78,6 @@ class ClosePositionRequest(BaseModel):
     symbol: str
     side: str
 
-class ApiKeyRequest(BaseModel):
-    api_key: str
-    api_secret: str
-
 # === FUNZIONI DI UTILITÀ ===
 def load_fernet():
     """Carica o genera la chiave Fernet per la crittografia."""
@@ -117,6 +113,15 @@ def verify_auth_token(api_key: str = Header(None, alias="api-key"),
 def get_state(request: Request):
     return request.app.state
 
+# Funzione per chiudere l'exchange in modo sicuro
+async def close_exchange_safely(exchange):
+    """Chiude l'exchange in modo sicuro se è aperto."""
+    if exchange:
+        try:
+            await exchange.close()
+        except Exception as e:
+            logging.error(f"Errore nella chiusura dell'exchange: {e}")
+
 # --- IMPORTA IL TASK CELERY ---
 from tasks import train_model_task
 
@@ -143,10 +148,13 @@ async def initialize_bot(config: BotConfig,
         if not (1 <= len(config.models) <= 3):
             raise HTTPException(status_code=400, detail="Numero di modelli non valido (min: 1, max: 3)")
         
-        if not state.async_exchange:
-            state.async_exchange = ccxt_async.bybit(exchange_config)
-            await state.async_exchange.load_markets()
-            await state.async_exchange.load_time_difference()
+        # Chiudi l'exchange precedente se esiste
+        if state.async_exchange:
+            await close_exchange_safely(state.async_exchange)
+        
+        state.async_exchange = ccxt_async.bybit(exchange_config)
+        await state.async_exchange.load_markets()
+        await state.async_exchange.load_time_difference()
         
         state.current_config = config
 
@@ -267,10 +275,11 @@ async def get_balance(auth: None = Depends(verify_auth_token),
     """
     Recupera il bilancio completo dall'exchange.
     """
-    if not state.async_exchange:
-        state.async_exchange = ccxt_async.bybit(exchange_config)
-        await state.async_exchange.load_markets()
     try:
+        if not state.async_exchange:
+            state.async_exchange = ccxt_async.bybit(exchange_config)
+            await state.async_exchange.load_markets()
+        
         balance = await state.async_exchange.fetch_balance()
         detailed_balance = {
             "usdt_balance": 0,
@@ -300,7 +309,7 @@ async def get_balance(auth: None = Depends(verify_auth_token),
                 control_balance += float(account.get('total', {}).get('USDT', 0))
         total_usdt = unified_balance + spot_balance + control_balance
         if total_usdt == 0:
-            total_usdt = get_real_balance(state.async_exchange)
+            total_usdt = await get_real_balance(state.async_exchange)
         detailed_balance["usdt_balance"] = total_usdt
         
         if detailed_balance["pnl"] == 0:
@@ -345,10 +354,11 @@ async def get_open_orders(auth: None = Depends(verify_auth_token),
     """
     Recupera e filtra gli ordini aperti e le posizioni attive.
     """
-    if not state.async_exchange:
-        state.async_exchange = ccxt_async.bybit(exchange_config)
-        await state.async_exchange.load_markets()
     try:
+        if not state.async_exchange:
+            state.async_exchange = ccxt_async.bybit(exchange_config)
+            await state.async_exchange.load_markets()
+        
         open_orders = await state.async_exchange.fetch_open_orders()
         positions = await state.async_exchange.fetch_positions(None, {
             'limit': 100,
@@ -446,10 +456,11 @@ async def get_closed_orders(auth: None = Depends(verify_auth_token),
     """
     Recupera gli ordini chiusi dall'exchange.
     """
-    if not state.async_exchange:
-        state.async_exchange = ccxt_async.bybit(exchange_config)
-        await state.async_exchange.load_markets()
     try:
+        if not state.async_exchange:
+            state.async_exchange = ccxt_async.bybit(exchange_config)
+            await state.async_exchange.load_markets()
+        
         closed_orders = await state.async_exchange.fetch_closed_orders()
         return closed_orders
     except Exception as e:
@@ -465,6 +476,7 @@ async def get_closed_trades(auth: None = Depends(verify_auth_token),
         if not state.async_exchange:
             state.async_exchange = ccxt_async.bybit(exchange_config)
             await state.async_exchange.load_markets()
+        
         trades = await state.async_exchange.fetch_my_trades(limit=50)
         formatted_trades = [{
             'symbol': trade['symbol'],
@@ -499,10 +511,11 @@ async def get_chart_data(symbol: str, timeframe: str = "15m", limit: int = 100,
     """
     Recupera e formatta i dati OHLCV per il simbolo e timeframe specificati.
     """
-    if not state.async_exchange:
-        state.async_exchange = ccxt_async.bybit(exchange_config)
-        await state.async_exchange.load_markets()
     try:
+        if not state.async_exchange:
+            state.async_exchange = ccxt_async.bybit(exchange_config)
+            await state.async_exchange.load_markets()
+        
         symbol = symbol.replace("%3A", ":")
         logging.info(f"Recupero dati grafico per simbolo: {symbol}, timeframe: {timeframe}")
         ohlcv = await state.async_exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
@@ -539,10 +552,11 @@ async def close_position_endpoint(request: ClosePositionRequest,
     Chiude una posizione per il simbolo indicato, inviando un ordine di mercato
     con lato opposto a quello della posizione corrente.
     """
-    if not state.async_exchange:
-        state.async_exchange = ccxt_async.bybit(exchange_config)
-        await state.async_exchange.load_markets()
     try:
+        if not state.async_exchange:
+            state.async_exchange = ccxt_async.bybit(exchange_config)
+            await state.async_exchange.load_markets()
+        
         close_side = "sell" if request.side.lower() == "buy" else "buy"
         positions = await state.async_exchange.fetch_positions([request.symbol], {
             'limit': 100, 
@@ -630,7 +644,6 @@ async def get_predictions(
         logging.info(f"Generazione predizioni per: Modelli={filtered_models}, Timeframes={filtered_timeframes}")
         
         # Importa temporaneamente il modulo main
-        import importlib
         import main
         import config as cfg
         from fetcher import fetch_markets
@@ -833,8 +846,11 @@ async def execute_trade(request: Request,
         logging.error(f"Errore nell'esecuzione del trade: {e}")
         raise HTTPException(status_code=500, detail=f"Errore nell'esecuzione del trade: {str(e)}")
 
-# Aggiorna la funzione calculate_position_size in trade_manager per accettare un parametro margin
+# Sposta la funzione calculate_position_size nel modulo trade_manager
 async def calculate_position_size(exchange, symbol, usdt_balance, min_amount=0, margin=None):
+    """
+    Calcola la dimensione della posizione in base al prezzo attuale, al margine e alla leva.
+    """
     try:
         ticker = await exchange.fetch_ticker(symbol)
         current_price = ticker.get('last')
@@ -861,6 +877,22 @@ async def calculate_position_size(exchange, symbol, usdt_balance, min_amount=0, 
     except Exception as e:
         logging.error(f"Errore nel calcolo della dimensione per {symbol}: {e}")
         return None
+
+# Gestione eventi e pulizia al termine dell'applicazione
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Funzione eseguita alla chiusura dell'applicazione."""
+    if app.state.async_exchange:
+        await close_exchange_safely(app.state.async_exchange)
+        app.state.async_exchange = None
+    
+    if app.state.bot_task and not app.state.bot_task.done():
+        app.state.bot_task.cancel()
+        try:
+            await app.state.bot_task
+        except asyncio.CancelledError:
+            pass
+        app.state.bot_running = False
 
 # === AVVIO MANUALE DELL'APPLICAZIONE ===
 if __name__ == "__main__":
