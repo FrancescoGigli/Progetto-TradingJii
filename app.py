@@ -13,6 +13,7 @@ import traceback
 import logging
 from datetime import datetime
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 import ccxt.async_support as ccxt_async
 import numpy as np
@@ -44,8 +45,35 @@ load_dotenv()
 API_KEY_FILE = Path("api_keys.enc")
 FERNET_KEY_FILE = Path("fernet.key")
 
+# Funzione per chiudere l'exchange in modo sicuro
+async def close_exchange_safely(exchange):
+    """Chiude l'exchange in modo sicuro se è aperto."""
+    if exchange:
+        try:
+            await exchange.close()
+        except Exception as e:
+            logging.error(f"Errore nella chiusura dell'exchange: {e}")
+
+# Definizione del lifespan dell'applicazione
+@asynccontextmanager
+async def lifespan(app):
+    # Codice di inizializzazione (se necessario)
+    yield
+    # Codice di pulizia (vecchio shutdown_event)
+    if app.state.async_exchange:
+        await close_exchange_safely(app.state.async_exchange)
+        app.state.async_exchange = None
+    
+    if app.state.bot_task and not app.state.bot_task.done():
+        app.state.bot_task.cancel()
+        try:
+            await app.state.bot_task
+        except asyncio.CancelledError:
+            pass
+        app.state.bot_running = False
+
 # === INIZIALIZZAZIONE FASTAPI ===
-app = FastAPI(title="Trading Bot API", version="1.0")
+app = FastAPI(title="Trading Bot API", version="1.0", lifespan=lifespan)
 logger = logging.getLogger("uvicorn")
 
 # Configurazione CORS (in produzione limitare i domini ammessi)
@@ -112,15 +140,6 @@ def verify_auth_token(api_key: str = Header(None, alias="api-key"),
 # Dependency per lo stato
 def get_state(request: Request):
     return request.app.state
-
-# Funzione per chiudere l'exchange in modo sicuro
-async def close_exchange_safely(exchange):
-    """Chiude l'exchange in modo sicuro se è aperto."""
-    if exchange:
-        try:
-            await exchange.close()
-        except Exception as e:
-            logging.error(f"Errore nella chiusura dell'exchange: {e}")
 
 # --- IMPORTA IL TASK CELERY ---
 from tasks import train_model_task
@@ -877,22 +896,6 @@ async def calculate_position_size(exchange, symbol, usdt_balance, min_amount=0, 
     except Exception as e:
         logging.error(f"Errore nel calcolo della dimensione per {symbol}: {e}")
         return None
-
-# Gestione eventi e pulizia al termine dell'applicazione
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Funzione eseguita alla chiusura dell'applicazione."""
-    if app.state.async_exchange:
-        await close_exchange_safely(app.state.async_exchange)
-        app.state.async_exchange = None
-    
-    if app.state.bot_task and not app.state.bot_task.done():
-        app.state.bot_task.cancel()
-        try:
-            await app.state.bot_task
-        except asyncio.CancelledError:
-            pass
-        app.state.bot_running = False
 
 # === AVVIO MANUALE DELL'APPLICAZIONE ===
 if __name__ == "__main__":
