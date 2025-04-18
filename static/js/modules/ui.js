@@ -12,7 +12,8 @@ export {
     appendToLog,
     updateBotStatusUI,
     showAlert,
-    initTooltips as initializeTooltips
+    initTooltips as initializeTooltips,
+    showNotification
 };
 
 // Inizializza elementi UI
@@ -186,6 +187,12 @@ function showAlert(type, message, timeout = 5000) {
     }
 }
 
+// Mostra una notifica
+function showNotification(type, message, autoClose = true) {
+    // Riutilizza la funzione showAlert per le notifiche
+    showAlert(type, message, autoClose ? 5000 : 0);
+}
+
 // Inizializza i tooltip di Bootstrap
 function initTooltips() {
     const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
@@ -194,4 +201,5 @@ function initTooltips() {
             return new bootstrap.Tooltip(tooltipTriggerEl);
         });
     }
-} 
+}
+

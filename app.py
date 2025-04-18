@@ -225,7 +225,21 @@ async def initialize_bot(config: BotConfig,
         logging.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Errore durante l'inizializzazione: {str(e)}")
 
+# Add a global or state variable to keep track of the bot task
+bot_task = None
+
 @app.post("/start")
+async def start_bot():
+    global bot_task
+    import main  # Import here to avoid circular import issues
+
+    # Prevent multiple concurrent bots
+    if bot_task is not None and not bot_task.done():
+        return {"status": "Bot già in esecuzione"}
+
+    loop = asyncio.get_event_loop()
+    bot_task = loop.create_task(main.main())
+    return {"status": "Bot avviato"}
 async def start_bot(background_tasks: BackgroundTasks,
                     auth: None = Depends(verify_auth_token),
                     state = Depends(get_state)):
@@ -237,22 +251,64 @@ async def start_bot(background_tasks: BackgroundTasks,
     if not state.current_config:
         raise HTTPException(status_code=400, detail="Bot non inizializzato. Chiamare prima /initialize")
     
-    state.bot_task = asyncio.create_task(run_bot())
-    state.bot_running = True
-    return {"status": "Bot avviato", "config": state.current_config.dict()}
+    try:
+        # Crea una task asincrona protetta per l'esecuzione del bot
+        async def protected_run_bot():
+            try:
+                logging.info("Avvio del bot trading in corso...")
+                await run_bot()
+                logging.info("Bot trading terminato normalmente")
+            except asyncio.CancelledError:
+                logging.info("Task del bot cancellata correttamente")
+                raise
+            except Exception as e:
+                logging.error(f"Errore durante l'esecuzione del bot: {str(e)}")
+                logging.error(traceback.format_exc())
+                # Assicurati che lo stato venga aggiornato anche in caso di errore
+                state.bot_running = False
+        
+        state.bot_task = asyncio.create_task(protected_run_bot())
+        state.bot_running = True
+        logging.info(f"Bot avviato con configurazione: {state.current_config.dict()}")
+        return {"status": "Bot avviato", "config": state.current_config.dict()}
+    except Exception as e:
+        logging.error(f"Errore durante l'avvio del bot: {str(e)}")
+        logging.error(traceback.format_exc())
+        state.bot_running = False
+        raise HTTPException(status_code=500, detail=f"Errore durante l'avvio del bot: {str(e)}")
 
 @app.post("/stop")
-async def stop_bot(auth: None = Depends(verify_auth_token),
-                   state = Depends(get_state)):
+async def stop_bot(auth: None = Depends(verify_auth_token), state = Depends(get_state)):
+    if not state.bot_running or not state.bot_task:
+        return {"status": "Bot già fermo"}
+    state.bot_task.cancel()
+    state.bot_running = False
+    return {"status": "Bot fermato"}
     """
     Richiede l'arresto del bot.
     """
-    if state.bot_task and not state.bot_task.done():
-        state.bot_task.cancel()
-        state.bot_running = False
-        return {"status": "Stop richiesto"}
-    else:
-        raise HTTPException(status_code=400, detail="Bot non in esecuzione")
+    try:
+        if state.bot_task and not state.bot_task.done():
+            logging.info("Arresto del bot in corso...")
+            state.bot_task.cancel()
+            try:
+                # Attendi fino a 5 secondi che la task venga cancellata
+                await asyncio.wait_for(state.bot_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                logging.warning("Timeout durante la cancellazione della task del bot")
+            except asyncio.CancelledError:
+                logging.info("Task del bot cancellata correttamente")
+            except Exception as e:
+                logging.error(f"Errore durante la cancellazione della task: {str(e)}")
+            
+            state.bot_running = False
+            return {"status": "Bot arrestato"}
+        else:
+            state.bot_running = False
+            return {"status": "Bot non in esecuzione o già arrestato"}
+    except Exception as e:
+        logging.error(f"Errore durante l'arresto del bot: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Errore durante l'arresto del bot: {str(e)}")
 
 @app.get("/status")
 def status(auth: None = Depends(verify_auth_token),
@@ -260,9 +316,17 @@ def status(auth: None = Depends(verify_auth_token),
     """
     Restituisce lo stato corrente del bot.
     """
+    is_running = state.bot_running
+    # Verifica aggiuntiva sul task per coerenza
+    if state.bot_task and state.bot_task.done() and state.bot_running:
+        is_running = False
+        state.bot_running = False
+        logging.warning("Rilevata incongruenza: task terminata ma stato running=True")
+    
     return {
-        "running": state.bot_running,
-        "config": state.current_config.dict() if state.current_config else None
+        "running": is_running,
+        "config": state.current_config.dict() if state.current_config else None,
+        "task_status": getattr(state.bot_task, "_state", "unknown") if state.bot_task else "not_created"
     }
 
 @app.post("/set-keys")
