@@ -36,16 +36,8 @@ export function initializePredictionsControl() {
     // Controlla lo stato subito all'avvio
     checkBotStatus();
     
-    // Avvia automaticamente le predizioni se non disabilitato
-    if (!autoStartDisabled) {
-        // Avvia le predizioni con un leggero ritardo per dare tempo al caricamento completo
-        setTimeout(() => {
-            if (!isPredictionsRunning) {
-                appendToLog('Avvio automatico delle predizioni...');
-                togglePredictions();
-            }
-        }, 2000);
-    }
+    // Non avviare automaticamente le predizioni
+    appendToLog('Sistema pronto. Premi Avvia per iniziare le predizioni.');
 }
 
 // Funzione per controllare lo stato delle predizioni
@@ -74,12 +66,21 @@ export function togglePredictions() {
 // Funzione per avviare le predizioni
 async function startPredictions(controlBtn) {
     try {
+        // Disabilita il pulsante durante la validazione
+        controlBtn.disabled = true;
+        controlBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verifica...';
+
         // Verifica che ci sia almeno un modello e un timeframe selezionato
-        if (!validateSelection()) {
+        const isValid = await validateSelection();
+        if (!isValid) {
             controlBtn.disabled = false;
+            controlBtn.innerHTML = '<i class="fas fa-play me-2"></i>Avvia';
             return false;
         }
         
+        // Aggiorna il pulsante per indicare l'inizializzazione
+        controlBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Inizializzazione...';
+
         // Imposta i valori predefiniti per i parametri di trading
         const topCryptoSelect = document.getElementById('top-crypto-select');
         const topCrypto = topCryptoSelect ? parseInt(topCryptoSelect.value) : 3;
@@ -92,8 +93,25 @@ async function startPredictions(controlBtn) {
         const margin = marginRange ? parseInt(marginRange.value) : 40;
         
         // Ottieni i modelli e i timeframe selezionati
-        const selectedModels = getSelectedModels();
-        const selectedTimeframes = getSelectedTimeframes();
+        const selectedModels = await getSelectedModels();
+        const selectedTimeframes = await getSelectedTimeframes();
+        
+        // Verifica che i selettori abbiano restituito valori validi
+        if (!selectedModels.length || !selectedTimeframes.length) {
+            throw new Error('Seleziona un modello e un timeframe validi');
+        }
+        
+        // Verifica il numero di timeframes (min: 1, max: 3)
+        if (selectedTimeframes.length > 3) {
+            showAlert('Seleziona al massimo 3 timeframes', 'warning');
+            controlBtn.disabled = false;
+            return false;
+        }
+        if (selectedTimeframes.length === 0) {
+            showAlert('Seleziona almeno 1 timeframe', 'warning');
+            controlBtn.disabled = false;
+            return false;
+        }
         
         // Aggiorna l'UI prima della chiamata API
         if (typeof updateRunningUI === 'function') {
@@ -121,6 +139,9 @@ async function startPredictions(controlBtn) {
         // Aggiorna i parametri nei log
         appendToLog(`Analisi con: Top ${topCrypto} cripto, Leva ${leverage}x, Margine ${margin} USDT`);
         
+        // Aggiorna il pulsante per indicare l'avvio
+        controlBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Avvio in corso...';
+
         // Avvia il bot
         appendToLog(`Avvio del bot in corso...`);
         const startResult = await makeApiRequest('/start', 'POST');
@@ -136,6 +157,13 @@ async function startPredictions(controlBtn) {
         
         // Cambia lo stato in "in esecuzione"
         isPredictionsRunning = true;
+        
+        // Aggiorna il pulsante per indicare lo stato di esecuzione
+        controlBtn.disabled = false;
+        controlBtn.innerHTML = '<i class="fas fa-stop me-2"></i>Ferma';
+        controlBtn.classList.remove('btn-primary');
+        controlBtn.classList.add('btn-danger', 'running');
+        controlBtn.style.animation = 'pulse 2s infinite';
         
         // Disabilita i controlli durante l'esecuzione
         document.querySelectorAll('.btn-check').forEach(checkbox => {
@@ -191,9 +219,6 @@ async function startPredictions(controlBtn) {
             }
         }
         
-        // Riabilita il pulsante
-        controlBtn.disabled = false;
-        
     } catch (error) {
         console.error('Errore durante l\'avvio:', error);
         
@@ -212,6 +237,7 @@ async function startPredictions(controlBtn) {
         
         // Riabilita il pulsante
         controlBtn.disabled = false;
+        controlBtn.innerHTML = '<i class="fas fa-play me-2"></i>Avvia';
     }
 }
 
@@ -428,59 +454,49 @@ function loadUIFunctions() {
 }
 
 // Funzioni per ottenere i modelli e i timeframe selezionati
-// Queste funzioni potrebbero essere reimplementate qui se non sono disponibili dal modulo predictionModels
-function getSelectedModels() {
+async function getSelectedModels() {
     try {
-        const modelsModule = require('./predictionModels.js');
-        if (modelsModule.getSelectedModels) {
-            return modelsModule.getSelectedModels();
-        }
+        const module = await import('./predictionModels.js');
+        return module.getSelectedModels();
     } catch (error) {
-        console.warn('Impossibile importare getSelectedModels da predictionModels.js');
+        console.warn('Impossibile importare getSelectedModels da predictionModels.js:', error);
+        // Implementazione di fallback
+        return Array.from(document.querySelectorAll('.model-checkbox:checked')).map(checkbox => checkbox.value);
     }
-    
-    // Implementazione di fallback
-    return Array.from(document.querySelectorAll('.model-checkbox:checked')).map(checkbox => checkbox.value);
 }
 
-function getSelectedTimeframes() {
+async function getSelectedTimeframes() {
     try {
-        const modelsModule = require('./predictionModels.js');
-        if (modelsModule.getSelectedTimeframes) {
-            return modelsModule.getSelectedTimeframes();
-        }
+        const module = await import('./predictionModels.js');
+        return module.getSelectedTimeframes();
     } catch (error) {
-        console.warn('Impossibile importare getSelectedTimeframes da predictionModels.js');
+        console.warn('Impossibile importare getSelectedTimeframes da predictionModels.js:', error);
+        // Implementazione di fallback
+        return Array.from(document.querySelectorAll('.timeframe-checkbox:checked')).map(checkbox => checkbox.value);
     }
-    
-    // Implementazione di fallback
-    return Array.from(document.querySelectorAll('.timeframe-checkbox:checked')).map(checkbox => checkbox.value);
 }
 
 // Funzione per validare la selezione
-function validateSelection() {
+async function validateSelection() {
     try {
-        const modelsModule = require('./predictionModels.js');
-        if (modelsModule.validateSelection) {
-            return modelsModule.validateSelection();
-        }
+        const module = await import('./predictionModels.js');
+        return module.validateSelection();
     } catch (error) {
-        console.warn('Impossibile importare validateSelection da predictionModels.js');
+        console.warn('Impossibile importare validateSelection da predictionModels.js:', error);
+        // Implementazione di fallback
+        const selectedModels = await getSelectedModels();
+        const selectedTimeframes = await getSelectedTimeframes();
+        
+        if (selectedModels.length === 0) {
+            showAlert('Seleziona almeno un modello prima di avviare le previsioni', 'warning');
+            return false;
+        }
+        
+        if (selectedTimeframes.length === 0) {
+            showAlert('Seleziona almeno un timeframe prima di avviare le previsioni', 'warning');
+            return false;
+        }
+        
+        return true;
     }
-    
-    // Implementazione di fallback
-    const selectedModels = getSelectedModels();
-    const selectedTimeframes = getSelectedTimeframes();
-    
-    if (selectedModels.length === 0) {
-        showAlert('Seleziona almeno un modello prima di avviare le previsioni', 'warning');
-        return false;
-    }
-    
-    if (selectedTimeframes.length === 0) {
-        showAlert('Seleziona almeno un timeframe prima di avviare le previsioni', 'warning');
-        return false;
-    }
-    
-    return true;
 }

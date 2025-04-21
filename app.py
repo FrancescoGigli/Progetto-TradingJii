@@ -1,5 +1,5 @@
 # app.py
-from fastapi import FastAPI, HTTPException, Depends, Header, Request, BackgroundTasks, Query
+from fastapi import FastAPI, HTTPException, Depends, Header, Request, BackgroundTasks, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -22,6 +22,7 @@ from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 import ccxt
 import ta
+from fastapi.staticfiles import StaticFiles
 
 # Moduli locali
 from trainer import (
@@ -144,6 +145,10 @@ def get_state(request: Request):
 # --- IMPORTA IL TASK CELERY ---
 from tasks import train_model_task
 
+# === MONTA STATIC FILES ===
+# Espone la cartella dei modelli addestrati in modo che il frontend possa accedere ai file metrics JSON
+app.mount("/trained_models", StaticFiles(directory="trained_models"), name="trained_models")
+
 # === ENDPOINTS API ===
 
 @app.post("/initialize")
@@ -225,21 +230,9 @@ async def initialize_bot(config: BotConfig,
         logging.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Errore durante l'inizializzazione: {str(e)}")
 
-# Add a global or state variable to keep track of the bot task
 bot_task = None
 
 @app.post("/start")
-async def start_bot():
-    global bot_task
-    import main  # Import here to avoid circular import issues
-
-    # Prevent multiple concurrent bots
-    if bot_task is not None and not bot_task.done():
-        return {"status": "Bot già in esecuzione"}
-
-    loop = asyncio.get_event_loop()
-    bot_task = loop.create_task(main.main())
-    return {"status": "Bot avviato"}
 async def start_bot(background_tasks: BackgroundTasks,
                     auth: None = Depends(verify_auth_token),
                     state = Depends(get_state)):
@@ -284,31 +277,6 @@ async def stop_bot(auth: None = Depends(verify_auth_token), state = Depends(get_
     state.bot_task.cancel()
     state.bot_running = False
     return {"status": "Bot fermato"}
-    """
-    Richiede l'arresto del bot.
-    """
-    try:
-        if state.bot_task and not state.bot_task.done():
-            logging.info("Arresto del bot in corso...")
-            state.bot_task.cancel()
-            try:
-                # Attendi fino a 5 secondi che la task venga cancellata
-                await asyncio.wait_for(state.bot_task, timeout=5.0)
-            except asyncio.TimeoutError:
-                logging.warning("Timeout durante la cancellazione della task del bot")
-            except asyncio.CancelledError:
-                logging.info("Task del bot cancellata correttamente")
-            except Exception as e:
-                logging.error(f"Errore durante la cancellazione della task: {str(e)}")
-            
-            state.bot_running = False
-            return {"status": "Bot arrestato"}
-        else:
-            state.bot_running = False
-            return {"status": "Bot non in esecuzione o già arrestato"}
-    except Exception as e:
-        logging.error(f"Errore durante l'arresto del bot: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Errore durante l'arresto del bot: {str(e)}")
 
 @app.get("/status")
 def status(auth: None = Depends(verify_auth_token),
@@ -960,6 +928,76 @@ async def calculate_position_size(exchange, symbol, usdt_balance, min_amount=0, 
     except Exception as e:
         logging.error(f"Errore nel calcolo della dimensione per {symbol}: {e}")
         return None
+
+@app.get("/list-models")
+async def list_models(auth: None = Depends(verify_auth_token)):
+    """
+    Restituisce la lista dei modelli disponibili nella directory trained_models.
+    """
+    try:
+        trained_models_dir = os.path.join(os.path.dirname(__file__), 'trained_models')
+        if not os.path.exists(trained_models_dir):
+            return {"models": []}
+            
+        model_files = []
+        for file in os.listdir(trained_models_dir):
+            if file.endswith(('.h5', '.pkl')):
+                model_files.append(file)
+                
+        return {"models": model_files}
+    except Exception as e:
+        logging.error(f"Errore nel recupero della lista modelli: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Errore nel recupero della lista modelli: {str(e)}")
+
+@app.get("/check-model-exists/{model_file}")
+async def check_model_exists(model_file: str, auth: None = Depends(verify_auth_token)):
+    """
+    Verifica se un modello specifico esiste nella directory trained_models.
+    """
+    try:
+        trained_models_dir = os.path.join(os.path.dirname(__file__), 'trained_models')
+        model_path = os.path.join(trained_models_dir, model_file)
+        
+        exists = os.path.exists(model_path) and model_file.endswith(('.h5', '.pkl'))
+        return {"exists": exists}
+    except Exception as e:
+        logging.error(f"Errore nella verifica dell'esistenza del modello: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Errore nella verifica dell'esistenza del modello: {str(e)}")
+
+# === CANCEL ORDER ENDPOINT ===
+
+@app.post("/cancel-order")
+async def cancel_order_endpoint(order_id: str = Body(..., embed=True, alias="order_id"),
+                               auth: None = Depends(verify_auth_token),
+                               state = Depends(get_state)):
+    """
+    Annulla un ordine dato il suo ID. Cerca il simbolo corrispondente tra gli ordini aperti
+    e invia la richiesta di cancellazione all'exchange.
+    """
+    try:
+        if not state.async_exchange:
+            state.async_exchange = ccxt_async.bybit(exchange_config)
+            await state.async_exchange.load_markets()
+
+        # Recupera gli ordini aperti per trovare il simbolo associato
+        open_orders = await state.async_exchange.fetch_open_orders()
+        target_order = next((o for o in open_orders if str(o.get("id")) == str(order_id)), None)
+        if not target_order:
+            raise HTTPException(status_code=404, detail=f"Ordine {order_id} non trovato o già chiuso")
+
+        symbol = target_order.get("symbol")
+        if not symbol:
+            raise HTTPException(status_code=400, detail="Impossibile determinare il simbolo dell'ordine")
+
+        # Bybit richiede il simbolo per cancellare l'ordine
+        await state.async_exchange.cancel_order(order_id, symbol)
+
+        return {"status": "success", "message": f"Ordine {order_id} cancellato"}
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logging.error(f"Errore nell'annullamento dell'ordine {order_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Errore nell'annullamento dell'ordine: {str(e)}")
 
 # === AVVIO MANUALE DELL'APPLICAZIONE ===
 if __name__ == "__main__":

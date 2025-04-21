@@ -1,8 +1,11 @@
 // predictionModels.js - Gestione dei modelli di previsione e timeframes
 import { showNotification } from './ui.js';
 
-// Array dei timeframes disponibili
-const availableTimeframes = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'];
+// Timeframes supportati dal backend (min: 1, max: 3)
+const availableTimeframes = ['5m', '15m', '30m', '1h', '4h'];
+
+// Numero massimo di selezioni consentite
+const MAX_SELECTION = 3;
 
 // Array dei modelli disponibili
 const availableModels = [
@@ -342,26 +345,104 @@ export function calculateEnsembleConsensus(predictions) {
 
 // Esporta anche funzioni per la gestione delle selezioni
 export function getSelectedModels() {
-    return Array.from(document.querySelectorAll('.model-checkbox:checked')).map(checkbox => checkbox.value);
+    const checked = Array.from(document.querySelectorAll('.model-select:checked'));
+    return checked.map(cb => {
+        if (cb.id.startsWith('lstm')) return 'lstm';
+        if (cb.id.startsWith('rf')) return 'rf';
+        if (cb.id.startsWith('xgb')) return 'xgb';
+        return cb.value || cb.id;
+    });
 }
 
 export function getSelectedTimeframes() {
-    return Array.from(document.querySelectorAll('.timeframe-checkbox:checked')).map(checkbox => checkbox.value);
+    const checked = Array.from(document.querySelectorAll('.timeframe-select:checked'));
+    return checked.map(cb => cb.id.replace('tf-', ''));
 }
 
 export function validateSelection() {
-    const selectedModels = getSelectedModels();
-    const selectedTimeframes = getSelectedTimeframes();
+    const models = getSelectedModels();
+    const timeframes = getSelectedTimeframes();
     
-    if (selectedModels.length === 0) {
-        showNotification('warning', 'Seleziona almeno un modello prima di avviare le previsioni', true);
+    if (models.length === 0) {
+        showNotification('warning', 'Seleziona un modello prima di avviare le previsioni', true);
         return false;
     }
     
-    if (selectedTimeframes.length === 0) {
-        showNotification('warning', 'Seleziona almeno un timeframe prima di avviare le previsioni', true);
+    if (timeframes.length === 0) {
+        showNotification('warning', 'Seleziona almeno un timeframe', true);
         return false;
     }
     
+    // Verifiche max
+    if (models.length > MAX_SELECTION) {
+        showNotification('warning', `Puoi selezionare al massimo ${MAX_SELECTION} modelli`, true);
+        return false;
+    }
+    if (timeframes.length > MAX_SELECTION) {
+        showNotification('warning', `Puoi selezionare al massimo ${MAX_SELECTION} timeframe`, true);
+        return false;
+    }
     return true;
+}
+
+// === FUNZIONE DI COMPATIBILITÀ RICHIESTA DA predictionCore.js ===
+// Alcune parti dell'app (predictionCore.js) si aspettano di poter importare
+// una funzione initializeSelectionHandlers() da questo modulo. In questa
+// implementazione facciamo sì che chiami semplicemente initializeModelSelectors
+// (che prepara i selettori di modelli e timeframe) e restituisca true.
+
+export function initializeSelectionHandlers() {
+    try {
+        // Gestione dei checkbox (modelli e timeframe)
+        const modelCheckboxes = document.querySelectorAll('.model-select');
+        const timeframeCheckboxes = document.querySelectorAll('.timeframe-select');
+        if (modelCheckboxes.length === 0 && timeframeCheckboxes.length === 0) {
+            // Se l'UI con i checkbox non esiste, fallback ai selettori a tendina
+            initializeModelSelectors();
+            return true;
+        }
+
+        // Funzione per aggiornare i contatori e lo stato del pulsante Avvia
+        const updateUISelections = () => {
+            const selectedModels = getSelectedModels();
+            const selectedTimeframes = getSelectedTimeframes();
+
+            // Aggiorna contatori
+            const modelsCounter = document.getElementById('models-counter');
+            const tfsCounter = document.getElementById('timeframes-counter');
+            if (modelsCounter) modelsCounter.textContent = `${selectedModels.length}/${MAX_SELECTION}`;
+            if (tfsCounter) tfsCounter.textContent = `${selectedTimeframes.length}/${MAX_SELECTION}`;
+
+            // Aggiorna stato pulsante Avvia
+            const startBtn = document.getElementById('predictions-control-btn');
+            if (startBtn) {
+                const enable = selectedModels.length >= 1 && selectedModels.length <= MAX_SELECTION &&
+                               selectedTimeframes.length >= 1 && selectedTimeframes.length <= MAX_SELECTION;
+                startBtn.disabled = !enable;
+            }
+        };
+
+        // Aggiungi event listener ai checkbox
+        [...modelCheckboxes, ...timeframeCheckboxes].forEach(cb => {
+            cb.addEventListener('change', () => {
+                // Impedisci selezioni oltre il limite
+                if (cb.classList.contains('model-select') && getSelectedModels().length > MAX_SELECTION) {
+                    cb.checked = false;
+                    showNotification('warning', `Puoi selezionare al massimo ${MAX_SELECTION} modelli`, true);
+                }
+                if (cb.classList.contains('timeframe-select') && getSelectedTimeframes().length > MAX_SELECTION) {
+                    cb.checked = false;
+                    showNotification('warning', `Puoi selezionare al massimo ${MAX_SELECTION} timeframe`, true);
+                }
+                updateUISelections();
+            });
+        });
+
+        // Esegui una prima inizializzazione
+        updateUISelections();
+        return true;
+    } catch (error) {
+        console.error('Errore in initializeSelectionHandlers:', error);
+        return false;
+    }
 }
