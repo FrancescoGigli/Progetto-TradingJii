@@ -1,31 +1,89 @@
 # config.py
 # ------------------------------
-API_KEY = "hRI4q8EB3ryaURdyBm"
-API_SECRET = "xQpYxVtEinsD6yqa84PGbYVsgYrT9O3k0MRf"
+# Le API key sono ora gestite tramite il file .env
 
 # Exchange configuration
+# exchange_config è ora definito in main.py
+
+import os
+from dotenv import load_dotenv
+
+# Carica le variabili d'ambiente
+load_dotenv()
+
+# Configurazione API
+API_KEY = os.getenv("API_KEY")
+API_SECRET = os.getenv("API_SECRET")
+
+# Configurazione dell'exchange
 exchange_config = {
     'apiKey': API_KEY,
     'secret': API_SECRET,
     'enableRateLimit': True,
     'options': {
-        'adjustForTimeDifference': True,  # Add this line to handle time synchronization
-        'recvWindow': 60000  # Increase the receive window to accommodate time differences
+        'adjustForTimeDifference': True,
+        'recvWindow': 60000
     }
 }
+
+# Configurazione dei timeframes
+ENABLED_TIMEFRAMES = ['5m', '15m', '30m', '1h', '4h']
+TIMEFRAME_DEFAULT = '15m'
+
+# Configurazione dei modelli
+TIME_STEPS = 60  # Numero di candele per la predizione
+TRADE_CYCLE_INTERVAL = 300  # Intervallo tra i cicli di trading in secondi
+
+# Pesi dei modelli (la somma deve essere 1)
+MODEL_RATES = {
+    'lstm': 0.4,
+    'rf': 0.3,
+    'xgb': 0.3
+}
+
+# Configurazione del training
+TOP_TRAIN_CRYPTO = 100  # Numero di criptovalute per il training
+TOP_ANALYSIS_CRYPTO = 150  # Numero di criptovalute per l'analisi
+TRAIN_IF_NOT_FOUND = True  # Se True, allena i modelli se non trovati
+
+# Simboli da escludere
+EXCLUDED_SYMBOLS = [
+    'USDC', 'BUSD', 'USDD', 'TUSD', 'USDN',  # Stablecoins
+    'DOWN', 'UP', 'BULL', 'BEAR',  # Tokens leveraged
+    'EUR', 'GBP', 'AUD', 'BRL',  # Fiat pairs
+]
+
+# Colonne attese nei dati
+EXPECTED_COLUMNS = [
+    'timestamp', 'open', 'high', 'low', 'close', 'volume'
+]
+
+# Funzioni per ottenere i percorsi dei file dei modelli
+def get_model_path(model_type, timeframe):
+    return f'trained_models/{model_type}_model_{timeframe}'
+
+def get_lstm_model_file(timeframe):
+    return get_model_path('lstm', timeframe) + '.h5'
+
+def get_lstm_scaler_file(timeframe):
+    return get_model_path('lstm', timeframe) + '_scaler.pkl'
+
+def get_rf_model_file(timeframe):
+    return get_model_path('rf', timeframe) + '.pkl'
+
+def get_rf_scaler_file(timeframe):
+    return get_model_path('rf', timeframe) + '_scaler.pkl'
+
+def get_xgb_model_file(timeframe):
+    return get_model_path('xgb', timeframe) + '.pkl'
+
+def get_xgb_scaler_file(timeframe):
+    return get_model_path('xgb', timeframe) + '_scaler.pkl'
 
 MARGIN_USDT = 40.0
 LEVERAGE = 10
 
-ENABLED_TIMEFRAMES = ['15m', '30m', '1h']  # Timeframe predefiniti
-TIMEFRAME_DEFAULT = '15m'                  # Timeframe predefinito principale
 TIME_STEPS = 10
-
-MODEL_RATES = {
-    'lstm': 0.6,
-    'rf': 0.2,
-    'xgb': 0.2
-}
 
 NEUTRAL_LOWER_THRESHOLD = 0.40
 NEUTRAL_UPPER_THRESHOLD = 0.60
@@ -34,58 +92,11 @@ COLOR_THRESHOLD_RED     = 0.35
 RSI_BUY_THRESHOLD       = 30  # Updated to match RSI_THRESHOLDS
 RSI_SELL_THRESHOLD      = 70  # Updated to match RSI_THRESHOLDS
 
-TRADE_CYCLE_INTERVAL    = 300
 DATA_LIMIT_DAYS = 50
 
 # File paths: ora definiti come funzioni, in modo da essere sempre calcolati in base al timeframe attuale
 def _file_name(base, tf):
     return f"{base}_{tf}"
-
-def get_lstm_model_file(timeframe):
-    """Return the path to the LSTM model file for the given timeframe."""
-    return f"trained_models/lstm_model_{timeframe}.h5"
-
-def get_lstm_scaler_file(tf):
-    return f"trained_models/lstm_scaler_{tf}.pkl"
-
-def get_rf_model_file(tf):
-    return f"trained_models/rf_model_{tf}.pkl"  # Updated to match trainer.py
-
-def get_rf_scaler_file(tf):
-    return f"trained_models/rf_scaler_{tf}.pkl"  # Updated to match trainer.py
-
-def get_xgb_model_file(tf):
-    return f"trained_models/xgb_model_{tf}.pkl"  # Updated to match trainer.py
-
-def get_xgb_scaler_file(tf):
-    return f"trained_models/xgb_scaler_{tf}.pkl"  # Updated to match trainer.py
-
-DB_FILE = "trade_history.db"
-RESET_DB_ON_STARTUP = True
-TRADE_STATISTICS_DAYS = 30
-USE_DATABASE = True
-
-EXCLUDED_SYMBOLS = ['BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT']
-TOP_TRAIN_CRYPTO = 50
-TOP_ANALYSIS_CRYPTO = 150
-
-EXPECTED_COLUMNS = [
-    'open', 'high', 'low', 'close', 'volume',
-    'ema5', 'ema10', 'ema20',
-    'macd', 'macd_signal', 'macd_histogram',
-    'rsi_fast', 'stoch_rsi',
-    'atr',
-    'bollinger_hband', 'bollinger_lband', 'bollinger_pband',
-    'vwap',
-    'adx',
-    'roc', 'log_return',
-    'tenkan_sen', 'kijun_sen', 'senkou_span_a', 'senkou_span_b', 'chikou_span',
-    'williams_r', 'obv',
-    'sma_fast', 'sma_slow', 'sma_fast_trend', 'sma_slow_trend', 'sma_cross',
-    'close_lag_1', 'volume_lag_1',
-    'weekday_sin', 'weekday_cos', 'hour_sin', 'hour_cos',
-    'mfi', 'cci'
-]
 
 RSI_THRESHOLDS = {
     'sideways': {
@@ -109,5 +120,3 @@ THRESHOLDS = {
     200: [1.8, 120],
     250: [2.3, 120]
 }
-
-TRAIN_IF_NOT_FOUND = True

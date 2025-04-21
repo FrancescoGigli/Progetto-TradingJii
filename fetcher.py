@@ -7,8 +7,6 @@ from datetime import datetime, timedelta
 from config import TIMEFRAME_DEFAULT, DATA_LIMIT_DAYS, TOP_ANALYSIS_CRYPTO
 from termcolor import colored
 import re
-import sqlite3
-from db_manager import save_data
 
 async def fetch_markets(exchange):
     return await exchange.load_markets()
@@ -80,5 +78,4 @@ async def fetch_and_save_data(exchange, symbol, timeframe=TIMEFRAME_DEFAULT, lim
     if df is not None:
         from data_utils import add_technical_indicators
         df_indicators = add_technical_indicators(df.copy())
-        save_data(symbol, df_indicators, timeframe)
     return df
