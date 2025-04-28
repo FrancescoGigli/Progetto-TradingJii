@@ -3,13 +3,11 @@
 const API_BASE_URL = 'http://localhost:8000';
 const LOCAL_STORAGE_API_KEY = 'trae_api_key';
 const LOCAL_STORAGE_API_SECRET = 'trae_api_secret';
-const DEFAULT_API_KEY = 'hRI4q8EB3ryaURdyBm';
-const DEFAULT_API_SECRET = 'xQpYxVtEinsD6yqa84PGbYVsgYrT9O3k0MRf';
 
 // Variabili globali per lo stato dell'applicazione
 let botRunning = false;
-let apiKey = localStorage.getItem(LOCAL_STORAGE_API_KEY) || DEFAULT_API_KEY;
-let apiSecret = localStorage.getItem(LOCAL_STORAGE_API_SECRET) || DEFAULT_API_SECRET;
+let apiKey = localStorage.getItem(LOCAL_STORAGE_API_KEY);
+let apiSecret = localStorage.getItem(LOCAL_STORAGE_API_SECRET);
 let autoStartDisabled = false;
 
 // Elementi DOM principali
@@ -23,8 +21,6 @@ export {
     API_BASE_URL,
     LOCAL_STORAGE_API_KEY,
     LOCAL_STORAGE_API_SECRET,
-    DEFAULT_API_KEY,
-    DEFAULT_API_SECRET,
     botStatusBtn,
     logContent,
     navLinks,

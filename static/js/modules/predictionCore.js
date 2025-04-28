@@ -35,9 +35,6 @@ export function initializePredictionsControl() {
     
     // Controlla lo stato subito all'avvio
     checkBotStatus();
-    
-    // Non avviare automaticamente le predizioni
-    appendToLog('Sistema pronto. Premi Avvia per iniziare le predizioni.');
 }
 
 // Funzione per controllare lo stato delle predizioni

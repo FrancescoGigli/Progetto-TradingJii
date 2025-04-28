@@ -95,8 +95,13 @@ async def countdown_timer(duration):
 
 async def trade_signals():
     global async_exchange, lstm_models, lstm_scalers, rf_models, rf_scalers, xgb_models, xgb_scalers, min_amounts
-
-    while True:
+    
+    # Flag per controllare lo stato del bot
+    is_running = True
+    error_count = 0
+    MAX_ERRORS = 3  # Numero massimo di errori consecutivi prima di fermare il bot
+    
+    while is_running:
         try:
             predicted_buys = []
             predicted_sells = []
@@ -123,7 +128,8 @@ async def trade_signals():
             if usdt_balance is None:
                 logging.warning(colored("Failed to get USDT balance. Retrying in 5 seconds.", "yellow"))
                 await asyncio.sleep(5)
-                return
+                continue
+
             open_positions_count = await get_open_positions(async_exchange)
             logging.info(f"{colored('USDT Balance:', 'cyan')} {colored(f'{usdt_balance:.2f}', 'yellow')} | {colored('Open Positions:', 'cyan')} {colored(str(open_positions_count), 'yellow')}")
 
@@ -188,12 +194,22 @@ async def trade_signals():
                 logging.info(colored("-" * 60, "white"))
 
             logging.info(colored("Bot is running", "green"))
-
+            error_count = 0  # Reset error count on successful iteration
             await countdown_timer(TRADE_CYCLE_INTERVAL)
 
         except Exception as e:
+            error_count += 1
             logging.error(f"{colored('Error in trade cycle:', 'red')} {e}")
-            await asyncio.sleep(60)
+            
+            if error_count >= MAX_ERRORS:
+                logging.error(colored(f"Troppi errori consecutivi ({error_count}). Fermando il bot...", "red"))
+                is_running = False
+                break
+                
+            # Aumenta il tempo di attesa in base al numero di errori
+            wait_time = min(60 * error_count, 300)  # Max 5 minuti
+            logging.info(colored(f"Aspettando {wait_time} secondi prima di riprovare...", "yellow"))
+            await asyncio.sleep(wait_time)
 
 # --- Funzione Main ---
 async def main():

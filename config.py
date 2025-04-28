@@ -75,15 +75,13 @@ def get_rf_scaler_file(timeframe):
     return get_model_path('rf', timeframe) + '_scaler.pkl'
 
 def get_xgb_model_file(timeframe):
-    return get_model_path('xgb', timeframe) + '.pkl'
+    return get_model_path('xgb', timeframe) + '.json'
 
 def get_xgb_scaler_file(timeframe):
     return get_model_path('xgb', timeframe) + '_scaler.pkl'
 
 MARGIN_USDT = 40.0
 LEVERAGE = 10
-
-TIME_STEPS = 10
 
 NEUTRAL_LOWER_THRESHOLD = 0.40
 NEUTRAL_UPPER_THRESHOLD = 0.60
