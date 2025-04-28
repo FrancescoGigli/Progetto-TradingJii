@@ -1,5 +1,5 @@
 // models.js - Gestisce tutte le funzionalità relative ai modelli di ML
-import { makeApiRequest } from './api.js';
+import { makeApiRequest, setupApiService } from './api.js';
 import { appendToLog, showAlert } from './ui.js';
 import { createComparisonChart } from './charts.js';
 
@@ -396,6 +396,16 @@ export async function handleTrainingFormSubmit(e) {
     }
     
     try {
+        // Configura le credenziali API se non sono già state configurate
+        const apiKey = localStorage.getItem('apiKey');
+        const apiSecret = localStorage.getItem('apiSecret');
+        if (apiKey && apiSecret) {
+            setupApiService(apiKey, apiSecret);
+        } else {
+            showAlert('Errore: Credenziali API non configurate', 'danger');
+            return;
+        }
+        
         const modelType = document.getElementById('model-type')?.value;
         const timeframe = document.getElementById('timeframe')?.value;
         // Utilizziamo valori fissi invece di quelli dinamici
@@ -818,6 +828,12 @@ function getModelTypeName(modelType) {
 
 // Inizializza gli event listener della sezione modelli
 export function setupModelsEventListeners() {
+    // Aggiungi event listener per il form di training
+    const trainingForm = document.getElementById('model-training-form');
+    if (trainingForm) {
+        trainingForm.addEventListener('submit', handleTrainingFormSubmit);
+    }
+
     // Aggiungi event listener per i pulsanti delle metriche
     const metricButtons = document.querySelectorAll('[data-metric]');
     if (metricButtons.length > 0) {

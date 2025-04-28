@@ -4,37 +4,47 @@ import { appendToLog } from './ui.js';
 
 // Funzione per caricare i dati del bilancio
 export async function loadBalance() {
-    const result = await makeApiRequest('/balance');
-    if (result) {
-        // I campi rinominati
-        const totalWallet = document.getElementById('total-wallet');
-        const availableBalance = document.getElementById('available-balance');
-        const usedBalance = document.getElementById('used-balance');
-        const unrealizedPnl = document.getElementById('unrealized-pnl');
-        const equity = document.getElementById('equity');
-        
-        // Aggiorniamo i valori
-        if (totalWallet) totalWallet.textContent = `${result.total_wallet.toFixed(2)} USDT`;
-        if (availableBalance) availableBalance.textContent = `${result.available.toFixed(2)} USDT`;
-        if (usedBalance) usedBalance.textContent = `${result.used.toFixed(2)} USDT`;
-        
-        // Formatta il PnL con colore a seconda se è positivo o negativo
-        if (unrealizedPnl) {
-            const pnl = result.pnl;
-            const pnlClass = pnl > 0 ? 'text-success' : (pnl < 0 ? 'text-danger' : '');
-            unrealizedPnl.textContent = `${pnl.toFixed(2)} USDT`;
-            unrealizedPnl.className = `card-text ${pnlClass}`;
+    try {
+        const result = await makeApiRequest('/balance');
+        if (result) {
+            // I campi rinominati
+            const totalWallet = document.getElementById('total-wallet');
+            const availableBalance = document.getElementById('available-balance');
+            const usedBalance = document.getElementById('used-balance');
+            const unrealizedPnl = document.getElementById('unrealized-pnl');
+            const equity = document.getElementById('equity');
+            
+            // Aggiorniamo i valori
+            if (totalWallet) totalWallet.textContent = `${result.total_wallet.toFixed(2)} USDT`;
+            if (availableBalance) availableBalance.textContent = `${result.available.toFixed(2)} USDT`;
+            if (usedBalance) usedBalance.textContent = `${result.used.toFixed(2)} USDT`;
+            
+            // Formatta il PnL con colore a seconda se è positivo o negativo
+            if (unrealizedPnl) {
+                const pnl = result.pnl;
+                const pnlClass = pnl > 0 ? 'text-success' : (pnl < 0 ? 'text-danger' : '');
+                unrealizedPnl.textContent = `${pnl.toFixed(2)} USDT`;
+                unrealizedPnl.className = `card-text ${pnlClass}`;
+            }
+            
+            // Calcola e formatta il Totale non realizzato (ex Equity)
+            if (equity) {
+                const total = result.total_wallet || 0;
+                const pnl = result.pnl || 0;
+                const equityValue = total + pnl;
+                const equityClass = pnl > 0 ? 'text-success' : (pnl < 0 ? 'text-danger' : '');
+                equity.textContent = `${equityValue.toFixed(2)} USDT`;
+                equity.className = `card-text ${equityClass}`;
+            }
+            
+            // Se c'è un errore, mostralo
+            if (result.error) {
+                appendToLog(`Errore nel caricamento del bilancio: ${result.error}`, 'error');
+            }
         }
-        
-        // Calcola e formatta il Totale non realizzato (ex Equity)
-        if (equity) {
-            const total = result.total_wallet || 0;
-            const pnl = result.pnl || 0;
-            const equityValue = total + pnl;
-            const equityClass = pnl > 0 ? 'text-success' : (pnl < 0 ? 'text-danger' : '');
-            equity.textContent = `${equityValue.toFixed(2)} USDT`;
-            equity.className = `card-text ${equityClass}`;
-        }
+    } catch (error) {
+        console.error('Errore nel caricamento del bilancio:', error);
+        appendToLog(`Errore nel caricamento del bilancio: ${error.message}`, 'error');
     }
 }
 

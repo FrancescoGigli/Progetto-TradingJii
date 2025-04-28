@@ -10,27 +10,13 @@ import ccxt.async_support as ccxt_async
 from termcolor import colored
 from tqdm import tqdm  # Import per la progress bar
 from dotenv import load_dotenv
+from state import app_state
 
 # Carica le variabili d'ambiente dal file .env
 load_dotenv()
 
-# Ottieni le API key dalle variabili d'ambiente
-API_KEY = os.getenv("API_KEY")
-API_SECRET = os.getenv("API_SECRET")
-
-# Configurazione dell'exchange
-exchange_config = {
-    'apiKey': API_KEY,
-    'secret': API_SECRET,
-    'enableRateLimit': True,
-    'options': {
-        'adjustForTimeDifference': True,
-        'recvWindow': 60000
-    }
-}
-
-import config
 from config import (
+    exchange_config,
     EXCLUDED_SYMBOLS, TIME_STEPS, TRADE_CYCLE_INTERVAL,
     MODEL_RATES,  # I rate definiti in config; la somma DEVE essere pari a 1
     TOP_TRAIN_CRYPTO, TOP_ANALYSIS_CRYPTO, EXPECTED_COLUMNS,
@@ -40,17 +26,16 @@ from config import (
     get_rf_model_file, get_rf_scaler_file,
     get_xgb_model_file, get_xgb_scaler_file
 )
-from logging_config import *
+from logging_utils import *
 from fetcher import fetch_markets, get_top_symbols, fetch_min_amounts, fetch_and_save_data
-from model_loader import (
-    load_lstm_model_func,
-    load_random_forest_model_func,
-    load_xgboost_model_func
-)
-from trainer import (
+from model_manager import (
+    load_lstm_model,
+    load_rf_model,
+    load_xgb_model,
     train_lstm_model_for_timeframe,
     train_random_forest_model_wrapper,
-    train_xgboost_model_wrapper
+    train_xgboost_model_wrapper,
+    ensure_trained_models_dir
 )
 from predictor import predict_signal_ensemble, get_color_normal
 from trade_manager import (
@@ -59,7 +44,6 @@ from trade_manager import (
     wait_and_update_closed_trades
 )
 from data_utils import prepare_data
-from trainer import ensure_trained_models_dir
 
 if sys.platform.startswith('win'):
     import asyncio
@@ -72,10 +56,11 @@ selected_models = ['lstm', 'rf', 'xgb']
 
 # --- Calcolo dei pesi raw e normalizzati per i modelli ---
 raw_weights = {}
-for tf in ENABLED_TIMEFRAMES:
+for tf in app_state.enabled_timeframes:
     raw_weights[tf] = {}
-    for model in selected_models:
-        raw_weights[tf][model] = MODEL_RATES.get(model, 0)
+    for model in app_state.selected_models:
+        raw_weights[tf][model] = app_state.model_rates.get(model, 0)
+
 def normalize_weights(raw_weights):
     normalized = {}
     for tf, weights in raw_weights.items():
@@ -85,6 +70,7 @@ def normalize_weights(raw_weights):
         else:
             normalized[tf] = weights
     return normalized
+
 normalized_weights = normalize_weights(raw_weights)
 
 # --- Funzioni ausiliarie ---
@@ -274,9 +260,9 @@ async def main():
         xgb_scalers = {}
         
         for tf in ENABLED_TIMEFRAMES:
-            lstm_models[tf], lstm_scalers[tf] = await asyncio.to_thread(load_lstm_model_func, tf)
-            rf_models[tf], rf_scalers[tf] = await asyncio.to_thread(load_random_forest_model_func, tf)
-            xgb_models[tf], xgb_scalers[tf] = await asyncio.to_thread(load_xgboost_model_func, tf)
+            lstm_models[tf], lstm_scalers[tf] = await asyncio.to_thread(load_lstm_model, tf)
+            rf_models[tf], rf_scalers[tf] = await asyncio.to_thread(load_rf_model, tf)
+            xgb_models[tf], xgb_scalers[tf] = await asyncio.to_thread(load_xgb_model, tf)
         
             # Training models if not found
             if 'lstm' in selected_models and not lstm_models[tf]:

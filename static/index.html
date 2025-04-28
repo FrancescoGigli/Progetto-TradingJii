@@ -1091,9 +1091,8 @@
                                                         <option value="150" selected>150 (Massimo)</option>
                                                     </select>
                                                     <div class="form-text">Maggiore è il numero, più completa sarà l'analisi ma richiederà più tempo.</div>
+                                                </div>
                                             </div>
-                                        </div>
-                                        
                                             <div class="row mt-3">
                                                 <div class="col-md-6 mb-3">
                                                     <label for="leverage-range" class="form-label d-flex justify-content-between">
@@ -1107,8 +1106,8 @@
                                                         <small>10x</small>
                                                     </div>
                                                     <div class="form-text">Una leva più alta aumenta sia il potenziale profitto che il rischio.</div>
-                                            </div>
-                                            
+                                                </div>
+                                                
                                                 <div class="col-md-6 mb-3">
                                                     <label for="margin-range" class="form-label d-flex justify-content-between">
                                                         <span>Margine per operazione (USDT)</span>
@@ -1121,9 +1120,9 @@
                                                         <small>100</small>
                                                     </div>
                                                     <div class="form-text">Margine utilizzato per ogni posizione.</div>
+                                                </div>
                                             </div>
-                                        </div>
-                                        
+                                            
                                             <div class="row mt-2">
                                                 <div class="col-md-12">
                                                     <div class="card bg-light">
@@ -1131,18 +1130,8 @@
                                                             <div>
                                                                 <span class="fw-bold">Valore posizione totale:</span>
                                                                 <span class="text-secondary">(Leva × Margine)</span>
-                                            </div>
+                                                            </div>
                                                             <span id="total-position-value" class="badge bg-primary px-3 py-2 fs-6">200 USDT</span>
-                                            </div>
-                                            </div>
-                                                    <div class="mt-2 d-flex justify-content-between align-items-center">
-                                                        <span class="text-muted">Livello di rischio:</span>
-                                                        <div id="risk-indicator" class="d-flex gap-1">
-                                                            <span class="risk-dot"></span>
-                                                            <span class="risk-dot"></span>
-                                                            <span class="risk-dot"></span>
-                                                            <span class="risk-dot"></span>
-                                                            <span class="risk-dot"></span>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1319,21 +1308,6 @@
                                                 <option value="1h">1 ora</option>
                                                 <option value="4h">4 ore</option>
                                             </select>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label">Configurazione</label>
-                                            <div class="card bg-light">
-                                                <div class="card-body py-2">
-                                                    <div class="d-flex justify-content-between">
-                                                        <span><i class="fas fa-calendar-alt me-2"></i>Giorni di Dati:</span>
-                                                        <strong>50 giorni</strong>
-                                                    </div>
-                                                    <div class="d-flex justify-content-between mt-2">
-                                                        <span><i class="fas fa-coins me-2"></i>Numero di Criptovalute:</span>
-                                                        <strong>100 criptovalute</strong>
-                                                    </div>
-                                                </div>
-                                            </div>
                                         </div>
                                         <div class="d-flex">
                                             <button type="submit" class="btn btn-primary me-2">Train</button>

@@ -1,12 +1,10 @@
-# fetcher.py
-
+# fetcher.py - corrected
 import asyncio
 import logging
 import pandas as pd
 from datetime import datetime, timedelta
 from config import TIMEFRAME_DEFAULT, DATA_LIMIT_DAYS, TOP_ANALYSIS_CRYPTO
 from termcolor import colored
-import re
 
 async def fetch_markets(exchange):
     return await exchange.load_markets()
@@ -30,18 +28,18 @@ async def fetch_min_amounts(exchange, top_symbols, markets):
     min_amounts = {}
     for symbol in top_symbols:
         market = markets.get(symbol)
-        if market and 'limits' in market and 'amount' in market['limits'] and 'min' in market['limits']['amount']:
-            min_amounts[symbol] = market['limits']['amount']['min']
-        else:
-            min_amounts[symbol] = 1
+        min_amounts[symbol] = (
+            market.get('limits', {}).get('amount', {}).get('min', 1) if market else 1
+        )
     return min_amounts
 
 async def get_data_async(exchange, symbol, timeframe=TIMEFRAME_DEFAULT, limit=1000):
+    """Scarica OHLCV grezzi; non aggiunge indicatori."""
     ohlcv_all = []
     since_dt = datetime.utcnow() - timedelta(days=DATA_LIMIT_DAYS)
     since = int(since_dt.timestamp() * 1000)
     current_time = int(datetime.utcnow().timestamp() * 1000)
-    
+
     while True:
         try:
             ohlcv = await exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, since=since)
@@ -50,7 +48,7 @@ async def get_data_async(exchange, symbol, timeframe=TIMEFRAME_DEFAULT, limit=10
             break
         if not ohlcv:
             break
-        
+
         ohlcv_all.extend(ohlcv)
         last_timestamp = ohlcv[-1][0]
         if last_timestamp >= current_time:
@@ -60,22 +58,29 @@ async def get_data_async(exchange, symbol, timeframe=TIMEFRAME_DEFAULT, limit=10
             break
         since = new_since
 
-    if ohlcv_all:
-        df = pd.DataFrame(ohlcv_all, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df.set_index('timestamp', inplace=True)
-        last_date = df.index[-1].strftime('%Y-%m-%d')
-        logging.info(colored(
-            f"Fetched {len(df)} candlestick for {symbol} (Timeframe: {timeframe}) from {since_dt.strftime('%Y-%m-%d')} to {last_date}.",
-            "cyan"))
-        return df
-    else:
+    if not ohlcv_all:
         logging.info(f"Nessun dato disponibile per {symbol} negli ultimi {DATA_LIMIT_DAYS} giorni.")
         return None
 
-async def fetch_and_save_data(exchange, symbol, timeframe=TIMEFRAME_DEFAULT, limit=1000):
-    df = await get_data_async(exchange, symbol, timeframe, limit)
-    if df is not None:
-        from data_utils import add_technical_indicators
-        df_indicators = add_technical_indicators(df.copy())
+    df = pd.DataFrame(
+        ohlcv_all,
+        columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
+    )
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    df.set_index('timestamp', inplace=True)
+    last_date = df.index[-1].strftime('%Y-%m-%d')
+    logging.info(
+        colored(
+            f"Fetched {len(df)} candlestick for {symbol} (TF: {timeframe}) from {since_dt.strftime('%Y-%m-%d')} to {last_date}.",
+            'cyan'
+        )
+    )
     return df
+
+async def fetch_and_save_data(exchange, symbol, timeframe=TIMEFRAME_DEFAULT, limit=1000):
+    """Ritorna DataFrame con indicatori tecnici."""
+    df = await get_data_async(exchange, symbol, timeframe, limit)
+    if df is None:
+        return None
+    from data_utils import add_technical_indicators
+    return add_technical_indicators(df.copy())

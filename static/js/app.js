@@ -49,17 +49,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Configura il servizio API con le chiavi di default
         setupApiService(apiKey, apiSecret, API_BASE_URL);
         
-        // Controlla se esiste il file no_auto_start
-        try {
-            const response = await fetch('/no_auto_start', { method: 'HEAD' });
-            if (response.ok) {
-                appendToLog('Avvio automatico predizioni disabilitato');
-                autoStartDisabled = true;
-            }
-        } catch (error) {
-            // File non trovato, autoStartDisabled rimane false
-            console.log('Il file no_auto_start non esiste, predizioni saranno avviate automaticamente');
-        }
+        // Imposta autoStartDisabled a false (predizioni avviate automaticamente)
+        autoStartDisabled = false;
+        console.log('Predizioni saranno avviate automaticamente');
         
         // Inizializza l'interfaccia utente
         initializeUI();

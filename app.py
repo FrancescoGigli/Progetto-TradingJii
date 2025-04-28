@@ -1,1012 +1,858 @@
-# app.py
-from fastapi import FastAPI, HTTPException, Depends, Header, Request, BackgroundTasks, Query, Body
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional
-import asyncio
+# app.py – TradingJii API
+# Versione rivista 28/04/2025
+
+from __future__ import annotations
+
+# ───────────────────────────────────────────────────────────────────────────────
+# Caricamento variabili d'ambiente PRIMA di ogni altro import
+# ───────────────────────────────────────────────────────────────────────────────
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
-import sys
+print(f"DEBUG: API_KEY={'SET' if os.getenv('API_KEY') else 'MISSING'}, "
+      f"API_SECRET={'SET' if os.getenv('API_SECRET') else 'MISSING'}")
+
+import asyncio
 import json
-import re
-import time
-import traceback
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from contextlib import asynccontextmanager
+from typing import List, Optional, Dict, Any
 
-import ccxt.async_support as ccxt_async
-import numpy as np
-import uvicorn
-from cryptography.fernet import Fernet
-from dotenv import load_dotenv
-import ccxt
-import ta
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Depends,
+    Request,
+    BackgroundTasks,
+    Body,
+    APIRouter,
+)
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ConfigDict
+from cryptography.fernet import Fernet
 
-# Moduli locali
-from trainer import (
+# CCXT asincrono (compatibilità con versioni 3.x e PRO)
+try:
+    import ccxt.async_support as ccxt_async  # ccxt < 4.x
+except ModuleNotFoundError:
+    import ccxt.pro as ccxt_async            # ccxt-pro (licenza)
+import ccxt
+
+import numpy as np
+import ta
+import uvicorn
+
+from model_manager import (
     train_lstm_model_for_timeframe,
     train_random_forest_model_wrapper,
     train_xgboost_model_wrapper,
-    ensure_trained_models_dir
+    ensure_trained_models_dir,
 )
 from main import main as run_bot
-from trade_manager import get_real_balance, get_open_positions, save_trade_db
-from config import exchange_config, API_KEY, API_SECRET, EXCLUDED_SYMBOLS, TOP_ANALYSIS_CRYPTO, LEVERAGE, MARGIN_USDT
-from fetcher import (
-    fetch_markets, get_top_symbols, fetch_min_amounts,
-    fetch_and_save_data, get_data_async
+from trade_manager import (
+    get_real_balance,
+    get_open_positions,
 )
+from config import (
+    exchange_config,
+    API_KEY,
+    API_SECRET,
+    EXCLUDED_SYMBOLS,
+    TOP_ANALYSIS_CRYPTO,
+    LEVERAGE,
+    MARGIN_USDT,
+)
+from fetcher import (
+    fetch_markets,
+    get_top_symbols,
+    fetch_min_amounts,
+    fetch_and_save_data,
+    get_data_async,
+)
+from state import app_state
+from dependencies import verify_auth_token, generate_auth_token  # import centralizzato per autenticazione
 
-# Carica le variabili d'ambiente
-load_dotenv()
+# ───────────────────────────────────────────────────────────────────────────────
+# Configurazione dell'exchange (chiavi + rate limit)
+# ───────────────────────────────────────────────────────────────────────────────
+exchange_config.update({
+    'apiKey':          API_KEY,
+    'secret':          API_SECRET,
+    'enableRateLimit': True,
+})
 
-# === CONFIGURAZIONE FILE CHIAVI ===
-API_KEY_FILE = Path("api_keys.enc")
+# ───────────────────────────────────────────────────────────────────────────────
+# Logger e file per chiavi cifrate
+# ───────────────────────────────────────────────────────────────────────────────
+logger = logging.getLogger("uvicorn")
+API_KEY_FILE    = Path("api_keys.enc")
 FERNET_KEY_FILE = Path("fernet.key")
 
-# Funzione per chiudere l'exchange in modo sicuro
-async def close_exchange_safely(exchange):
-    """Chiude l'exchange in modo sicuro se è aperto."""
-    if exchange:
-        try:
-            await exchange.close()
-        except Exception as e:
-            logging.error(f"Errore nella chiusura dell'exchange: {e}")
+# ───────────────────────────────────────────────────────────────────────────────
+# Utility di crittografia
+# ───────────────────────────────────────────────────────────────────────────────
+def _load_fernet() -> Fernet:
+    env_key = os.getenv("FERNET_SECRET_KEY")
+    if env_key:
+        return Fernet(env_key.encode())
+    if not FERNET_KEY_FILE.exists():
+        FERNET_KEY_FILE.write_bytes(Fernet.generate_key())
+    return Fernet(FERNET_KEY_FILE.read_bytes())
 
-# Definizione del lifespan dell'applicazione
-@asynccontextmanager
-async def lifespan(app):
-    # Codice di inizializzazione (se necessario)
-    yield
-    # Codice di pulizia (vecchio shutdown_event)
-    if app.state.async_exchange:
-        await close_exchange_safely(app.state.async_exchange)
-        app.state.async_exchange = None
-    
-    if app.state.bot_task and not app.state.bot_task.done():
-        app.state.bot_task.cancel()
-        try:
-            await app.state.bot_task
-        except asyncio.CancelledError:
-            pass
-        app.state.bot_running = False
+def save_api_keys_secure(keys: ApiKeys) -> None:
+    f = _load_fernet()
+    API_KEY_FILE.write_bytes(f.encrypt(json.dumps(keys.dict()).encode()))
 
-# === INIZIALIZZAZIONE FASTAPI ===
-app = FastAPI(title="Trading Bot API", version="1.0", lifespan=lifespan)
-logger = logging.getLogger("uvicorn")
+def load_api_keys_secure() -> Optional[dict]:
+    if not API_KEY_FILE.exists():
+        return None
+    f = _load_fernet()
+    return json.loads(f.decrypt(API_KEY_FILE.read_bytes()))
 
-# Configurazione CORS (in produzione limitare i domini ammessi)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Inizializza lo stato condiviso in app.state
-app.state.bot_task = None
-app.state.bot_running = False
-app.state.async_exchange = None
-app.state.current_config = None
-app.state.initialized = False
-
-# === MODELLI DI DATI ===
+# ───────────────────────────────────────────────────────────────────────────────
+# Schemi Pydantic
+# ───────────────────────────────────────────────────────────────────────────────
 class ApiKeys(BaseModel):
-    api_key: str
+    model_config = ConfigDict(protected_namespaces=())
+    api_key:    str
     secret_key: str
 
 class BotConfig(BaseModel):
-    models: List[str]
-    timeframes: List[str]
-    trading_params: Optional[dict] = None
+    model_config = ConfigDict(protected_namespaces=())
+    models:         List[str]
+    timeframes:     List[str]
+    trading_params: Optional[Dict[str, Any]] = None
 
 class ClosePositionRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     symbol: str
-    side: str
+    side:   str  # "Buy" o "Sell"
 
-# === FUNZIONI DI UTILITÀ ===
-def load_fernet():
-    """Carica o genera la chiave Fernet per la crittografia."""
-    if not FERNET_KEY_FILE.exists():
-        key = Fernet.generate_key()
-        FERNET_KEY_FILE.write_bytes(key)
-    else:
-        key = FERNET_KEY_FILE.read_bytes()
-    return Fernet(key)
+# ───────────────────────────────────────────────────────────────────────────────
+# Lifespan: bootstrap e teardown dell'exchange
+# ───────────────────────────────────────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: inizializza ccxt_async.bybit e carica i mercati
+    ex = ccxt_async.bybit(exchange_config)
+    await ex.load_markets()
+    app_state.async_exchange = ex
 
-def save_api_keys_secure(keys: ApiKeys):
-    """Cripta e salva le chiavi API in modo sicuro."""
-    fernet = load_fernet()
-    data = json.dumps(keys.dict()).encode()
-    encrypted = fernet.encrypt(data)
-    API_KEY_FILE.write_bytes(encrypted)
+    yield
 
-def load_api_keys_secure():
-    """Legge le chiavi API criptate dal file."""
-    if not API_KEY_FILE.exists():
-        return None
-    fernet = load_fernet()
-    decrypted = fernet.decrypt(API_KEY_FILE.read_bytes())
-    return json.loads(decrypted)
+    # Shutdown: chiudi exchange e task pendenti
+    if app_state.async_exchange:
+        await app_state.async_exchange.close()
+    if (task := app.state.bot_task) and not task.done():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    app_state.bot_running = False
 
-def verify_auth_token(api_key: str = Header(None, alias="api-key"),
-                        api_secret: str = Header(None, alias="api-secret")):
-    """Verifica che le credenziali siano corrette."""
-    if api_key != API_KEY or api_secret != API_SECRET:
-        raise HTTPException(status_code=401, detail="Credenziali non autorizzate")
+# ───────────────────────────────────────────────────────────────────────────────
+# Creazione app FastAPI
+# ───────────────────────────────────────────────────────────────────────────────
+app = FastAPI(title="Trading Bot API", version="2.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.state.bot_task: Optional[asyncio.Task] = None
+app.mount("/trained_models", StaticFiles(directory="trained_models"), name="trained_models")
 
-# Dependency per lo stato
 def get_state(request: Request):
     return request.app.state
 
-# --- IMPORTA IL TASK CELERY ---
-from tasks import train_model_task
+root = APIRouter()
+api  = APIRouter(prefix="/api")
 
-# === MONTA STATIC FILES ===
-# Espone la cartella dei modelli addestrati in modo che il frontend possa accedere ai file metrics JSON
-app.mount("/trained_models", StaticFiles(directory="trained_models"), name="trained_models")
+# ───────────────────────────────────────────────────────────────────────────────
+# ENDPOINT: initialize
+# ───────────────────────────────────────────────────────────────────────────────
+@root.post("/initialize")
+@api.post("/initialize")
+async def initialize_bot(
+    config: BotConfig,
+    state=Depends(get_state),
+    _=Depends(verify_auth_token),
+):
+    valid_tfs    = {'1m','3m','5m','15m','30m','1h','4h','1d'}
+    valid_models = {'lstm','rf','xgb'}
 
-# === ENDPOINTS API ===
+    if not set(config.timeframes) <= valid_tfs:
+        raise HTTPException(400, "Timeframe non valido.")
+    if not (1 <= len(config.timeframes) <= 3):
+        raise HTTPException(400, "Numero di timeframe non valido (min 1, max 3).")
+    if not set(config.models) <= valid_models:
+        raise HTTPException(400, "Modello non valido.")
+    if not (1 <= len(config.models) <= 3):
+        raise HTTPException(400, "Numero di modelli non valido (min 1, max 3).")
 
-@app.post("/initialize")
-async def initialize_bot(config: BotConfig,
-                           auth: None = Depends(verify_auth_token),
-                           state = Depends(get_state)):
-    """
-    Inizializza il bot con i modelli e i timeframe selezionati,
-    inizializzando anche l'exchange.
-    """
-    try:
-        valid_timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
-        if not all(tf in valid_timeframes for tf in config.timeframes):
-            raise HTTPException(status_code=400, detail="Timeframe non valido")
-        if not (1 <= len(config.timeframes) <= 3):
-            raise HTTPException(status_code=400, detail="Numero di timeframe non valido (min: 1, max: 3)")
-        
-        valid_models = ['lstm', 'rf', 'xgb']
-        if not all(model in valid_models for model in config.models):
-            raise HTTPException(status_code=400, detail="Modello non valido")
-        if not (1 <= len(config.models) <= 3):
-            raise HTTPException(status_code=400, detail="Numero di modelli non valido (min: 1, max: 3)")
-        
-        # Chiudi l'exchange precedente se esiste
-        if state.async_exchange:
-            await close_exchange_safely(state.async_exchange)
-        
-        state.async_exchange = ccxt_async.bybit(exchange_config)
-        await state.async_exchange.load_markets()
-        await state.async_exchange.load_time_difference()
-        
-        state.current_config = config
+    # Ricrea l'exchange se già esistente
+    if app_state.async_exchange:
+        await app_state.async_exchange.close()
 
-        import main
-        import config as cfg
-        timeframes = config.timeframes if config.timeframes else cfg.ENABLED_TIMEFRAMES
-        main.ENABLED_TIMEFRAMES = timeframes
-        main.TIMEFRAME_DEFAULT = timeframes[0]
-        
-        models = config.models if config.models else cfg.SELECTED_MODELS
-        main.selected_models = models
-        
-        cfg.ENABLED_TIMEFRAMES = timeframes
-        cfg.TIMEFRAME_DEFAULT = timeframes[0]
-        
-        # Aggiorna i parametri di trading se presenti
-        if config.trading_params:
-            if 'top_analysis_crypto' in config.trading_params:
-                top_analysis = config.trading_params['top_analysis_crypto']
-                if 3 <= top_analysis <= 150:
-                    cfg.TOP_ANALYSIS_CRYPTO = top_analysis
-                    main.TOP_ANALYSIS_CRYPTO = top_analysis
-                    logging.info(f"Numero di cripto da analizzare impostato a: {top_analysis}")
-            
-            if 'leverage' in config.trading_params:
-                leverage = config.trading_params['leverage']
-                if 1 <= leverage <= 10:
-                    cfg.LEVERAGE = leverage
-                    main.LEVERAGE = leverage
-                    logging.info(f"Leva finanziaria impostata a: {leverage}x")
-            
-            if 'margin_usdt' in config.trading_params:
-                margin = config.trading_params['margin_usdt']
-                if 5 <= margin <= 100:
-                    cfg.MARGIN_USDT = margin
-                    main.MARGIN_USDT = margin
-                    logging.info(f"Margine USDT impostato a: {margin}")
-        
-        state.initialized = True
+    app_state.async_exchange = ccxt_async.bybit(exchange_config)
+    await app_state.async_exchange.load_markets()
 
-        return {
-            "status": "Bot inizializzato",
-            "config": config.dict(),
-            "exchange": "Bybit",
-            "initialized": state.initialized
-        }
-    except Exception as e:
-        logging.error(f"Errore durante l'inizializzazione: {str(e)}")
-        logging.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Errore durante l'inizializzazione: {str(e)}")
+    app_state.initialized = True
+    app_state.update_from_config(config.dict())
 
-bot_task = None
-
-@app.post("/start")
-async def start_bot(background_tasks: BackgroundTasks,
-                    auth: None = Depends(verify_auth_token),
-                    state = Depends(get_state)):
-    """
-    Avvia il bot se non già in esecuzione.
-    """
-    if state.bot_running:
-        raise HTTPException(status_code=400, detail="Bot già in esecuzione")
-    if not state.current_config:
-        raise HTTPException(status_code=400, detail="Bot non inizializzato. Chiamare prima /initialize")
-    
-    try:
-        # Crea una task asincrona protetta per l'esecuzione del bot
-        async def protected_run_bot():
-            try:
-                logging.info("Avvio del bot trading in corso...")
-                await run_bot()
-                logging.info("Bot trading terminato normalmente")
-            except asyncio.CancelledError:
-                logging.info("Task del bot cancellata correttamente")
-                raise
-            except Exception as e:
-                logging.error(f"Errore durante l'esecuzione del bot: {str(e)}")
-                logging.error(traceback.format_exc())
-                # Assicurati che lo stato venga aggiornato anche in caso di errore
-                state.bot_running = False
-        
-        state.bot_task = asyncio.create_task(protected_run_bot())
-        state.bot_running = True
-        logging.info(f"Bot avviato con configurazione: {state.current_config.dict()}")
-        return {"status": "Bot avviato", "config": state.current_config.dict()}
-    except Exception as e:
-        logging.error(f"Errore durante l'avvio del bot: {str(e)}")
-        logging.error(traceback.format_exc())
-        state.bot_running = False
-        raise HTTPException(status_code=500, detail=f"Errore durante l'avvio del bot: {str(e)}")
-
-@app.post("/stop")
-async def stop_bot(auth: None = Depends(verify_auth_token), state = Depends(get_state)):
-    if not state.bot_running or not state.bot_task:
-        return {"status": "Bot già fermo"}
-    state.bot_task.cancel()
-    state.bot_running = False
-    return {"status": "Bot fermato"}
-
-@app.get("/status")
-def status(auth: None = Depends(verify_auth_token),
-           state = Depends(get_state)):
-    """
-    Restituisce lo stato corrente del bot.
-    """
-    is_running = state.bot_running
-    # Verifica aggiuntiva sul task per coerenza
-    if state.bot_task and state.bot_task.done() and state.bot_running:
-        is_running = False
-        state.bot_running = False
-        logging.warning("Rilevata incongruenza: task terminata ma stato running=True")
-    
     return {
-        "running": is_running,
-        "config": state.current_config.dict() if state.current_config else None,
-        "task_status": getattr(state.bot_task, "_state", "unknown") if state.bot_task else "not_created"
+        "status":      "Bot inizializzato",
+        "config":      config.dict(),
+        "exchange":    "Bybit",
+        "initialized": True,
     }
 
-@app.post("/set-keys")
-def set_api_keys(keys: ApiKeys,
-                 auth: None = Depends(verify_auth_token)):
-    """
-    Salva le chiavi API in modo sicuro.
-    """
+# ───────────────────────────────────────────────────────────────────────────────
+# START / STOP / STATUS
+# ───────────────────────────────────────────────────────────────────────────────
+@root.post("/start")
+@api.post("/start")
+async def start_bot(
+    background_tasks: BackgroundTasks,
+    state=Depends(get_state),
+    _=Depends(verify_auth_token),
+):
+    if app_state.bot_running:
+        raise HTTPException(400, "Bot già in esecuzione.")
+    if not app_state.initialized:
+        raise HTTPException(400, "Bot non inizializzato. Richiamare /initialize.")
+
+    async def _runner():
+        try:
+            logger.info("Avvio del bot in corso…")
+            await run_bot()
+        except asyncio.CancelledError:
+            logger.info("Task bot annullata.")
+            raise
+        except Exception as exc:
+            logger.error("Errore bot: %s", exc, exc_info=True)
+        finally:
+            app_state.bot_running = False
+
+    state.bot_task        = asyncio.create_task(_runner())
+    app_state.bot_running = True
+    return {"status": "Bot avviato"}
+
+@root.post("/stop")
+@api.post("/stop")
+async def stop_bot(state=Depends(get_state), _=Depends(verify_auth_token)):
+    if not app_state.bot_running or not state.bot_task:
+        return {"status": "Bot già fermo"}
+    state.bot_task.cancel()
+    app_state.bot_running = False
+    return {"status": "Bot fermato"}
+
+@root.get("/status")
+@api.get("/status")
+def bot_status(state=Depends(get_state), _=Depends(verify_auth_token)):
+    running = app_state.bot_running and state.bot_task and not state.bot_task.done()
+    if not running:
+        app_state.bot_running = False
+    return {
+        "running":     running,
+        "config":      app_state.current_config.dict() if app_state.current_config else None,
+        "task_status": getattr(state.bot_task, "_state", "not_created") if state.bot_task else "not_created",
+    }
+
+# ───────────────────────────────────────────────────────────────────────────────
+# HEALTH-CHECK
+# ───────────────────────────────────────────────────────────────────────────────
+@root.get("/health")
+@api.get("/health")
+def health_check():
+    try:
+        ex = ccxt.bybit({**exchange_config, "apiKey": None, "secret": None})
+        ex.load_markets()
+        ex.close()
+        return {"status": "ok", "exchange": "bybit"}
+    except Exception as exc:
+        return {"status": "ko", "error": str(exc)}
+
+# ───────────────────────────────────────────────────────────────────────────────
+# BALANCE
+# ───────────────────────────────────────────────────────────────────────────────
+@root.get("/balance")
+@api.get("/balance")
+async def get_balance(state=Depends(get_state), _=Depends(verify_auth_token)):
+    try:
+        if not app_state.async_exchange:
+            app_state.async_exchange = ccxt_async.bybit(exchange_config)
+            await app_state.async_exchange.load_markets()
+
+        balance = await app_state.async_exchange.fetch_balance()
+        logger.info(f"[DEBUG BALANCE] {balance}")  # Log dettagliato
+        det = {
+            "usdt_balance": 0.0,
+            "total_wallet": 0.0,
+            "available": 0.0,
+            "used": 0.0,
+            "pnl": 0.0,
+        }
+
+        try:
+            # --- Estraggo i dati dalla struttura coin se Bybit Unified ---
+            coins = None
+            if (
+                "info" in balance and
+                isinstance(balance["info"], dict) and
+                "result" in balance["info"] and
+                "list" in balance["info"]["result"] and
+                isinstance(balance["info"]["result"]["list"], list) and
+                len(balance["info"]["result"]["list"]) > 0
+            ):
+                coins = balance["info"]["result"]["list"][0].get("coin", [])
+                usdt_coin = next((c for c in coins if c.get("coin") == "USDT"), None)
+                if usdt_coin:
+                    equity = float(usdt_coin.get("equity", 0) or 0)
+                    total_position_im = float(usdt_coin.get("totalPositionIM", 0) or 0)
+                    det["available"] = max(equity - total_position_im, 0.0)
+                    det["used"] = total_position_im
+                    det["total_wallet"] = float(usdt_coin.get("walletBalance", 0) or 0)
+                    det["usdt_balance"] = equity
+
+            # Fallback: vecchia logica se non Bybit Unified
+            if det["total_wallet"] == 0 and "total" in balance and "USDT" in balance["total"]:
+                det["total_wallet"] = float(balance["total"]["USDT"] or 0)
+            if det["available"] == 0 and "free" in balance and "USDT" in balance["free"]:
+                det["available"] = float(balance["free"]["USDT"] or 0)
+            if det["used"] == 0 and "used" in balance and "USDT" in balance["used"]:
+                det["used"] = float(balance["used"]["USDT"] or 0)
+
+            # Calcolo del totale USDT
+            unified = float(balance["info"].get("totalEquity", 0) or 0) if "info" in balance else 0.0
+            spot = float(balance.get("total", {}).get("USDT", 0) or 0)
+            control = sum(
+                float(acc.get("total", {}).get("USDT", 0) or 0)
+                for acc in balance.get("accounts", [])
+            )
+            total_usdt = unified + spot + control
+            
+            # Se il totale è 0, prova a ottenere il bilancio reale
+            if total_usdt == 0:
+                try:
+                    total_usdt = await get_real_balance(app_state.async_exchange)
+                except Exception as e:
+                    logger.error(f"Errore nel recupero del bilancio reale: {e}")
+                    total_usdt = 0.0
+            det["usdt_balance"] = total_usdt if det["usdt_balance"] == 0 else det["usdt_balance"]
+
+            # Calcolo del PnL
+            if det["pnl"] == 0:
+                try:
+                    positions = await app_state.async_exchange.fetch_positions(None, {
+                        "limit": 100,
+                        "category": "linear",
+                        "settleCoin": "USDT",
+                    })
+                    det["pnl"] = sum(
+                        float(p.get("unrealizedPnl", 0) or 0)
+                        for p in positions
+                        if float(p.get("contracts", 0) or 0) > 0
+                    )
+                except Exception as e:
+                    logger.error(f"Errore nel recupero delle posizioni: {e}")
+                    det["pnl"] = 0.0
+
+            # Calcolo manuale se ancora non disponibili
+            if det["available"] == 0.0 or det["used"] == 0.0:
+                try:
+                    positions = await app_state.async_exchange.fetch_positions(None, {
+                        "limit": 100,
+                        "category": "linear",
+                        "settleCoin": "USDT",
+                    })
+                    used = sum(float(p.get("initialMargin", 0) or 0) for p in positions if float(p.get("contracts", 0) or 0) > 0)
+                    det["used"] = used
+                    det["available"] = max(det["total_wallet"] - used, 0.0)
+                except Exception as e:
+                    logger.error(f"Errore nel calcolo manuale di available/used: {e}")
+        except Exception as e:
+            logger.error(f"Errore nell'elaborazione dei dati del bilancio: {e}")
+
+        return det
+
+    except Exception as exc:
+        logger.error(f"Errore recupero balance: {exc}")
+        return {
+            "usdt_balance": 0.0,
+            "total_wallet": 0.0,
+            "available": 0.0,
+            "used": 0.0,
+            "pnl": 0.0,
+            "error": str(exc)
+        }
+
+# ───────────────────────────────────────────────────────────────────────────────
+# POSITIONS
+# ───────────────────────────────────────────────────────────────────────────────
+@root.get("/positions")
+@api.get("/positions")
+async def get_positions(state=Depends(get_state), _=Depends(verify_auth_token)):
+    try:
+        if not app_state.async_exchange:
+            app_state.async_exchange = ccxt_async.bybit(exchange_config)
+            await app_state.async_exchange.load_markets()
+        count = await get_open_positions(app_state.async_exchange)
+        return {"open_positions": count}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+# ───────────────────────────────────────────────────────────────────────────────
+# ORDERS OPEN
+# ───────────────────────────────────────────────────────────────────────────────
+@root.get("/orders/open")
+@api.get("/orders/open")
+async def get_open_orders(state=Depends(get_state), _=Depends(verify_auth_token)):
+    try:
+        if not app_state.async_exchange:
+            app_state.async_exchange = ccxt_async.bybit(exchange_config)
+            await app_state.async_exchange.load_markets()
+
+        open_orders = await app_state.async_exchange.fetch_open_orders()
+        positions   = await app_state.async_exchange.fetch_positions(None, {
+            "limit":      100,
+            "category":   "linear",
+            "settleCoin": "USDT",
+        })
+
+        active_positions: Dict[str, Any] = {
+            f"{p['symbol']}_{p['side']}": p
+            for p in positions
+            if float(p.get("contracts", 0)) > 0
+        }
+
+        stop_orders: Dict[str, dict] = {}
+        related_orders: Dict[str, List[dict]] = {}
+
+        for order in open_orders:
+            sym   = order["symbol"]
+            side  = order.get("side", "").lower()
+            info  = order.get("info", {})
+            rel   = False
+
+            if (info.get("stopOrderType") == "Stop"
+                    or "stopPrice" in info
+                    or info.get("reduceOnly")
+                    or info.get("closeOnTrigger")):
+                rel = True
+
+            opposite = "long" if side == "sell" else "short"
+            if f"{sym}_{opposite}" in active_positions:
+                rel = True
+
+            if rel:
+                related_orders.setdefault(sym, []).append(order)
+                if (info.get("stopOrderType") == "Stop"
+                        or "stopPrice" in info):
+                    stop_orders[sym] = order
+
+        filtered_orders = [
+            o for o in open_orders
+            if o["symbol"] not in related_orders or o not in related_orders[o["symbol"]]
+        ]
+
+        enriched_positions: List[dict] = []
+        for p in positions:
+            if float(p.get("contracts", 0)) == 0:
+                continue
+            sym        = p["symbol"]
+            side       = p["side"]
+            entry      = float(p["entryPrice"])
+            amount     = float(p["contracts"])
+            stop_price = (stop_orders.get(sym) or {}).get("stopPrice") or p.get("stopLossPrice")
+            stop_val   = float(stop_price) if stop_price else None
+            potential  = ((stop_val - entry) * amount if (stop_val and side == "long")
+                          else ((entry - stop_val) * amount if stop_val else None))
+
+            enriched_positions.append({
+                "symbol":    sym,
+                "type":      "position",
+                "side":      "Buy" if side == "long" else "Sell",
+                "amount":    amount,
+                "price":     entry,
+                "status":    "open",
+                "pnl":       float(p.get("unrealizedPnl", 0)),
+                "margin":    float(p.get("initialMargin", MARGIN_USDT)),
+                "leverage":  float(p.get("leverage", LEVERAGE)),
+                "stop_loss": stop_val,
+                "sl_profit": potential,
+            })
+
+        return filtered_orders + enriched_positions
+
+    except Exception as exc:
+        logger.error("Errore open orders: %s", exc, exc_info=True)
+        raise HTTPException(500, f"Errore recupero open orders: {exc}")
+
+# ───────────────────────────────────────────────────────────────────────────────
+# ORDERS CLOSED
+# ───────────────────────────────────────────────────────────────────────────────
+@root.get("/orders/closed")
+@api.get("/orders/closed")
+async def get_closed_orders(state=Depends(get_state), _=Depends(verify_auth_token)):
+    try:
+        if not app_state.async_exchange:
+            app_state.async_exchange = ccxt_async.bybit(exchange_config)
+            await app_state.async_exchange.load_markets()
+        closed_orders = await app_state.async_exchange.fetch_closed_orders()
+        return closed_orders
+    except Exception as exc:
+        raise HTTPException(500, f"Errore recupero closed orders: {exc}")
+
+# ───────────────────────────────────────────────────────────────────────────────
+# TRADES
+# ───────────────────────────────────────────────────────────────────────────────
+@root.get("/trades")
+@api.get("/trades")
+async def get_trades(state=Depends(get_state), _=Depends(verify_auth_token)):
+    try:
+        if not app_state.async_exchange:
+            app_state.async_exchange = ccxt_async.bybit(exchange_config)
+            await app_state.async_exchange.load_markets()
+        trades = await app_state.async_exchange.fetch_my_trades(limit=50)
+        return [{
+            "symbol": t["symbol"],
+            "type": t["type"],
+            "side": t["side"],
+            "amount": t["amount"],
+            "price": t["price"],
+            "realized_pnl": t.get("info", {}).get("closedPnl", 0),
+            "timestamp": t["timestamp"],
+        } for t in trades]
+    except Exception as exc:
+        raise HTTPException(500, f"Errore recupero trades: {exc}")
+
+# ───────────────────────────────────────────────────────────────────────────────
+# CHART DATA
+# ───────────────────────────────────────────────────────────────────────────────
+@root.get("/chart-data/{symbol:path}")
+@api.get("/chart-data/{symbol:path}")
+async def get_chart_data(
+    symbol: str,
+    timeframe: str = "15m",
+    limit: int = 100,
+    state = Depends(get_state),
+    _ = Depends(verify_auth_token),
+):
+    try:
+        if not app_state.async_exchange:
+            app_state.async_exchange = ccxt_async.bybit(exchange_config)
+            await app_state.async_exchange.load_markets()
+
+        # Normalizza il simbolo
+        symbol = symbol.replace(":", "/").upper()
+        
+        # Rimuovi eventuali /USDT duplicati alla fine
+        if symbol.endswith("/USDT/USDT"):
+            symbol = symbol[:-5]
+            
+        # Verifica che il simbolo sia valido
+        if not symbol or "/" not in symbol:
+            logger.error(f"Simbolo non valido: {symbol}")
+            return {
+                "timestamps": [], "labels": [], "open": [],
+                "high": [], "low": [], "close": [],
+                "volumes": [], "error": "Simbolo non valido"
+            }
+            
+        # Verifica che il timeframe sia valido
+        valid_timeframes = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"]
+        if timeframe not in valid_timeframes:
+            logger.error(f"Timeframe non valido: {timeframe}")
+            return {
+                "timestamps": [], "labels": [], "open": [],
+                "high": [], "low": [], "close": [],
+                "volumes": [], "error": "Timeframe non valido"
+            }
+            
+        # Limita il numero di candele richieste
+        if limit > 1000:
+            limit = 1000
+            
+        try:
+            # Verifica che il simbolo esista nel mercato
+            markets = await app_state.async_exchange.load_markets()
+            if symbol not in markets:
+                logger.error(f"Simbolo non trovato nel mercato: {symbol}")
+                return {
+                    "timestamps": [], "labels": [], "open": [],
+                    "high": [], "low": [], "close": [],
+                    "volumes": [], "error": f"Simbolo {symbol} non trovato nel mercato"
+                }
+                
+            ohlcv = await app_state.async_exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+        except Exception as e:
+            logger.error(f"Errore nel recupero dei dati OHLCV per {symbol}: {e}")
+            return {
+                "timestamps": [], "labels": [], "open": [],
+                "high": [], "low": [], "close": [],
+                "volumes": [], "error": f"Errore nel recupero dei dati: {str(e)}"
+            }
+
+        out = {
+            "timestamps": [], "labels": [], "open": [],
+            "high": [], "low": [], "close": [],
+            "volumes": [],
+        }
+        
+        for ts, o, h, l, c, v in ohlcv:
+            dt = datetime.fromtimestamp(ts / 1000)
+            out["timestamps"].append(ts)
+            out["labels"].append(dt.strftime("%H:%M %d/%m"))
+            out["open"].append(o)
+            out["high"].append(h)
+            out["low"].append(l)
+            out["close"].append(c)
+            out["volumes"].append(v)
+            
+        return out
+    except Exception as exc:
+        logger.error(f"Errore nel recupero dati grafico: {exc}")
+        return {
+            "timestamps": [], "labels": [], "open": [],
+            "high": [], "low": [], "close": [],
+            "volumes": [], "error": str(exc)
+        }
+
+# ───────────────────────────────────────────────────────────────────────────────
+# CANCEL ORDER
+# ───────────────────────────────────────────────────────────────────────────────
+@root.post("/cancel-order")
+@api.post("/cancel-order")
+async def cancel_order(
+    order_id: str = Body(..., embed=True, alias="order_id"),
+    state = Depends(get_state),
+    _ = Depends(verify_auth_token),
+):
+    try:
+        if not app_state.async_exchange:
+            app_state.async_exchange = ccxt_async.bybit(exchange_config)
+            await app_state.async_exchange.load_markets()
+
+        open_orders = await app_state.async_exchange.fetch_open_orders()
+        target = next((o for o in open_orders if str(o.get("id")) == str(order_id)), None)
+        if not target:
+            raise HTTPException(404, f"Ordine {order_id} non trovato o già chiuso.")
+
+        symbol = target.get("symbol")
+        await app_state.async_exchange.cancel_order(order_id, symbol)
+        return {"status": "success", "message": f"Ordine {order_id} cancellato."}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(500, f"Errore annullamento ordine: {exc}")
+
+# ───────────────────────────────────────────────────────────────────────────────
+# SAVE / GET API-KEYS
+# ───────────────────────────────────────────────────────────────────────────────
+@root.post("/set-keys")
+@api.post("/set-keys")
+def set_keys(keys: ApiKeys, _=Depends(verify_auth_token)):
     try:
         save_api_keys_secure(keys)
-        return {"status": "Chiavi salvate in modo sicuro"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Errore salvataggio chiavi: {e}")
+        return {"status": "Chiavi salvate."}
+    except Exception as exc:
+        raise HTTPException(500, f"Errore salvataggio chiavi: {exc}")
 
-@app.get("/get-keys")
-def get_api_keys(auth: None = Depends(verify_auth_token)):
-    """
-    Recupera le chiavi API salvate.
-    """
+@root.get("/get-keys")
+@api.get("/get-keys")
+def get_keys(_=Depends(verify_auth_token)):
     try:
         keys = load_api_keys_secure()
-        return keys or {"status": "Chiavi non trovate"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Errore lettura chiavi: {e}")
+        return keys or {"status": "Chiavi non trovate."}
+    except Exception as exc:
+        raise HTTPException(500, f"Errore lettura chiavi: {exc}")
 
-@app.get("/balance")
-async def get_balance(auth: None = Depends(verify_auth_token),
-                      state = Depends(get_state)):
-    """
-    Recupera il bilancio completo dall'exchange.
-    """
+# ───────────────────────────────────────────────────────────────────────────────
+# TRAIN-MODEL (via Celery)
+# ───────────────────────────────────────────────────────────────────────────────
+@root.post("/train-model")
+@api.post("/train-model")
+async def train_model(request: Request, _=Depends(verify_auth_token)):
     try:
-        if not state.async_exchange:
-            state.async_exchange = ccxt_async.bybit(exchange_config)
-            await state.async_exchange.load_markets()
-        
-        balance = await state.async_exchange.fetch_balance()
-        detailed_balance = {
-            "usdt_balance": 0,
-            "total_wallet": 0,
-            "available": 0,
-            "used": 0,
-            "pnl": 0
-        }
-        if 'info' in balance:
-            detailed_balance["total_wallet"] = float(balance['info'].get('totalEquity', 0))
-            detailed_balance["available"] = float(balance['info'].get('totalAvailableBalance', 0))
-            detailed_balance["used"] = float(balance['info'].get('totalInitialMargin', 0))
-            detailed_balance["pnl"] = float(balance['info'].get('totalUnrealizedProfit', 0))
-        
-        if detailed_balance["total_wallet"] == 0 and 'total' in balance and 'USDT' in balance['total']:
-            detailed_balance["total_wallet"] = float(balance['total']['USDT'])
-        if detailed_balance["available"] == 0 and 'free' in balance and 'USDT' in balance['free']:
-            detailed_balance["available"] = float(balance['free']['USDT'])
-        if detailed_balance["used"] == 0 and 'used' in balance and 'USDT' in balance['used']:
-            detailed_balance["used"] = float(balance['used']['USDT'])
-        
-        unified_balance = float(balance['info'].get('totalEquity', 0)) if 'info' in balance else 0
-        spot_balance = float(balance.get('total', {}).get('USDT', 0))
-        control_balance = 0
-        if 'accounts' in balance:
-            for account in balance['accounts']:
-                control_balance += float(account.get('total', {}).get('USDT', 0))
-        total_usdt = unified_balance + spot_balance + control_balance
-        if total_usdt == 0:
-            total_usdt = await get_real_balance(state.async_exchange)
-        detailed_balance["usdt_balance"] = total_usdt
-        
-        if detailed_balance["pnl"] == 0:
-            try:
-                positions = await state.async_exchange.fetch_positions(None, {
-                    'limit': 100,
-                    'category': 'linear',
-                    'settleCoin': 'USDT'
-                })
-                total_pnl = 0.0
-                for position in positions:
-                    if float(position.get('contracts', 0)) > 0:
-                        total_pnl += float(position.get('unrealizedPnl', 0))
-                detailed_balance["pnl"] = total_pnl
-            except Exception as e:
-                logging.error(f"Errore nel recupero del PnL dalle posizioni: {e}")
-                detailed_balance["pnl"] = 0.0
-                
-        return detailed_balance
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Errore recupero balance: {e}")
-
-@app.get("/positions")
-async def get_positions(auth: None = Depends(verify_auth_token),
-                        state = Depends(get_state)):
-    """
-    Recupera il numero di posizioni aperte.
-    """
-    try:
-        if not state.async_exchange:
-            state.async_exchange = ccxt_async.bybit(exchange_config)
-            await state.async_exchange.load_markets()
-        count = await get_open_positions(state.async_exchange)
-        return {"open_positions": count}
-    except Exception as e:
-        logging.error(f"Errore nel recupero delle posizioni: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/orders/open")
-async def get_open_orders(auth: None = Depends(verify_auth_token),
-                          state = Depends(get_state)):
-    """
-    Recupera e filtra gli ordini aperti e le posizioni attive.
-    """
-    try:
-        if not state.async_exchange:
-            state.async_exchange = ccxt_async.bybit(exchange_config)
-            await state.async_exchange.load_markets()
-        
-        open_orders = await state.async_exchange.fetch_open_orders()
-        positions = await state.async_exchange.fetch_positions(None, {
-            'limit': 100,
-            'category': 'linear',
-            'settleCoin': 'USDT'
-        })
-        from config import LEVERAGE, MARGIN_USDT
-        leverage = LEVERAGE
-        
-        active_position_keys = {}
-        for p in positions:
-            if float(p.get("contracts", 0)) > 0:
-                symbol = p.get("symbol")
-                side = p.get("side")
-                active_position_keys[f"{symbol}_{side}"] = True
-        
-        related_orders = {}
-        stop_loss_orders = {}
-        for order in open_orders:
-            symbol = order.get('symbol')
-            order_side = order.get('side', '').lower()
-            is_related = False
-            if order.get('info', {}).get('stopOrderType') == 'Stop' or 'stopPrice' in order.get('info', {}):
-                is_related = True
-            elif order.get('info', {}).get('reduceOnly') is True:
-                is_related = True
-            elif order.get('info', {}).get('closeOnTrigger') is True:
-                is_related = True
-            elif order.get('info', {}).get('positionIdx') is not None:
-                is_related = True
-                
-            opposite_side = "long" if order_side == "sell" else "short"
-            if f"{symbol}_{opposite_side}" in active_position_keys:
-                is_related = True
-            
-            order_amount = float(order.get('amount', 0))
-            for p in positions:
-                if p.get("symbol") == symbol and abs(float(p.get("contracts", 0)) - order_amount) < 0.1:
-                    is_related = True
-                    break
-            
-            if is_related:
-                related_orders.setdefault(symbol, []).append(order)
-                if order.get('info', {}).get('stopOrderType') == 'Stop' or 'stopPrice' in order.get('info', {}):
-                    stop_loss_orders[symbol] = order
-        
-        filtered_orders = [
-            order for order in open_orders
-            if order.get('symbol') not in related_orders or order not in related_orders[order.get('symbol')]
-        ]
-        
-        active_positions = []
-        for p in positions:
-            if float(p.get("contracts", 0)) > 0:
-                symbol = p.get("symbol")
-                side = p.get("side")
-                stop_loss_value = "N/A"
-                potential_profit = "N/A"
-                entry_price = p.get("entryPrice")
-                contracts = float(p.get("contracts", 0))
-                if symbol in stop_loss_orders:
-                    sl_order = stop_loss_orders[symbol]
-                    sl_price = sl_order.get('stopPrice', None) or sl_order.get('info', {}).get('stopPrice')
-                else:
-                    sl_price = p.get("stopLossPrice")
-                if sl_price and sl_price != 0 and entry_price:
-                    stop_loss_value = sl_price
-                    sl_price = float(sl_price)
-                    entry_price = float(entry_price)
-                    potential_profit = (sl_price - entry_price) * contracts if side == "long" else (entry_price - sl_price) * contracts
-                
-                active_positions.append({
-                    "symbol": symbol,
-                    "type": "position",
-                    "side": "Buy" if side == "long" else "Sell",
-                    "amount": p.get("contracts"),
-                    "price": entry_price,
-                    "status": "open",
-                    "pnl": p.get("unrealizedPnl", 0),
-                    "margin": p.get("initialMargin", MARGIN_USDT),
-                    "leverage": p.get("leverage", leverage),
-                    "stop_loss": stop_loss_value,
-                    "sl_profit": potential_profit
-                })
-        
-        all_open_items = filtered_orders + active_positions
-        
-        return all_open_items
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Errore recupero open orders: {e}")
-
-@app.get("/orders/closed")
-async def get_closed_orders(auth: None = Depends(verify_auth_token),
-                            state = Depends(get_state)):
-    """
-    Recupera gli ordini chiusi dall'exchange.
-    """
-    try:
-        if not state.async_exchange:
-            state.async_exchange = ccxt_async.bybit(exchange_config)
-            await state.async_exchange.load_markets()
-        
-        closed_orders = await state.async_exchange.fetch_closed_orders()
-        return closed_orders
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Errore recupero closed orders: {e}")
-
-@app.get("/trades")
-async def get_closed_trades(auth: None = Depends(verify_auth_token),
-                            state = Depends(get_state)):
-    """
-    Recupera gli ultimi trade eseguiti e li formatta.
-    """
-    try:
-        if not state.async_exchange:
-            state.async_exchange = ccxt_async.bybit(exchange_config)
-            await state.async_exchange.load_markets()
-        
-        trades = await state.async_exchange.fetch_my_trades(limit=50)
-        formatted_trades = [{
-            'symbol': trade['symbol'],
-            'type': trade['type'],
-            'side': trade['side'],
-            'amount': trade['amount'],
-            'price': trade['price'],
-            'realized_pnl': trade.get('info', {}).get('closedPnl', 0),
-            'timestamp': trade['timestamp']
-        } for trade in trades]
-        return formatted_trades
-    except Exception as e:
-        logging.error(f"Errore nel recupero dei trade: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/health")
-def health_check():
-    """
-    Verifica la connessione con l'exchange.
-    """
-    try:
-        exchange = ccxt.bybit(exchange_config)
-        exchange.load_markets()
-        return {"status": "ok", "exchange": "bybit"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Errore connessione exchange: {e}")
-
-@app.get("/chart-data/{symbol:path}")
-async def get_chart_data(symbol: str, timeframe: str = "15m", limit: int = 100,
-                         auth: None = Depends(verify_auth_token),
-                         state = Depends(get_state)):
-    """
-    Recupera e formatta i dati OHLCV per il simbolo e timeframe specificati.
-    """
-    try:
-        if not state.async_exchange:
-            state.async_exchange = ccxt_async.bybit(exchange_config)
-            await state.async_exchange.load_markets()
-        
-        symbol = symbol.replace("%3A", ":")
-        logging.info(f"Recupero dati grafico per simbolo: {symbol}, timeframe: {timeframe}")
-        ohlcv = await state.async_exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-        chart_data = {
-            "timestamps": [],
-            "labels": [],
-            "open": [],
-            "high": [],
-            "low": [],
-            "close": [],
-            "volumes": []
-        }
-        for candle in ohlcv:
-            timestamp, open_price, high_price, low_price, close_price, volume = candle
-            date = datetime.fromtimestamp(timestamp / 1000)
-            formatted_date = date.strftime('%H:%M %d/%m')
-            chart_data["timestamps"].append(timestamp)
-            chart_data["labels"].append(formatted_date)
-            chart_data["open"].append(open_price)
-            chart_data["high"].append(high_price)
-            chart_data["low"].append(low_price)
-            chart_data["close"].append(close_price)
-            chart_data["volumes"].append(volume)
-        
-        return chart_data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Errore nel recupero dei dati del grafico: {e}")
-
-@app.post("/close-position")
-async def close_position_endpoint(request: ClosePositionRequest,
-                                  auth: None = Depends(verify_auth_token),
-                                  state = Depends(get_state)):
-    """
-    Chiude una posizione per il simbolo indicato, inviando un ordine di mercato
-    con lato opposto a quello della posizione corrente.
-    """
-    try:
-        if not state.async_exchange:
-            state.async_exchange = ccxt_async.bybit(exchange_config)
-            await state.async_exchange.load_markets()
-        
-        close_side = "sell" if request.side.lower() == "buy" else "buy"
-        positions = await state.async_exchange.fetch_positions([request.symbol], {
-            'limit': 100, 
-            'category': 'linear',
-            'settleCoin': 'USDT'
-        })
-        position = next((p for p in positions if p.get("symbol") == request.symbol and float(p.get("contracts", 0)) > 0), None)
-        if not position:
-            raise HTTPException(status_code=404, detail=f"Posizione {request.symbol} non trovata")
-        amount = float(position.get("contracts", 0))
-        order = await state.async_exchange.create_market_order(
-            symbol=request.symbol,
-            side=close_side,
-            amount=amount,
-            params={"reduceOnly": True}
-        )
-        return {"status": "success", "message": f"Posizione {request.symbol} chiusa", "order": order}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Errore nella chiusura della posizione: {str(e)}")
-
-# === TRAINING MODEL VIA CELERY ===
-@app.post("/api/train-model")
-async def train_model(request: Request,
-                      auth: None = Depends(verify_auth_token)):
-    """
-    Avvia il processo di training tramite Celery.
-    Il task viene inviato al worker e l'endpoint restituisce l'ID del task.
-    """
-    try:
-        data = await request.json()
+        data       = await request.json()
         model_type = data.get("model_type")
-        timeframe = data.get("timeframe")
-        data_limit_days = data.get("data_limit_days", 30)
-        top_train_crypto = data.get("top_train_crypto", None)
-        
-        # Invia il task a Celery
-        from tasks import train_model_task
-        task = train_model_task.delay(model_type, timeframe, data_limit_days, top_train_crypto)
-        return {
-            "message": f"Training avviato per il modello {model_type} con timeframe {timeframe}",
-            "task_id": task.id
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Errore nell'avvio del training: {str(e)}")
+        timeframe  = data.get("timeframe")
+        limit_days = data.get("data_limit_days", 30)
+        top_train  = data.get("top_train_crypto")
 
-@app.get("/api/training-status/{task_id}")
-async def get_training_status(task_id: str, auth: None = Depends(verify_auth_token)):
-    """
-    Recupera lo stato del task di training a partire dal task_id.
-    """
+        from tasks import train_model_task
+        task = train_model_task.delay(model_type, timeframe, limit_days, top_train)
+        return {"message": f"Training avviato ({task.id}).", "task_id": task.id}
+    except Exception as exc:
+        raise HTTPException(500, f"Errore avvio training: {exc}")
+
+@root.get("/training-status/{task_id}")
+@api.get("/training-status/{task_id}")
+async def training_status(task_id: str, _=Depends(verify_auth_token)):
     from celery_worker import celery_app
     task_result = celery_app.AsyncResult(task_id)
     if task_result.state == "PENDING":
         return {"status": "pending"}
-    elif task_result.state == "FAILURE":
-        raise HTTPException(status_code=500, detail=str(task_result.info))
-    else:
-        return {"status": task_result.state, "result": task_result.result}
+    if task_result.state == "FAILURE":
+        raise HTTPException(500, str(task_result.info))
+    return {"status": task_result.state, "result": task_result.result}
 
-@app.get("/predictions")
-async def get_predictions(
-    models: list[str] = Query([]),
-    timeframes: list[str] = Query([]),
-    auth: None = Depends(verify_auth_token),
-    state = Depends(get_state)
+# ───────────────────────────────────────────────────────────────────────────────
+# EXECUTE-TRADE
+# ───────────────────────────────────────────────────────────────────────────────
+@root.post("/execute-trade")
+@api.post("/execute-trade")
+async def execute_trade(
+    request: Request,
+    state = Depends(get_state),
+    _ = Depends(verify_auth_token),
 ):
-    """
-    Restituisce le predizioni per i modelli e timeframe selezionati.
-    Versione semplificata che recupera solo le monete e genera predizioni.
-    """
-    try:
-        # Valida i modelli e timeframe
-        valid_models = ['lstm', 'rf', 'xgb']
-        valid_timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
-        
-        filtered_models = [m for m in models if m in valid_models]
-        filtered_timeframes = [tf for tf in timeframes if tf in valid_timeframes]
-        
-        if not filtered_models:
-            filtered_models = ['lstm', 'rf', 'xgb']
-        if not filtered_timeframes:
-            filtered_timeframes = ['15m', '1h', '4h']
-        
-        # Log dei parametri selezionati
-        logging.info(f"Generazione predizioni per: Modelli={filtered_models}, Timeframes={filtered_timeframes}")
-        
-        # Importa temporaneamente il modulo main
-        import main
-        import config as cfg
-        from fetcher import fetch_markets
-        
-        # Imposta la configurazione con i valori selezionati dall'utente
-        cfg.ENABLED_TIMEFRAMES = filtered_timeframes
-        cfg.TIMEFRAME_DEFAULT = filtered_timeframes[0] if filtered_timeframes else '15m'
-        main.selected_models = filtered_models
-        
-        # Inizializza l'exchange se necessario
-        if not state.async_exchange:
-            state.async_exchange = ccxt_async.bybit(exchange_config)
-            await state.async_exchange.load_markets()
-        
-        # Ottieni i mercati per l'analisi
-        markets = await fetch_markets(state.async_exchange)
-        
-        # Filtriamo solo i mercati USDT e derivati
-        usdt_markets = [
-            symbol for symbol in markets 
-            if symbol.endswith(':USDT') and not any(excluded in symbol for excluded in EXCLUDED_SYMBOLS)
-        ]
-        
-        # Ottieni il parametro TOP_ANALYSIS_CRYPTO da config
-        top_analysis_crypto = getattr(cfg, 'TOP_ANALYSIS_CRYPTO', 3)  # valore predefinito 3
-        top_n = min(top_analysis_crypto, len(usdt_markets))
-        symbols = usdt_markets[:top_n]  # primi N simboli
-        logging.info(f"Analisi predizioni per le top {top_n} criptovalute: {symbols}")
-        
-        # Genera predizioni per ciascun timeframe e modello
-        all_predictions = []
-        successful_symbols = 0
-        
-        for symbol in symbols:
-            symbol_predictions = []
-            try:
-                for timeframe in filtered_timeframes:
-                    try:
-                        # Ottieni i dati per questo simbolo e timeframe
-                        data = await main.get_data_for_symbol(state.async_exchange, symbol, timeframe)
-                        if data is None or len(data) < main.TIME_STEPS * 2:
-                            continue
-                        
-                        # Aggiungi log per le date di inizio e fine dei campioni
-                        start_date = data.index[0].strftime('%Y-%m-%d %H:%M')
-                        end_date = data.index[-1].strftime('%Y-%m-%d %H:%M')
-                        logging.info(f"Dati recuperati per {symbol} ({timeframe}): {len(data)} campioni dal {start_date} al {end_date}")
-                        
-                        # Calcola RSI
-                        rsi = ta.momentum.RSIIndicator(data['close']).rsi()
-                        rsi_value = float(rsi.iloc[-1]) if not rsi.empty else 50.0
-                        
-                        # Calcola predizioni per ciascun modello
-                        model_predictions = {}
-                        for model_type in filtered_models:
-                            try:
-                                # Carica il modello
-                                model_obj, scaler = await main.load_model(model_type, timeframe)
-                                if model_obj is None:
-                                    continue
-                                    
-                                # Genera predizione
-                                prediction = await main.predict_with_model(model_obj, scaler, data, model_type)
-                                model_predictions[model_type] = float(prediction)
-                            except Exception as model_error:
-                                logging.error(f"Errore nel modello {model_type} per {symbol}/{timeframe}: {model_error}")
-                        
-                        if model_predictions:
-                            # Aggiungi la predizione con informazioni complete
-                            symbol_predictions.append({
-                                "symbol": symbol,
-                                "timeframe": timeframe,
-                                "models": model_predictions,
-                                "rsi_value": float(rsi_value)
-                            })
-                    except Exception as tf_error:
-                        logging.error(f"Errore nel timeframe {timeframe} per {symbol}: {tf_error}")
-                
-                # Aggiungi le predizioni di questo simbolo all'insieme totale
-                if symbol_predictions:
-                    all_predictions.extend(symbol_predictions)
-                    successful_symbols += 1
-                    
-            except Exception as symbol_error:
-                logging.error(f"Errore completo per il simbolo {symbol}: {symbol_error}")
-        
-        logging.info(f"Generate predizioni per {successful_symbols}/{len(symbols)} simboli")
-        return {"predictions": all_predictions}
-    
-    except Exception as e:
-        logging.error(f"Errore nell'endpoint predictions: {str(e)}")
-        logging.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Errore nel recupero delle predizioni: {str(e)}")
-
-@app.post("/execute-trade")
-async def execute_trade(request: Request,
-                       auth: None = Depends(verify_auth_token),
-                       state = Depends(get_state)):
-    """
-    Esegue un trade diretto per il simbolo indicato.
-    """
     try:
         data = await request.json()
         symbol = data.get("symbol")
         side = data.get("side")
         leverage = data.get("leverage", LEVERAGE)
         margin = data.get("margin", MARGIN_USDT)
-        
-        if not symbol or not side:
-            raise HTTPException(status_code=400, detail="Symbol e side sono richiesti")
-        
-        if side not in ["Buy", "Sell"]:
-            raise HTTPException(status_code=400, detail="Side deve essere 'Buy' o 'Sell'")
-        
-        if not state.async_exchange:
-            state.async_exchange = ccxt_async.bybit(exchange_config)
-            await state.async_exchange.load_markets()
-        
-        # Ottieni il bilancio corrente
-        usdt_balance = await get_real_balance(state.async_exchange)
-        if usdt_balance is None or usdt_balance < 10:
-            raise HTTPException(status_code=400, detail="Saldo USDT insufficiente")
-        
-        # Ottieni i mercati per calcolare min_amount
-        markets = await fetch_markets(state.async_exchange)
-        min_amounts = await fetch_min_amounts(state.async_exchange, [symbol], markets)
-        
-        # Imposta la leva finanziaria
-        try:
-            await state.async_exchange.set_leverage(leverage, symbol)
-        except Exception as lev_err:
-            logging.warning(f"Impossibile impostare la leva per {symbol}: {lev_err}")
-        
-        # Calcola la dimensione della posizione
-        position_size = await calculate_position_size(
-            state.async_exchange, 
-            symbol, 
-            usdt_balance, 
-            min_amount=min_amounts.get(symbol, 0.1),
-            margin=margin
-        )
-        
-        # Recupera il prezzo attuale
-        ticker = await state.async_exchange.fetch_ticker(symbol)
-        price = ticker.get('last')
-        
-        if not position_size or position_size < min_amounts.get(symbol, 0.1):
-            raise HTTPException(status_code=400, detail=f"Dimensione posizione {position_size} inferiore al minimo {min_amounts.get(symbol, 0.1)}")
-        
-        # Esegui l'ordine
-        try:
-            if side == "Buy":
-                order = await state.async_exchange.create_market_buy_order(symbol, position_size)
-            else:
-                order = await state.async_exchange.create_market_sell_order(symbol, position_size)
-        except Exception as e:
-            error_str = str(e)
-            if "110007" in error_str or "not enough" in error_str:
-                raise HTTPException(status_code=400, detail="Saldo insufficiente per eseguire l'ordine")
-            else:
-                raise HTTPException(status_code=500, detail=f"Errore nell'esecuzione dell'ordine: {error_str}")
-        
-        # Salva il trade nel database
-        entry_price = order.get('average') or price
-        trade_id = order.get("id") or f"{symbol}-{datetime.utcnow().timestamp()}"
-        
-        new_trade = {
-            "trade_id": trade_id,
-            "symbol": symbol,
-            "side": side,
-            "entry_price": entry_price,
-            "exit_price": None,
-            "trade_type": "Open",
-            "closed_pnl": None,
-            "result": None,
-            "open_trade_volume": None,
-            "closed_trade_volume": None,
-            "opening_fee": None,
-            "closing_fee": None,
-            "funding_fee": None,
-            "trade_time": datetime.utcnow().isoformat(),
-            "timestamp": datetime.utcnow().isoformat(),
-            "status": "open"
-        }
-        
-        # Utilizza la funzione dal modulo trade_manager per salvare il trade
-        save_trade_db(new_trade)
-        
-        return {
-            "status": "success",
-            "message": f"Ordine {side} eseguito per {symbol} a {entry_price}",
-            "order_id": trade_id,
-            "entry_price": entry_price,
-            "position_size": position_size
-        }
-    except HTTPException as e:
-        # Rilancia le eccezioni HTTP precedentemente generate
-        raise e
-    except Exception as e:
-        logging.error(f"Errore nell'esecuzione del trade: {e}")
-        raise HTTPException(status_code=500, detail=f"Errore nell'esecuzione del trade: {str(e)}")
 
-# Sposta la funzione calculate_position_size nel modulo trade_manager
-async def calculate_position_size(exchange, symbol, usdt_balance, min_amount=0, margin=None):
-    """
-    Calcola la dimensione della posizione in base al prezzo attuale, al margine e alla leva.
-    """
+        if not symbol or side not in {"Buy", "Sell"}:
+            raise HTTPException(400, "Parametri 'symbol' o 'side' errati.")
+
+        if not app_state.async_exchange:
+            app_state.async_exchange = ccxt_async.bybit(exchange_config)
+            await app_state.async_exchange.load_markets()
+
+        usdt_balance = await get_real_balance(app_state.async_exchange)
+        if usdt_balance is None or usdt_balance < 10:
+            raise HTTPException(400, "Saldo USDT insufficiente.")
+
+        markets = await fetch_markets(app_state.async_exchange)
+        min_amounts = await fetch_min_amounts(app_state.async_exchange, [symbol], markets)
+
+        try:
+            await app_state.async_exchange.set_leverage(leverage, symbol)
+        except Exception as exc:
+            logger.warning("Impossibile impostare leva: %s", exc)
+
+        ticker = await app_state.async_exchange.fetch_ticker(symbol)
+        price = ticker.get("last")
+        notional = margin * leverage
+        size_raw = notional / price if price else None
+        size_prec = (app_state.async_exchange.amount_to_precision(symbol, size_raw)
+                    if size_raw else None)
+        size = float(size_prec) if size_prec else None
+
+        if size is None or size < min_amounts.get(symbol, 0.1):
+            raise HTTPException(400, "Dimensione posizione inferiore al minimo consentito.")
+
+        order = (
+            await app_state.async_exchange.create_market_buy_order(symbol, size)
+            if side == "Buy"
+            else await app_state.async_exchange.create_market_sell_order(symbol, size)
+        )
+
+        entry    = order.get("average") or price
+        trade_id = order.get("id") or f"{symbol}-{datetime.utcnow().timestamp()}"
+
+        return {
+            "status":        "success",
+            "message":       f"Ordine {side} eseguito per {symbol} a {entry}",
+            "order_id":      trade_id,
+            "entry_price":   entry,
+            "position_size": size,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Errore execute-trade: %s", exc, exc_info=True)
+        raise HTTPException(500, f"Errore execute-trade: {exc}")
+
+# ───────────────────────────────────────────────────────────────────────────────
+# CALCOLA SIZE POSIZIONE
+# ───────────────────────────────────────────────────────────────────────────────
+async def calculate_position_size(
+    exchange,
+    symbol: str,
+    usdt_balance: float,
+    min_amount: float = 0,
+    margin: Optional[float] = None,
+) -> Optional[float]:
     try:
         ticker = await exchange.fetch_ticker(symbol)
-        current_price = ticker.get('last')
-        if current_price is None or not isinstance(current_price, (int, float)):
-            logging.error(f"Prezzo corrente per {symbol} non disponibile")
+        price  = ticker.get("last")
+        if price is None:
             return None
-        
-        # Usa i valori globali di main.py per maggiore flessibilità
-        # Se non disponibili, utilizza i valori da config.py
-        import main
-        margin_value = margin or getattr(main, 'MARGIN_USDT', MARGIN_USDT)
-        leverage = getattr(main, 'LEVERAGE', LEVERAGE)
-        
-        logging.info(f"Parametri trading: Margine={margin_value} USDT, Leva={leverage}x")
-        
-        notional_value = margin_value * leverage
-        position_size = notional_value / current_price
-        position_size = float(exchange.amount_to_precision(symbol, position_size))
-        logging.info(f"Dimensione posizione per {symbol}: {position_size} contratti (Margine = {margin_value})")
-        if position_size < min_amount:
-            logging.warning(f"Dimensione posizione {position_size} inferiore al minimo {min_amount} per {symbol}.")
-            position_size = min_amount
-        return position_size
-    except Exception as e:
-        logging.error(f"Errore nel calcolo della dimensione per {symbol}: {e}")
+        margin_val = margin or MARGIN_USDT
+        leverage   = LEVERAGE
+        notional   = margin_val * leverage
+        size_raw   = notional / price
+        size_prec  = exchange.amount_to_precision(symbol, size_raw)
+        return float(size_prec)
+    except Exception as exc:
+        logger.error("Errore calcolo size: %s", exc)
         return None
 
-@app.get("/list-models")
-async def list_models(auth: None = Depends(verify_auth_token)):
-    """
-    Restituisce la lista dei modelli disponibili nella directory trained_models.
-    """
+# ───────────────────────────────────────────────────────────────────────────────
+# MODELS MANAGEMENT
+# ───────────────────────────────────────────────────────────────────────────────
+@root.get("/list-models")
+@api.get("/list-models")
+async def list_models(_=Depends(verify_auth_token)):
     try:
-        trained_models_dir = os.path.join(os.path.dirname(__file__), 'trained_models')
-        if not os.path.exists(trained_models_dir):
+        tgt = Path(__file__).parent / "trained_models"
+        if not tgt.exists():
             return {"models": []}
-            
-        model_files = []
-        for file in os.listdir(trained_models_dir):
-            if file.endswith(('.h5', '.pkl')):
-                model_files.append(file)
-                
-        return {"models": model_files}
-    except Exception as e:
-        logging.error(f"Errore nel recupero della lista modelli: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Errore nel recupero della lista modelli: {str(e)}")
+        return {"models": [f.name for f in tgt.iterdir() if f.suffix in (".h5", ".pkl")]}
+    except Exception as exc:
+        raise HTTPException(500, f"Errore lista modelli: {exc}")
 
-@app.get("/check-model-exists/{model_file}")
-async def check_model_exists(model_file: str, auth: None = Depends(verify_auth_token)):
-    """
-    Verifica se un modello specifico esiste nella directory trained_models.
-    """
+@root.get("/check-model-exists/{model_file}")
+@api.get("/check-model-exists/{model_file}")
+async def check_model(model_file: str, _=Depends(verify_auth_token)):
     try:
-        trained_models_dir = os.path.join(os.path.dirname(__file__), 'trained_models')
-        model_path = os.path.join(trained_models_dir, model_file)
-        
-        exists = os.path.exists(model_path) and model_file.endswith(('.h5', '.pkl'))
+        path = Path(__file__).parent / "trained_models" / model_file
+        exists = path.exists() and model_file.endswith((".h5", ".pkl"))
         return {"exists": exists}
-    except Exception as e:
-        logging.error(f"Errore nella verifica dell'esistenza del modello: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Errore nella verifica dell'esistenza del modello: {str(e)}")
+    except Exception as exc:
+        raise HTTPException(500, f"Errore verifica modello: {exc}")
 
-# === CANCEL ORDER ENDPOINT ===
-
-@app.post("/cancel-order")
-async def cancel_order_endpoint(order_id: str = Body(..., embed=True, alias="order_id"),
-                               auth: None = Depends(verify_auth_token),
-                               state = Depends(get_state)):
-    """
-    Annulla un ordine dato il suo ID. Cerca il simbolo corrispondente tra gli ordini aperti
-    e invia la richiesta di cancellazione all'exchange.
-    """
+# ───────────────────────────────────────────────────────────────────────────────
+# AUTH TOKEN
+# ───────────────────────────────────────────────────────────────────────────────
+@root.post("/auth/token")
+@api.post("/auth/token")
+async def get_auth_token(keys: ApiKeys):
     try:
-        if not state.async_exchange:
-            state.async_exchange = ccxt_async.bybit(exchange_config)
-            await state.async_exchange.load_markets()
+        logger.info(f"Richiesta token per API key: {keys.api_key[:5]}...")
+        
+        if not keys.api_key or not keys.secret_key:
+            logger.error("Credenziali API mancanti")
+            raise HTTPException(400, "Credenziali API mancanti")
+            
+        if keys.api_key != API_KEY or keys.secret_key != API_SECRET:
+            logger.error("Credenziali API non valide")
+            raise HTTPException(401, "Credenziali API non valide")
+        
+        token = generate_auth_token(keys.api_key, keys.secret_key)
+        logger.info("Token generato con successo")
+        return {"token": token}
+    except Exception as exc:
+        logger.error(f"Errore generazione token: {exc}", exc_info=True)
+        raise HTTPException(500, f"Errore generazione token: {exc}")
 
-        # Recupera gli ordini aperti per trovare il simbolo associato
-        open_orders = await state.async_exchange.fetch_open_orders()
-        target_order = next((o for o in open_orders if str(o.get("id")) == str(order_id)), None)
-        if not target_order:
-            raise HTTPException(status_code=404, detail=f"Ordine {order_id} non trovato o già chiuso")
+# ───────────────────────────────────────────────────────────────────────────────
+# Include router alias /api e avvio manuale
+# ───────────────────────────────────────────────────────────────────────────────
+app.include_router(root)
+app.include_router(api)
 
-        symbol = target_order.get("symbol")
-        if not symbol:
-            raise HTTPException(status_code=400, detail="Impossibile determinare il simbolo dell'ordine")
-
-        # Bybit richiede il simbolo per cancellare l'ordine
-        await state.async_exchange.cancel_order(order_id, symbol)
-
-        return {"status": "success", "message": f"Ordine {order_id} cancellato"}
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        logging.error(f"Errore nell'annullamento dell'ordine {order_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Errore nell'annullamento dell'ordine: {str(e)}")
-
-# === AVVIO MANUALE DELL'APPLICAZIONE ===
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

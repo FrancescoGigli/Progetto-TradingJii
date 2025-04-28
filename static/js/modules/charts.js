@@ -98,13 +98,24 @@ export async function loadChartData(symbol, timeframe = '15m', limit = 100) {
         
         const chartData = await makeApiRequest(`/chart-data/${encodedSymbol}?timeframe=${timeframe}&limit=${limit}`);
         
-        if (chartData && chartData.labels && chartData.open) {
-            // Crea o aggiorna il grafico
-            createOrUpdateChart(chartData, symbol, timeframe);
+        if (chartData) {
+            // Verifica se c'è un errore
+            if (chartData.error) {
+                appendToLog(`Errore nel caricamento del grafico: ${chartData.error}`, 'error');
+                return;
+            }
+            
+            // Verifica se i dati sono validi
+            if (chartData.labels && chartData.open && chartData.labels.length > 0) {
+                // Crea o aggiorna il grafico
+                createOrUpdateChart(chartData, symbol, timeframe);
+            } else {
+                appendToLog(`Nessun dato disponibile per ${symbol} (${timeframe})`, 'warning');
+            }
         }
     } catch (error) {
         console.error('Errore nel caricamento dei dati del grafico:', error);
-        appendToLog(`Errore nel caricamento del grafico: ${error.message}`);
+        appendToLog(`Errore nel caricamento del grafico: ${error.message}`, 'error');
     }
 }
 
