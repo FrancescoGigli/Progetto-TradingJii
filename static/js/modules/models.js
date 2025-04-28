@@ -1,6 +1,6 @@
 // models.js - Gestisce tutte le funzionalità relative ai modelli di ML
 import { makeApiRequest, setupApiService } from './api.js';
-import { appendToLog, showAlert } from './ui.js';
+import { showAlert } from './ui.js';
 import { createComparisonChart } from './charts.js';
 
 // Variabili globali per lo stato del training

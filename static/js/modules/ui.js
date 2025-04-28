@@ -2,14 +2,10 @@
 
 import { toggleBotStatus, saveApiKeys } from './api.js';
 
-// Elemento del log
-let logContainer;
-
 // Esporto funzioni utilizzate dagli altri moduli
 export {
     initializeUI,
     showSection,
-    appendToLog,
     updateBotStatusUI,
     showAlert,
     initTooltips as initializeTooltips,
@@ -18,7 +14,6 @@ export {
 
 // Inizializza elementi UI
 function initializeUI() {
-    logContainer = document.getElementById('log-container');
     setupEventListeners();
     setupNavigation();
 }
@@ -112,27 +107,6 @@ function showSection(sectionId) {
         targetSection.classList.remove('d-none');
     } else {
         console.error(`Sezione ${sectionId} non trovata`);
-    }
-}
-
-// Aggiunge un messaggio al log
-function appendToLog(message) {
-    if (!logContainer) {
-        logContainer = document.getElementById('log-container');
-    }
-    
-    if (logContainer) {
-        const timestamp = new Date().toLocaleTimeString();
-        const logEntry = document.createElement('div');
-        logEntry.className = 'log-entry';
-        logEntry.innerHTML = `<span class="log-time">[${timestamp}]</span> ${message}`;
-        
-        logContainer.appendChild(logEntry);
-        
-        // Auto-scroll al fondo
-        logContainer.scrollTop = logContainer.scrollHeight;
-    } else {
-        console.log(`[${new Date().toLocaleTimeString()}] ${message}`);
     }
 }
 

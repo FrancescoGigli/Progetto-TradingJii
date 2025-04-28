@@ -1,6 +1,6 @@
 // predictionCore.js - Funzionalità di base delle predizioni
 import { makeApiRequest } from './api.js';
-import { appendToLog, showAlert } from './ui.js';
+
 import { loadPredictions } from './predictionData.js';
 
 // Funzioni da moduli esterni che potrebbero non essere ancora definite
@@ -100,12 +100,12 @@ async function startPredictions(controlBtn) {
         
         // Verifica il numero di timeframes (min: 1, max: 3)
         if (selectedTimeframes.length > 3) {
-            showAlert('Seleziona al massimo 3 timeframes', 'warning');
+            showAlert('warning', 'Seleziona al massimo 3 timeframes');
             controlBtn.disabled = false;
             return false;
         }
         if (selectedTimeframes.length === 0) {
-            showAlert('Seleziona almeno 1 timeframe', 'warning');
+            showAlert('warning', 'Seleziona almeno 1 timeframe');
             controlBtn.disabled = false;
             return false;
         }
@@ -118,7 +118,7 @@ async function startPredictions(controlBtn) {
         }
         
         // Inizializza il bot con le selezioni e i parametri di trading
-        appendToLog(`Inizializzazione del bot in corso...`);
+        showAlert('info', `Inizializzazione del bot in corso...`);
         const initResult = await makeApiRequest('/initialize', 'POST', {
             models: selectedModels,
             timeframes: selectedTimeframes,
@@ -134,22 +134,22 @@ async function startPredictions(controlBtn) {
         }
         
         // Aggiorna i parametri nei log
-        appendToLog(`Analisi con: Top ${topCrypto} cripto, Leva ${leverage}x, Margine ${margin} USDT`);
+        showAlert('info', `Analisi con: Top ${topCrypto} cripto, Leva ${leverage}x, Margine ${margin} USDT`);
         
         // Aggiorna il pulsante per indicare l'avvio
         controlBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Avvio in corso...';
 
         // Avvia il bot
-        appendToLog(`Avvio del bot in corso...`);
+        showAlert('info', `Avvio del bot in corso...`);
         const startResult = await makeApiRequest('/start', 'POST');
         if (!startResult) {
             throw new Error('Errore durante l\'avvio');
         }
         
         if (startResult.status && startResult.status.includes("Bot avviato")) {
-            appendToLog(`Bot avviato con successo`);
+            showAlert('success', `Bot avviato con successo`);
         } else {
-            appendToLog(`Risposta dell'avvio: ${JSON.stringify(startResult)}`);
+            showAlert('info', `Risposta dell'avvio: ${JSON.stringify(startResult)}`);
         }
         
         // Cambia lo stato in "in esecuzione"
@@ -229,8 +229,7 @@ async function startPredictions(controlBtn) {
         }
         
         // Mostra errore all'utente
-        showAlert(error.message || 'Errore durante l\'avvio delle predizioni', 'danger');
-        appendToLog(`Errore: ${error.message || 'Errore durante l\'avvio delle predizioni'}`);
+        showAlert('danger', error.message || 'Errore durante l\'avvio delle predizioni');
         
         // Riabilita il pulsante
         controlBtn.disabled = false;
@@ -241,14 +240,14 @@ async function startPredictions(controlBtn) {
 // Funzione per fermare le predizioni
 export async function stopPredictions(controlBtn) {
     try {
-        appendToLog(`Arresto del bot in corso...`);
+        showAlert('info', `Arresto del bot in corso...`);
         const response = await makeApiRequest('/stop', 'POST');
         if (!response) {
             throw new Error('Errore durante l\'arresto');
         }
         
         if (response.status) {
-            appendToLog(`Risposta server: ${response.status}`);
+            showAlert('info', `Risposta server: ${response.status}`);
         }
         
         // Pulisci gli intervalli
@@ -293,8 +292,7 @@ export async function stopPredictions(controlBtn) {
         
     } catch (error) {
         console.error('Errore durante l\'arresto:', error);
-        showAlert('Errore durante l\'arresto delle predizioni', 'danger');
-        appendToLog(`Errore: ${error.message || 'Errore durante l\'arresto delle predizioni'}`);
+        showAlert('danger', 'Errore durante l\'arresto delle predizioni');
     } finally {
         // Riabilita sempre il pulsante
         if (controlBtn) controlBtn.disabled = false;
@@ -318,7 +316,7 @@ export async function checkBotStatus() {
                 
                 if (statusResponse.running) {
                     // Il bot è in esecuzione sul server ma non localmente
-                    appendToLog(`Bot rilevato in esecuzione sul server`);
+                    showAlert('info', `Bot rilevato in esecuzione sul server`);
                     isPredictionsRunning = true;
                     
                     if (typeof updateRunningUI === 'function') {
@@ -329,7 +327,7 @@ export async function checkBotStatus() {
                 } else {
                     // Il bot è stato arrestato sul server
                     if (isPredictionsRunning) {
-                        appendToLog(`Bot non più in esecuzione sul server. Aggiornamento stato...`);
+                        showAlert('info', `Bot non più in esecuzione sul server. Aggiornamento stato...`);
                         isPredictionsRunning = false;
                         
                         // Pulisci gli intervalli
@@ -363,7 +361,7 @@ export async function checkBotStatus() {
                         if (marginRange) marginRange.disabled = false;
                         
                         // Notifica l'utente
-                        showAlert('Il bot è stato arrestato automaticamente', 'warning');
+                        showAlert('warning', 'Il bot è stato arrestato automaticamente');
                     }
                 }
             } else {
@@ -485,12 +483,12 @@ async function validateSelection() {
         const selectedTimeframes = await getSelectedTimeframes();
         
         if (selectedModels.length === 0) {
-            showAlert('Seleziona almeno un modello prima di avviare le previsioni', 'warning');
+            showAlert('warning', 'Seleziona almeno un modello prima di avviare le previsioni');
             return false;
         }
         
         if (selectedTimeframes.length === 0) {
-            showAlert('Seleziona almeno un timeframe prima di avviare le previsioni', 'warning');
+            showAlert('warning', 'Seleziona almeno un timeframe prima di avviare le previsioni');
             return false;
         }
         

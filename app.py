@@ -553,20 +553,27 @@ async def get_chart_data(
 
         # Normalizza il simbolo
         symbol = symbol.replace(":", "/").upper()
-        
-        # Rimuovi eventuali /USDT duplicati alla fine
         if symbol.endswith("/USDT/USDT"):
             symbol = symbol[:-5]
-            
-        # Verifica che il simbolo sia valido
-        if not symbol or "/" not in symbol:
-            logger.error(f"Simbolo non valido: {symbol}")
+
+        # Carica i mercati
+        markets = await app_state.async_exchange.load_markets()
+
+        # Prova a normalizzare per Bybit (es. 10000SATSUSDT)
+        if symbol not in markets:
+            alt_symbol = symbol.replace("/", "")
+            if alt_symbol in markets:
+                symbol = alt_symbol
+
+        # Se ancora non trovato, mostra solo il messaggio senza esempi
+        if symbol not in markets:
+            logger.error(f"Simbolo non trovato nel mercato: {symbol}.")
             return {
                 "timestamps": [], "labels": [], "open": [],
                 "high": [], "low": [], "close": [],
-                "volumes": [], "error": "Simbolo non valido"
+                "volumes": [], "error": f"Simbolo {symbol} non trovato nel mercato."
             }
-            
+
         # Verifica che il timeframe sia valido
         valid_timeframes = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"]
         if timeframe not in valid_timeframes:
@@ -576,22 +583,11 @@ async def get_chart_data(
                 "high": [], "low": [], "close": [],
                 "volumes": [], "error": "Timeframe non valido"
             }
-            
-        # Limita il numero di candele richieste
+
         if limit > 1000:
             limit = 1000
-            
+
         try:
-            # Verifica che il simbolo esista nel mercato
-            markets = await app_state.async_exchange.load_markets()
-            if symbol not in markets:
-                logger.error(f"Simbolo non trovato nel mercato: {symbol}")
-                return {
-                    "timestamps": [], "labels": [], "open": [],
-                    "high": [], "low": [], "close": [],
-                    "volumes": [], "error": f"Simbolo {symbol} non trovato nel mercato"
-                }
-                
             ohlcv = await app_state.async_exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
         except Exception as e:
             logger.error(f"Errore nel recupero dei dati OHLCV per {symbol}: {e}")
@@ -606,7 +602,6 @@ async def get_chart_data(
             "high": [], "low": [], "close": [],
             "volumes": [],
         }
-        
         for ts, o, h, l, c, v in ohlcv:
             dt = datetime.fromtimestamp(ts / 1000)
             out["timestamps"].append(ts)
@@ -616,14 +611,13 @@ async def get_chart_data(
             out["low"].append(l)
             out["close"].append(c)
             out["volumes"].append(v)
-            
         return out
     except Exception as exc:
         logger.error(f"Errore nel recupero dati grafico: {exc}")
         return {
             "timestamps": [], "labels": [], "open": [],
             "high": [], "low": [], "close": [],
-            "volumes": [], "error": str(exc)
+            "volumes": [], "error": f"Errore interno: {str(exc)}"
         }
 
 # ───────────────────────────────────────────────────────────────────────────────

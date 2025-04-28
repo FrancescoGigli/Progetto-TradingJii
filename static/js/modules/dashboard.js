@@ -1,6 +1,6 @@
 // dashboard.js - Gestisce tutte le funzionalità della dashboard
 import { makeApiRequest } from './api.js';
-import { appendToLog } from './ui.js';
+
 
 // Funzione per caricare i dati del bilancio
 export async function loadBalance() {
@@ -39,12 +39,11 @@ export async function loadBalance() {
             
             // Se c'è un errore, mostralo
             if (result.error) {
-                appendToLog(`Errore nel caricamento del bilancio: ${result.error}`, 'error');
+                console.error('Errore nel caricamento del bilancio:', result.error);
             }
         }
     } catch (error) {
         console.error('Errore nel caricamento del bilancio:', error);
-        appendToLog(`Errore nel caricamento del bilancio: ${error.message}`, 'error');
     }
 }
 
@@ -200,7 +199,6 @@ export async function closePosition(symbol, side) {
     if (!confirm(`Confermi la chiusura della posizione ${symbol}?`)) return;
     
     const closeSide = side === 'Buy' ? 'Sell' : 'Buy';
-    appendToLog(`Chiusura posizione ${symbol} (${closeSide})...`);
     
     try {
         // Chiamata all'API per chiudere la posizione
@@ -210,24 +208,21 @@ export async function closePosition(symbol, side) {
         });
         
         if (response && response.status === 'success') {
-            appendToLog(`✅ Posizione ${symbol} chiusa con successo`);
             // Aggiorna le posizioni e gli ordini
             loadPositions();
             loadOpenOrders();
             loadTrades();
         } else {
-            appendToLog(`❌ Errore nella chiusura della posizione ${symbol}: ${response.message || 'Errore sconosciuto'}`);
+            console.error('Errore nella chiusura della posizione:', response ? response.message : 'Errore sconosciuto');
         }
     } catch (error) {
-        appendToLog(`❌ Errore nella chiusura della posizione ${symbol}: ${error.message || error}`);
+        console.error('Errore nella chiusura della posizione:', error);
     }
 }
 
 // Funzione per annullare un ordine
 export async function cancelOrder(orderId) {
     if (!confirm(`Confermi l'annullamento dell'ordine?`)) return;
-    
-    appendToLog(`Annullamento ordine ${orderId}...`);
     
     try {
         // Chiamata all'API per annullare l'ordine
@@ -236,14 +231,13 @@ export async function cancelOrder(orderId) {
         });
         
         if (response && response.status === 'success') {
-            appendToLog(`✅ Ordine ${orderId} annullato con successo`);
             // Aggiorna gli ordini aperti
             loadOpenOrders();
         } else {
-            appendToLog(`❌ Errore nell'annullamento dell'ordine ${orderId}: ${response.message || 'Errore sconosciuto'}`);
+            console.error('Errore nell\'annullamento dell\'ordine:', response ? response.message : 'Errore sconosciuto');
         }
     } catch (error) {
-        appendToLog(`❌ Errore nell'annullamento dell'ordine ${orderId}: ${error.message || error}`);
+        console.error("Errore nell'annullamento dell'ordine:", error);
     }
 }
 

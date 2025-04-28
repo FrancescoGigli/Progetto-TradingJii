@@ -32,7 +32,7 @@ export {
 };
 
 // Importazione dei moduli
-import { initializeUI, appendToLog, showAlert } from './modules/ui.js';
+import { initializeUI, showAlert } from './modules/ui.js';
 import { testConnection, setupApiService, makeApiRequest } from './modules/api.js';
 import { loadBalance, loadPositions, loadOpenOrders, setupDashboardEventListeners } from './modules/dashboard.js';
 import { initializePredictionsControl } from './modules/predictions.js';
@@ -42,9 +42,6 @@ import { handleTrainingFormSubmit, setupModelsEventListeners } from './modules/m
 document.addEventListener('DOMContentLoaded', async () => {
     try {
         console.log('Inizializzazione applicazione...');
-        
-        // Mostra il container dei log
-        showLogContainer();
         
         // Configura il servizio API con le chiavi di default
         setupApiService(apiKey, apiSecret, API_BASE_URL);
@@ -62,22 +59,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Inizializza i moduli solo se gli elementi necessari esistono
         safeInitialize();
         
-        // Log di avvio applicazione
-        appendToLog('Applicazione avviata con successo');
-        
         // Test connessione API
         setTimeout(async () => {
             try {
                 const connected = await testConnection();
                 if (connected) {
-                    appendToLog('Connessione alle API stabilita');
                     updateStatusElement('health-status', 'Online', 'text-success');
                 } else {
-                    appendToLog('Impossibile connettersi alle API. Verifica le credenziali.');
                     updateStatusElement('health-status', 'Offline', 'text-danger');
                 }
             } catch (error) {
-                appendToLog(`Errore connessione API: ${error.message}`);
                 showAlert('danger', `Errore connessione API: ${error.message}`);
                 updateStatusElement('health-status', 'Errore', 'text-danger');
             }
@@ -85,7 +76,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         
     } catch (error) {
         console.error('Errore durante l\'inizializzazione:', error);
-        appendToLog(`Errore durante l'inizializzazione: ${error.message}`);
         showAlert('danger', `Errore durante l'inizializzazione: ${error.message}`);
     }
 });
@@ -114,14 +104,6 @@ function updateStatusElement(id, text, className) {
     }
 }
 
-// Funzione per mostrare il log container
-function showLogContainer() {
-    const logContainer = document.getElementById('log-container');
-    if (logContainer) {
-        logContainer.classList.remove('d-none');
-    }
-}
-
 // Funzione per inizializzare moduli in modo sicuro
 function safeInitialize() {
     try {
@@ -132,7 +114,7 @@ function safeInitialize() {
             
             // Se autoStartDisabled è false, fai un log ma non avviare automaticamente
             if (autoStartDisabled) {
-                appendToLog('Predizioni non avviate automaticamente (--no-auto-start attivo)');
+                console.log('Predizioni non avviate automaticamente (--no-auto-start attivo)');
             }
         }
         
@@ -165,6 +147,5 @@ function safeInitialize() {
         }
     } catch (error) {
         console.error('Errore inizializzazione moduli:', error);
-        appendToLog(`Errore inizializzazione moduli: ${error.message}`);
     }
 }

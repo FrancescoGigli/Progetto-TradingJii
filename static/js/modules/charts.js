@@ -1,6 +1,5 @@
 // charts.js - Gestisce tutti i grafici dell'applicazione
 import { makeApiRequest } from './api.js';
-import { appendToLog } from './ui.js';
 
 // Variabili globali per i grafici
 let positionChart = null;
@@ -84,38 +83,53 @@ export async function loadChartSymbols() {
         }
     } catch (error) {
         console.error('Errore nel caricamento dei simboli:', error);
-        appendToLog(`Errore nel caricamento dei simboli: ${error.message}`);
     }
 }
 
 // Funzione per caricare i dati del grafico
 export async function loadChartData(symbol, timeframe = '15m', limit = 100) {
     try {
-        appendToLog(`Caricamento grafico per ${symbol} (${timeframe})...`);
-        
         // Codifica il simbolo per l'URL
         const encodedSymbol = encodeURIComponent(symbol);
-        
         const chartData = await makeApiRequest(`/chart-data/${encodedSymbol}?timeframe=${timeframe}&limit=${limit}`);
-        
+
         if (chartData) {
-            // Verifica se c'è un errore
+            // Se c'è un errore specifico dal backend
             if (chartData.error) {
-                appendToLog(`Errore nel caricamento del grafico: ${chartData.error}`, 'error');
+                // Mostra anche nell'interfaccia se vuoi
+                const chartError = document.getElementById('chart-error');
+                if (chartError) {
+                    chartError.textContent = chartData.error;
+                    chartError.style.display = 'block';
+                }
                 return;
             }
-            
             // Verifica se i dati sono validi
             if (chartData.labels && chartData.open && chartData.labels.length > 0) {
                 // Crea o aggiorna il grafico
                 createOrUpdateChart(chartData, symbol, timeframe);
             } else {
-                appendToLog(`Nessun dato disponibile per ${symbol} (${timeframe})`, 'warning');
+            }
+        } else {
+            // Se chartData è null, controlla se è un errore di autenticazione
+            // makeApiRequest logga già l'errore, qui mostriamo solo se non è autenticazione
+            const lastError = window.lastApiError || '';
+            if (lastError.includes('401') || lastError.includes('403') || lastError.toLowerCase().includes('autenticazione')) {
+            } else {
+                // Mostra anche nell'interfaccia se vuoi
+                const chartError = document.getElementById('chart-error');
+                if (chartError) {
+                    chartError.textContent = 'Errore nel caricamento del grafico.';
+                    chartError.style.display = 'block';
+                }
             }
         }
     } catch (error) {
-        console.error('Errore nel caricamento dei dati del grafico:', error);
-        appendToLog(`Errore nel caricamento del grafico: ${error.message}`, 'error');
+        const chartError = document.getElementById('chart-error');
+        if (chartError) {
+            chartError.textContent = error.message;
+            chartError.style.display = 'block';
+        }
     }
 }
 
@@ -266,8 +280,6 @@ function createOrUpdateChart(data, symbol, timeframe) {
             }
         }
     });
-    
-    appendToLog(`Grafico a candele con volumi per ${symbol} (${timeframe}) aggiornato.`);
 }
 
 // Funzione per pulire il grafico
