@@ -284,10 +284,98 @@ async def train_model(exchange, symbols, model_type, timeframe):
         logging.error(colored(f"❌ Errore durante il training {model_type.upper()} per {timeframe}: {e}", "red"))
         return None, None
 
+# Nuova funzione per gestire il training-only
+async def execute_training_only(timeframes=None, models=None, num_symbols=None):
+    print(colored("\n=== MODALITÀ TRAINING MODELLI ===", "cyan"))
+    
+    # Se non è specificato, usa tutte le timeframe disponibili
+    if not timeframes:
+        timeframes = ENABLED_TIMEFRAMES
+    
+    # Se non è specificato, usa tutti i modelli disponibili
+    if not models:
+        models = ['lstm', 'rf', 'xgb']
+    
+    # Numero di simboli per training
+    if not num_symbols:
+        num_symbols = TOP_TRAIN_CRYPTO
+    
+    print(colored(f"Timeframes selezionati: {', '.join(timeframes)}", "yellow"))
+    print(colored(f"Modelli selezionati: {', '.join(models)}", "yellow"))
+    print(colored(f"Numero di simboli: {num_symbols}", "yellow"))
+    
+    # Inizializza lo scambio
+    async_exchange = ccxt_async.bybit(exchange_config)
+    await async_exchange.load_markets()
+    
+    try:
+        # Prepara i dati per il training
+        markets = await fetch_markets(async_exchange)
+        all_symbols = [m['symbol'] for m in markets.values() if m.get('quote') == 'USDT'
+                      and m.get('active') and m.get('type') == 'swap']
+        all_symbols = [s for s in all_symbols if not re.search('|'.join(EXCLUDED_SYMBOLS), s)]
+        
+        # Ottieni i top simboli per il training
+        top_symbols_training = await get_top_symbols(async_exchange, all_symbols, top_n=num_symbols)
+        
+        # Validazione dei dati
+        validated_symbols = []
+        print(colored("Validazione dei dati per il training...", "cyan"))
+        
+        for i, symbol in enumerate(top_symbols_training):
+            valid = True
+            print(f"Verificando {symbol} ({i+1}/{len(top_symbols_training)})...", end="\r")
+            
+            for tf in timeframes:
+                df = await fetch_and_save_data(async_exchange, symbol, tf)
+                if df is None or df.isnull().any().any() or np.isinf(df).any().any():
+                    valid = False
+                    break
+            
+            if valid:
+                validated_symbols.append(symbol)
+        
+        print(" " * 80, end="\r")  # Clear the line
+        print(colored(f"✅ Dati validati: {len(validated_symbols)}/{len(top_symbols_training)} simboli utilizzabili", "green"))
+        
+        # Crea directory per i modelli
+        ensure_trained_models_dir()
+        
+        # Training dei modelli
+        for tf in timeframes:
+            for model in models:
+                await train_model(async_exchange, validated_symbols, model, tf)
+        
+        print(colored("\n✅ Training completato con successo!", "green"))
+        
+    except Exception as e:
+        print(colored(f"❌ Errore durante il training: {e}", "red"))
+    
+    finally:
+        await async_exchange.close()
+        print(colored("Sessione di training terminata.", "yellow"))
+
 # --- Funzione Main ---
 async def main():
     global async_exchange, lstm_models, lstm_scalers, rf_models, rf_scalers, xgb_models, xgb_scalers, min_amounts
 
+    # Gestione degli argomenti da linea di comando
+    import argparse
+    parser = argparse.ArgumentParser(description="Trading Bot con modelli di ML")
+    parser.add_argument('--train-only', action='store_true', help='Esegui solo il training dei modelli senza avviare il bot')
+    parser.add_argument('--timeframes', type=str, help='Lista di timeframes separati da virgola (es. 1h,4h,1d)')
+    parser.add_argument('--models', type=str, help='Lista di modelli separati da virgola (es. lstm,rf,xgb)')
+    parser.add_argument('--symbols', type=int, help='Numero di simboli da utilizzare per il training')
+    args = parser.parse_args()
+    
+    # Modalità training-only
+    if args.train_only:
+        timeframes = args.timeframes.split(',') if args.timeframes else None
+        models = args.models.split(',') if args.models else None
+        symbols = args.symbols if args.symbols else None
+        await execute_training_only(timeframes, models, symbols)
+        return
+    
     print(colored("\n=== TRADING JII - SISTEMA DI TRADING ALGORITMICO ===", "cyan"))
     print(colored("Inizializzazione...", "yellow"))
 

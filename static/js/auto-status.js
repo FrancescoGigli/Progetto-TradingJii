@@ -59,9 +59,6 @@ function startProgressSimulation() {
             activeTraining.phase = 'completed';
             clearInterval(progressInterval);
             
-            // Mostra la notifica di completamento
-            showTrainingNotification('success', 'Training completato con successo!');
-            
             // Aggiorna lo stato dei modelli dopo un breve ritardo
             setTimeout(() => {
                 if (activeTraining.isRunning) {
@@ -186,131 +183,19 @@ function updateTerminalProgress() {
                 letter-spacing: 1px;
             }
             
+            /* Rimuovo gli stili per le notifiche */
             .training-notification {
-                position: fixed;
-                bottom: 20px;
-                right: 20px;
-                padding: 15px 20px;
-                border-radius: 8px;
-                color: white;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-                z-index: 1000;
-                transition: all 0.3s ease;
-                transform: translateY(100px);
-                opacity: 0;
-                max-width: 350px;
+                display: none;
             }
             
-            .training-notification.show {
-                transform: translateY(0);
-                opacity: 1;
-            }
-            
-            .training-notification.success {
-                background-color: #28a745;
-                border-left: 5px solid #1e7e34;
-            }
-            
-            .training-notification.warning {
-                background-color: #ffc107;
-                border-left: 5px solid #d39e00;
-                color: #212529;
-            }
-            
-            .training-notification.error {
-                background-color: #dc3545;
-                border-left: 5px solid #bd2130;
-            }
-            
-            .training-notification .close-btn {
-                position: absolute;
-                top: 5px;
-                right: 10px;
-                color: currentColor;
-                opacity: 0.7;
-                background: none;
-                border: none;
-                font-size: 18px;
-                cursor: pointer;
-            }
-            
-            .training-notification .close-btn:hover {
-                opacity: 1;
-            }
-            
-            .progress-steps-container {
-                margin-top: 20px;
-            }
-            
-            .step {
-                transition: all 0.3s ease;
-            }
-            
-            .step.active .step-icon,
-            .step.completed .step-icon {
-                animation: pulse-step 2s infinite;
-            }
-            
-            @keyframes pulse-step {
-                0% { transform: scale(1); }
-                50% { transform: scale(1.1); }
-                100% { transform: scale(1); }
+            /* Nuovi stili per la barra di progresso a fasi migliorata */
+            .progress-tracker {
+                margin: 30px 0;
+                padding: 20px 0;
             }
         `;
         document.head.appendChild(style);
     }
-}
-
-// Funzione per mostrare notifiche di training
-function showTrainingNotification(type, message, duration = 5000) {
-    // Rimuovi eventuali notifiche esistenti
-    const existingNotification = document.querySelector('.training-notification');
-    if (existingNotification) {
-        existingNotification.remove();
-    }
-    
-    // Crea la notifica
-    const notification = document.createElement('div');
-    notification.className = `training-notification ${type}`;
-    notification.innerHTML = `
-        <button class="close-btn">&times;</button>
-        <div>${message}</div>
-    `;
-    
-    // Aggiungi la notifica al body
-    document.body.appendChild(notification);
-    
-    // Mostra la notifica con un piccolo ritardo per l'animazione
-    setTimeout(() => {
-        notification.classList.add('show');
-    }, 10);
-    
-    // Aggiungi l'evento per chiudere la notifica
-    const closeBtn = notification.querySelector('.close-btn');
-    if (closeBtn) {
-        closeBtn.addEventListener('click', () => {
-            notification.classList.remove('show');
-            setTimeout(() => {
-                notification.remove();
-            }, 300);
-        });
-    }
-    
-    // Rimuovi automaticamente la notifica dopo la durata specificata
-    if (duration > 0) {
-        setTimeout(() => {
-            if (notification.parentNode) {
-                notification.classList.remove('show');
-                setTimeout(() => {
-                    if (notification.parentNode) {
-                        notification.remove();
-                    }
-                }, 300);
-            }
-        }, duration);
-    }
-    
-    return notification;
 }
 
 // Funzione che controlla lo stato dei modelli e aggiorna la tabella
@@ -339,16 +224,14 @@ async function checkModelStatus() {
     // Funzione che verifica l'esistenza del file del modello
     async function checkModelFile(model, timeframe) {
         try {
-            const ext = fileExtensions[model] || '.pkl';
-            const filename = `${model}_model_${timeframe}${ext}`;
-            const response = await fetch(`/api/check-model-exists/${filename}`);
+            const response = await fetch(`http://localhost:5000/api/status?model=${model}&timeframe=${timeframe}`);
             
             if (!response.ok) {
                 return 'non disponibile';
             }
             
             const data = await response.json();
-            return data.exists ? 'disponibile' : 'non disponibile';
+            return data.available ? 'disponibile' : 'non disponibile';
         } catch (error) {
             console.error(`Errore nel controllo del modello ${model} ${timeframe}:`, error);
             return 'non disponibile';
@@ -460,68 +343,6 @@ function updateTrainingButtons() {
         'rf': 'Random Forest',
         'xgb': 'XGBoost'
     };
-    
-    // Aggiungi stile per il pulsante viola e altri stili personalizzati
-    const style = document.createElement('style');
-    style.textContent = `
-        .btn-purple {
-            color: #fff;
-            background-color: #6f42c1;
-            border-color: #6f42c1;
-        }
-        .btn-purple:hover {
-            color: #fff;
-            background-color: #5e37a6;
-            border-color: #59339d;
-        }
-        .btn-outline-purple {
-            color: #6f42c1;
-            border-color: #6f42c1;
-        }
-        .btn-outline-purple:hover {
-            color: #fff;
-            background-color: #6f42c1;
-            border-color: #6f42c1;
-        }
-        .training-btn-active {
-            animation: pulse-border 1.5s infinite;
-            box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.5);
-        }
-        .training-btn-active.btn-success {
-            box-shadow: 0 0 0 0.25rem rgba(25, 135, 84, 0.5);
-        }
-        .training-btn-active.btn-info {
-            box-shadow: 0 0 0 0.25rem rgba(13, 202, 240, 0.5);
-        }
-        .training-btn-active.btn-purple {
-            box-shadow: 0 0 0 0.25rem rgba(111, 66, 193, 0.5);
-        }
-        .training-btn-active.btn-warning {
-            box-shadow: 0 0 0 0.25rem rgba(255, 193, 7, 0.5);
-        }
-        .training-btn-active.btn-danger {
-            box-shadow: 0 0 0 0.25rem rgba(220, 53, 69, 0.5);
-        }
-        @keyframes pulse-border {
-            0% { box-shadow: 0 0 0 0.25rem rgba(var(--bs-btn-color-rgb), 0.5); }
-            50% { box-shadow: 0 0 0 0.4rem rgba(var(--bs-btn-color-rgb), 0.5); }
-            100% { box-shadow: 0 0 0 0.25rem rgba(var(--bs-btn-color-rgb), 0.5); }
-        }
-        .btn-md {
-            padding: 0.5rem 1rem;
-            font-size: 1rem;
-        }
-        .btn-train {
-            min-width: 140px;
-            font-weight: 500;
-        }
-        .btn-stop {
-            background-color: #dc3545 !important;
-            border-color: #dc3545 !important;
-            color: white !important;
-        }
-    `;
-    document.head.appendChild(style);
     
     // Crea pulsanti per ogni singolo modello nella prima riga
     for (const model of Object.keys(missingModels)) {
@@ -685,7 +506,8 @@ function stopTraining() {
     // Qui chiameresti l'API per fermare il training
     console.log('Stopping training:', activeTraining);
     
-    // Reset dello stato di training
+    // Chiamata API per fermare il training (implementazione futura)
+    // Per ora, resettiamo solo lo stato di training locale
     const oldType = activeTraining.type;
     const oldModel = activeTraining.model;
     
@@ -720,9 +542,152 @@ function stopTraining() {
             }
         }
     }
+}
+
+// Funzione per avviare il training di un modello e monitorare il progresso
+async function startRealTraining(taskData) {
+    try {
+        // Converto i dati per il formato atteso dal backend
+        const apiData = {
+            models: taskData.model_type ? 
+                   (Array.isArray(taskData.model_type) ? taskData.model_type : [taskData.model_type]) : [],
+            timeframes: taskData.timeframe ? 
+                   (Array.isArray(taskData.timeframe) ? taskData.timeframe : [taskData.timeframe]) : [],
+            symbols: taskData.top_train_crypto || 30
+        };
+        
+        console.log('Invio richiesta di training con dati:', apiData);
+        
+        // Chiamata API per avviare il training
+        const response = await fetch('http://localhost:5000/api/train', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(apiData)
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Errore nell'avvio del training: ${errorText}`);
+        }
+        
+        const data = await response.json();
+        
+        console.log(`Training avviato con successo`);
+        
+        // Impostazione manuale dello stato di avanzamento
+        activeTraining.progress = 5;
+        activeTraining.phase = 'fetching_data';
+        updateTerminalProgress();
+        
+        // Simula avanzamento del training
+        startProgressSimulation();
+        
+        return true;
+    } catch (error) {
+        console.error("Errore nell'avvio del training:", error);
+        
+        // Reset dello stato di training in caso di errore
+        activeTraining.isRunning = false;
+        activeTraining.model = null;
+        activeTraining.type = null;
+        activeTraining.phase = 'error';
+        
+        // Aggiorna i pulsanti
+        updateTrainingButtons();
+        
+        return false;
+    }
+}
+
+// Funzione per monitorare il progresso del training
+async function monitorTrainingProgress(taskId) {
+    let checkCount = 0;
+    const maxChecks = 1000; // Limitato per evitare loop infiniti
     
-    // Mostra una notifica invece di un alert
-    showTrainingNotification('warning', 'Training interrotto manualmente');
+    while (activeTraining.isRunning && checkCount < maxChecks) {
+        try {
+            const response = await fetch(`http://localhost:8000/api/training-status/${taskId}`);
+            
+            if (!response.ok) {
+                throw new Error(`Errore nel controllo dello stato: ${await response.text()}`);
+            }
+            
+            const status = await response.json();
+            
+            // Aggiorna il progresso in base alla risposta
+            if (status.status === 'running') {
+                activeTraining.progress = status.progress || 0;
+                activeTraining.phase = status.current_step || 'training';
+                
+                // Aggiorna il terminale di progresso
+                updateTerminalProgress();
+                
+                // Attendi prima del prossimo controllo
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                checkCount++;
+            } else if (status.status === 'success' || status.status === 'completed') {
+                // Training completato con successo
+                activeTraining.progress = 100;
+                activeTraining.phase = 'completed';
+                updateTerminalProgress();
+                
+                // Simula il delay di completamento prima di aggiornare l'interfaccia
+                setTimeout(() => {
+                    if (activeTraining.isRunning) {
+                        // Riporta lo stato a non in esecuzione
+                        activeTraining.isRunning = false;
+                        activeTraining.model = null;
+                        activeTraining.type = null;
+                        
+                        // Aggiorna i pulsanti e ricarica lo stato dei modelli
+                        updateTrainingButtons();
+                        checkModelStatus();
+                    }
+                }, 3000);
+                
+                break;
+            } else if (status.status === 'failure' || status.status === 'error') {
+                // Training fallito
+                activeTraining.progress = 0;
+                activeTraining.phase = 'error';
+                updateTerminalProgress();
+                
+                // Riporta lo stato a non in esecuzione
+                setTimeout(() => {
+                    activeTraining.isRunning = false;
+                    activeTraining.model = null;
+                    activeTraining.type = null;
+                    updateTrainingButtons();
+                }, 3000);
+                
+                break;
+            }
+        } catch (error) {
+            console.error('Errore nel monitoraggio del training:', error);
+            
+            if (checkCount > 5) {
+                // Aggiorna lo stato
+                activeTraining.phase = 'error';
+                updateTerminalProgress();
+                
+                // Attendi un po' prima di riprovare
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+            
+            checkCount++;
+        }
+    }
+    
+    // Se usciamo dal loop a causa del limite massimo di controlli
+    if (checkCount >= maxChecks && activeTraining.isRunning) {
+        console.warn('Raggiunto il numero massimo di controlli per il task');
+        
+        // Manteniamo lo stato di training attivo ma aggiorniamo la fase
+        activeTraining.phase = 'unknown';
+        updateTerminalProgress();
+    }
 }
 
 // Funzione per addestrare un singolo modello
@@ -730,21 +695,13 @@ function trainSingleModel(modelType) {
     // Recupera i timeframe selezionati dal form
     const selectedTimeframes = [...document.querySelectorAll('.timeframe-select:checked')].map(cb => cb.value);
     if (selectedTimeframes.length === 0) {
-        showTrainingNotification('error', 'Seleziona almeno un timeframe per continuare');
         return;
     }
     
     // Se c'è già un training attivo, blocca
     if (activeTraining.isRunning) {
-        showTrainingNotification('warning', 'C\'è già un training in corso. Fermalo prima di avviarne uno nuovo.');
         return;
     }
-    
-    // Imposta lo stato del training
-    activeTraining.isRunning = true;
-    activeTraining.model = modelType;
-    activeTraining.type = 'single';
-    activeTraining.progress = 0;
     
     // Recupera gli altri parametri dal form
     const dataLimitDays = document.querySelector('input[name="data-limit-days"]:checked')?.value || '30';
@@ -764,6 +721,14 @@ function trainSingleModel(modelType) {
         dataLimitDays,
         trainCryptoCount
     });
+    
+    // Imposta lo stato del training
+    activeTraining.isRunning = true;
+    activeTraining.model = modelType;
+    activeTraining.type = 'single';
+    activeTraining.progress = 0;
+    activeTraining.phase = 'preparing';
+    activeTraining.startTime = new Date();
     
     // Aggiorna i pulsanti per mostrare quale è attivo
     updateTrainingButtons();
@@ -788,11 +753,19 @@ function trainSingleModel(modelType) {
         }
     }
     
-    // Avvia la simulazione del progresso
-    startProgressSimulation();
+    // Aggiorna il terminale di progresso iniziale
+    updateTerminalProgress();
     
-    // Mostra una notifica invece di un alert
-    showTrainingNotification('info', `Training per il modello ${modelName} avviato`);
+    // Prepara i dati per la richiesta API
+    const taskData = {
+        model_type: modelType,
+        timeframe: selectedTimeframes[0], // Per ora, accetta un solo timeframe
+        data_limit_days: parseInt(dataLimitDays),
+        top_train_crypto: parseInt(trainCryptoCount)
+    };
+    
+    // Avvia il training reale
+    startRealTraining(taskData);
 }
 
 // Funzione per addestrare il modello selezionato nei checkbox
@@ -800,7 +773,6 @@ function trainSelectedModel() {
     // Recupera il modello selezionato dai checkbox
     const selectedModelCheckbox = document.querySelector('.model-select:checked');
     if (!selectedModelCheckbox) {
-        showTrainingNotification('error', 'Seleziona almeno un modello');
         return;
     }
     
@@ -810,21 +782,13 @@ function trainSelectedModel() {
     // Recupera i timeframe selezionati dal form
     const selectedTimeframes = [...document.querySelectorAll('.timeframe-select:checked')].map(cb => cb.value);
     if (selectedTimeframes.length === 0) {
-        showTrainingNotification('error', 'Seleziona almeno un timeframe');
         return;
     }
     
     // Se c'è già un training attivo, blocca
     if (activeTraining.isRunning) {
-        showTrainingNotification('warning', 'C\'è già un training in corso. Fermalo prima di avviarne uno nuovo.');
         return;
     }
-    
-    // Imposta lo stato del training
-    activeTraining.isRunning = true;
-    activeTraining.model = modelType;
-    activeTraining.type = 'selected';
-    activeTraining.progress = 0;
     
     // Recupera gli altri parametri dal form
     const dataLimitDays = document.querySelector('input[name="data-limit-days"]:checked')?.value || '30';
@@ -836,6 +800,14 @@ function trainSelectedModel() {
         dataLimitDays,
         trainCryptoCount
     });
+    
+    // Imposta lo stato del training
+    activeTraining.isRunning = true;
+    activeTraining.model = modelType;
+    activeTraining.type = 'selected';
+    activeTraining.progress = 0;
+    activeTraining.phase = 'preparing';
+    activeTraining.startTime = new Date();
     
     // Aggiorna i pulsanti per mostrare quale è attivo
     updateTrainingButtons();
@@ -860,11 +832,19 @@ function trainSelectedModel() {
         }
     }
     
-    // Avvia la simulazione del progresso
-    startProgressSimulation();
+    // Aggiorna il terminale di progresso iniziale
+    updateTerminalProgress();
     
-    // Mostra una notifica invece di un alert
-    showTrainingNotification('info', `Training per il modello ${modelName} avviato`);
+    // Prepara i dati per la richiesta API
+    const taskData = {
+        model_type: modelType,
+        timeframe: selectedTimeframes[0], // Per ora, accetta un solo timeframe
+        data_limit_days: parseInt(dataLimitDays),
+        top_train_crypto: parseInt(trainCryptoCount)
+    };
+    
+    // Avvia il training reale
+    startRealTraining(taskData);
 }
 
 // Funzione per addestrare i modelli selezionati
@@ -878,21 +858,13 @@ function trainSelectedModels(onlyMissing) {
     // Recupera i modelli selezionati dal form (o usa tutti i modelli)
     let selectedModels = [...document.querySelectorAll('.model-select:checked')].map(cb => cb.value);
     if (selectedModels.length === 0) {
-        showTrainingNotification('error', 'Seleziona almeno un modello da addestrare');
         return;
     }
     
     // Se c'è già un training attivo, blocca
     if (activeTraining.isRunning) {
-        showTrainingNotification('warning', 'C\'è già un training in corso. Fermalo prima di avviarne uno nuovo.');
         return;
     }
-    
-    // Imposta lo stato del training
-    activeTraining.isRunning = true;
-    activeTraining.model = selectedModels.join(',');
-    activeTraining.type = onlyMissing ? 'missing' : 'all';
-    activeTraining.progress = 0;
     
     // Recupera i timeframe selezionati o mancanti
     let selectedTimeframes = [];
@@ -907,22 +879,12 @@ function trainSelectedModels(onlyMissing) {
         });
         
         if (selectedTimeframes.length === 0) {
-            showTrainingNotification('warning', 'Non ci sono modelli mancanti per i modelli selezionati');
-            // Reset dello stato di training
-            activeTraining.isRunning = false;
-            activeTraining.model = null;
-            activeTraining.type = null;
             return;
         }
     } else {
         // Se addestriamo tutti, prendi i timeframe selezionati dal form
         selectedTimeframes = [...document.querySelectorAll('.timeframe-select:checked')].map(cb => cb.value);
         if (selectedTimeframes.length === 0) {
-            showTrainingNotification('error', 'Seleziona almeno un timeframe');
-            // Reset dello stato di training
-            activeTraining.isRunning = false;
-            activeTraining.model = null;
-            activeTraining.type = null;
             return;
         }
     }
@@ -930,6 +892,17 @@ function trainSelectedModels(onlyMissing) {
     // Recupera gli altri parametri dal form
     const dataLimitDays = document.querySelector('input[name="data-limit-days"]:checked')?.value || '30';
     const trainCryptoCount = document.querySelector('input[name="train-crypto-count"]:checked')?.value || '30';
+    
+    // Se ci sono più modelli o timeframe, avvisiamo l'utente che verranno creati più task
+    const totalTasks = selectedModels.length * selectedTimeframes.length;
+    
+    // Imposta lo stato del training
+    activeTraining.isRunning = true;
+    activeTraining.model = selectedModels.join(',');
+    activeTraining.type = onlyMissing ? 'missing' : 'all';
+    activeTraining.progress = 0;
+    activeTraining.phase = 'preparing';
+    activeTraining.startTime = new Date();
     
     console.log('Training per:', {
         models: selectedModels,
@@ -963,16 +936,42 @@ function trainSelectedModels(onlyMissing) {
         }
     }
     
-    // Avvia la simulazione del progresso
-    startProgressSimulation();
+    // Aggiorna il terminale di progresso iniziale
+    updateTerminalProgress();
+    
+    // Prepara i dati per la richiesta API - Adesso inviamo TUTTI i modelli e timeframe
+    const taskData = {
+        model_type: selectedModels,
+        timeframe: selectedTimeframes,
+        data_limit_days: parseInt(dataLimitDays),
+        top_train_crypto: parseInt(trainCryptoCount)
+    };
+    
+    // Avvia il training reale
+    startRealTraining(taskData);
     
     // Mostra una notifica invece di un alert
-    showTrainingNotification('info', `Training ${onlyMissing ? 'dei modelli mancanti' : 'di tutti i modelli'} avviato`);
+    const tasksMessage = totalTasks > 1 ? ` (${totalTasks} modelli)` : '';
+    showTrainingNotification('info', `Training ${onlyMissing ? 'dei modelli mancanti' : 'di tutti i modelli'} avviato${tasksMessage}`);
 }
 
 // Esegui la funzione quando il DOM è caricato
 document.addEventListener('DOMContentLoaded', function() {
     console.log("Auto-status.js: DOM caricato, inizializzazione...");
+    
+    // Aggiungi event listener per i radio button dei giorni
+    document.querySelectorAll('input[name="data-limit-days"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            document.getElementById('days-value').textContent = this.value;
+        });
+    });
+
+    // Aggiungi event listener per i radio button delle criptovalute
+    document.querySelectorAll('input[name="train-crypto-count"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            document.getElementById('train-crypto-counter').textContent = this.value;
+        });
+    });
     
     // Aggiungi stili CSS migliorati
     const style = document.createElement('style');
@@ -1027,6 +1026,60 @@ document.addEventListener('DOMContentLoaded', function() {
             0% { opacity: 0.7; }
             50% { opacity: 1; }
             100% { opacity: 0.7; }
+        }
+
+        /* Stili per i pulsanti radio */
+        .form-check-input:checked {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+        }
+
+        .form-check-input:checked + .form-check-label {
+            color: #0d6efd;
+            font-weight: bold;
+        }
+
+        /* Stili per i gruppi di pulsanti radio */
+        .radio-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .radio-option {
+            position: relative;
+            flex: 1;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .radio-option input[type="radio"] {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .radio-option label {
+            display: block;
+            padding: 8px 15px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .radio-option input[type="radio"]:checked + label {
+            background-color: #e7f1ff;
+            border-color: #0d6efd;
+            color: #0d6efd;
+            font-weight: bold;
+        }
+
+        .radio-option label:hover {
+            background-color: #e9ecef;
         }
     `;
     document.head.appendChild(style);

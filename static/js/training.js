@@ -1,16 +1,21 @@
-// Versione semplificata che non richiede API
-function check_model_status(model, timeframe) {
-    // Simulazione: qui puoi integrare la logica effettiva di controllo dei modelli
-    // Per ora ritorna "disponibile" o "non disponibile" in modo simulato
-    const hash = (model + timeframe).split('').reduce((a, b) => {
-        return ((a << 5) - a) + b.charCodeAt(0);
-    }, 0);
-    
-    // Simulazione deterministica - in produzione sostituire con verifica reale
-    return (hash % 3 === 0) ? 'non disponibile' : 'disponibile';
+// Funzioni per la gestione del training dei modelli
+async function check_model_status(model, timeframe) {
+    try {
+        // Chiamata all'API per verificare lo stato del modello
+        const response = await fetch(`http://localhost:5000/api/status?model=${model}&timeframe=${timeframe}`);
+        if (!response.ok) {
+            throw new Error('Errore nella verifica del modello');
+        }
+        
+        const data = await response.json();
+        return data.available ? 'disponibile' : 'non disponibile';
+    } catch (error) {
+        console.error('Errore nella verifica del modello:', error);
+        return 'non disponibile';
+    }
 }
 
-function updateModelStatus() {
+async function updateModelStatus() {
     console.log("Aggiornamento stato modelli...");
     const models = ['lstm', 'rf', 'xgb'];
     const modelNames = {
@@ -33,20 +38,45 @@ function updateModelStatus() {
             cell.textContent = 'Verifica in corso...';
             cell.className = 'model-status model-checking';
             
-            // Utilizza setTimeout per dare tempo all'interfaccia di aggiornarsi
-            setTimeout(() => {
-                try {
-                    // Verifica lo stato del modello
-                    const status = check_model_status(modelNames[model], timeframe);
+            try {
+                // Effettua la verifica del modello
+                const status = await check_model_status(model, timeframe);
+                
+                // Aggiorna l'interfaccia utente
+                setTimeout(() => {
                     cell.textContent = status;
                     cell.className = `model-status model-${status === 'disponibile' ? 'available' : 'unavailable'}`;
-                } catch (error) {
-                    console.error(`Errore verifica modello ${model}-${timeframe}:`, error);
-                    cell.textContent = 'non disponibile';
-                    cell.className = 'model-status model-unavailable';
-                }
-            }, 500 + Math.random() * 1000); // Aggiunta casualità per effetto visivo
+                }, 100);
+            } catch (error) {
+                console.error(`Errore verifica modello ${model}-${timeframe}:`, error);
+                cell.textContent = 'non disponibile';
+                cell.className = 'model-status model-unavailable';
+            }
         }
+    }
+}
+
+// Funzione per avviare il training
+async function startTraining(options) {
+    try {
+        const response = await fetch('http://localhost:5000/api/train', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(options)
+        });
+        
+        if (!response.ok) {
+            throw new Error('Errore nell\'avvio del training');
+        }
+        
+        const data = await response.json();
+        console.log('Training avviato:', data);
+        return true;
+    } catch (error) {
+        console.error('Errore nell\'avvio del training:', error);
+        return false;
     }
 }
 

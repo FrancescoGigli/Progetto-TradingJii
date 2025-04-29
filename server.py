@@ -9,7 +9,8 @@ import os
 import socket
 import argparse
 import atexit
-from flask import Flask, send_from_directory
+import json
+from flask import Flask, send_from_directory, request, jsonify
 from flask_cors import CORS
 
 # === Configurazione colori ===
@@ -113,6 +114,63 @@ def run_api_server():
         return None
     return proc
 
+def run_training(params):
+    print(colored_text(f"Avvio training con parametri: {params}", "cyan"))
+    
+    # Estraiamo i parametri principali
+    timeframes = params.get('timeframes', [])
+    models = params.get('models', [])
+    symbols = params.get('symbols', 30)
+    
+    if not timeframes or not models:
+        print(colored_text("Errore: nessun timeframe o modello specificato", "red"))
+        return None
+    
+    # Converti in liste se sono valori singoli
+    if not isinstance(timeframes, list):
+        timeframes = [timeframes]
+    if not isinstance(models, list):
+        models = [models]
+    
+    # Conta quanti modelli verranno addestrati
+    total_models = len(models) * len(timeframes)
+    print(colored_text(f"Il training includerà {total_models} modelli ({', '.join(models)}) per {len(timeframes)} timeframe ({', '.join(timeframes)})", "cyan"))
+    
+    # Crea il comando base
+    cmd = [sys.executable, "main.py", "--train-only"]
+    
+    # Aggiungi i parametri
+    cmd.extend(['--timeframes', ','.join(timeframes)])
+    cmd.extend(['--models', ','.join(models)])
+    cmd.extend(['--symbols', str(symbols)])
+    
+    print(colored_text(f"Esecuzione comando: {' '.join(cmd)}", "cyan"))
+    
+    # Esegui il processo
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        universal_newlines=True, bufsize=1
+    )
+    active_processes.append(proc)
+    
+    # Definisci i marker per il monitoraggio dei log
+    markers = {
+        "success": ["[OK]", "SUCCESS", "LOADED", "COMPLETATO"],
+        "warn":    ["WARNING", "[AVVISO]", "WARN"],
+        "error":   ["ERROR", "EXCEPTION", "FAILED", "ERRORE"],
+        "info":    ["INFO", "Initialize", "TRAINING", "Fetching", "Validazione"]
+    }
+    
+    # Avvia lo streaming dei log
+    stream_subprocess_output(
+        proc, "TRAINING",
+        markers["success"], markers["warn"],
+        markers["error"], markers["info"]
+    )
+    
+    return proc
+
 def run_frontend_server():
     print(colored_text("Avvio del server frontend...", "magenta"))
     app = Flask(__name__, static_folder='static', static_url_path='')
@@ -121,6 +179,93 @@ def run_frontend_server():
     @app.route('/')
     def index():
         return send_from_directory('static', 'index.html')
+        
+    @app.route('/api/train', methods=['POST'])
+    def train_models():
+        try:
+            data = request.json
+            print(colored_text(f"Richiesta di training ricevuta: {data}", "cyan"))
+            
+            # Avvia il training in un thread separato
+            proc = run_training(data)
+            
+            return jsonify({
+                "status": "success", 
+                "message": "Training avviato con successo"
+            })
+        except Exception as e:
+            print(colored_text(f"Errore nell'avvio del training: {str(e)}", "red"))
+            return jsonify({
+                "status": "error", 
+                "message": f"Errore nell'avvio del training: {str(e)}"
+            }), 500
+    
+    @app.route('/api/status', methods=['GET'])
+    def get_status():
+        # Controlla i parametri di richiesta
+        model_name = request.args.get('model')
+        timeframe = request.args.get('timeframe')
+
+        if model_name and timeframe:
+            # Verifica se il modello esiste
+            model_exists = False
+            model_details = {}
+            
+            # Directory dei modelli addestrati
+            model_dir = "trained_models"
+            if not os.path.exists(model_dir):
+                os.makedirs(model_dir, exist_ok=True)
+            
+            # Verifica in base al tipo di modello
+            if model_name.lower() == 'lstm':
+                model_file = f"{model_dir}/lstm_model_{timeframe}.h5"
+                scaler_file = f"{model_dir}/lstm_scaler_{timeframe}.pkl"
+                model_exists = os.path.exists(model_file) and os.path.exists(scaler_file)
+                if model_exists:
+                    model_details = {
+                        "model_file": model_file,
+                        "scaler_file": scaler_file,
+                        "size": os.path.getsize(model_file) if os.path.exists(model_file) else 0
+                    }
+                
+            elif model_name.lower() in ['rf', 'random_forest']:
+                model_file = f"{model_dir}/rf_model_{timeframe}.pkl"
+                scaler_file = f"{model_dir}/rf_scaler_{timeframe}.pkl"
+                model_exists = os.path.exists(model_file) and os.path.exists(scaler_file)
+                if model_exists:
+                    model_details = {
+                        "model_file": model_file,
+                        "scaler_file": scaler_file,
+                        "size": os.path.getsize(model_file) if os.path.exists(model_file) else 0
+                    }
+                
+            elif model_name.lower() in ['xgb', 'xgboost']:
+                model_file = f"{model_dir}/xgb_model_{timeframe}.pkl"
+                scaler_file = f"{model_dir}/xgb_scaler_{timeframe}.pkl"
+                model_exists = os.path.exists(model_file) and os.path.exists(scaler_file)
+                if model_exists:
+                    model_details = {
+                        "model_file": model_file,
+                        "scaler_file": scaler_file,
+                        "size": os.path.getsize(model_file) if os.path.exists(model_file) else 0
+                    }
+                
+            # Solo per debug, stampa informazioni sul controllo
+            print(colored_text(f"Controllo modello {model_name} per timeframe {timeframe}: {'Disponibile' if model_exists else 'Non disponibile'}", "cyan"))
+            
+            return jsonify({
+                "available": model_exists,
+                "model": model_name,
+                "timeframe": timeframe,
+                "details": model_details
+            })
+        else:
+            # Restituisci lo stato generale
+            return jsonify({
+                "status": "online",
+                "api_running": True,
+                "version": "1.0.0"
+            })
 
     thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=5000), daemon=True)
     thread.start()
