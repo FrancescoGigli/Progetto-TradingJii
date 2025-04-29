@@ -28,20 +28,11 @@ async function getAuthToken() {
     try {
         console.log('Richiesta token JWT in corso...');
         
-        if (!apiKey || !apiSecret) {
-            console.error('Credenziali API mancanti');
-            return null;
-        }
-        
         const response = await fetch(`${apiBaseUrl}/auth/token`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                api_key: apiKey,
-                secret_key: apiSecret
-            })
+            }
         });
         
         if (!response.ok) {
@@ -69,8 +60,8 @@ async function getAuthToken() {
 // Funzione per effettuare richieste API
 export async function makeApiRequest(endpoint, method = 'GET', data = null) {
     try {
-        // Se non abbiamo un token e abbiamo le credenziali, proviamo a ottenerlo
-        if (!authToken && apiKey && apiSecret) {
+        // Se non abbiamo un token, proviamo a ottenerlo
+        if (!authToken) {
             await getAuthToken();
             if (!authToken) {
                 throw new Error('Impossibile ottenere il token di autenticazione');

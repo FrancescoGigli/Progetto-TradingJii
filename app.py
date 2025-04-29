@@ -45,6 +45,7 @@ import ccxt
 import numpy as np
 import ta
 import uvicorn
+import time
 
 from model_manager import (
     train_lstm_model_for_timeframe,
@@ -185,7 +186,7 @@ async def initialize_bot(
     state=Depends(get_state),
     _=Depends(verify_auth_token),
 ):
-    valid_tfs    = {'1m','3m','5m','15m','30m','1h','4h','1d'}
+    valid_tfs    = {'5m','15m','30m','1h','4h'}
     valid_models = {'lstm','rf','xgb'}
 
     if not set(config.timeframes) <= valid_tfs:
@@ -575,7 +576,7 @@ async def get_chart_data(
             }
 
         # Verifica che il timeframe sia valido
-        valid_timeframes = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"]
+        valid_timeframes = ["5m", "15m", "30m", "1h", "4h"]
         if timeframe not in valid_timeframes:
             logger.error(f"Timeframe non valido: {timeframe}")
             return {
@@ -691,13 +692,30 @@ async def train_model(request: Request, _=Depends(verify_auth_token)):
 @root.get("/training-status/{task_id}")
 @api.get("/training-status/{task_id}")
 async def training_status(task_id: str, _=Depends(verify_auth_token)):
-    from celery_worker import celery_app
-    task_result = celery_app.AsyncResult(task_id)
-    if task_result.state == "PENDING":
+    from tasks import TASK_REGISTRY
+    
+    task_info = TASK_REGISTRY.get(task_id)
+    if not task_info:
         return {"status": "pending"}
-    if task_result.state == "FAILURE":
-        raise HTTPException(500, str(task_result.info))
-    return {"status": task_result.state, "result": task_result.result}
+    
+    if task_info["state"] == "FAILURE":
+        raise HTTPException(500, str(task_info["result"]))
+    
+    # Usa il progresso e lo step corrente dal registro dei task
+    if task_info["state"] == "RUNNING":
+        return {
+            "status": "running", 
+            "progress": task_info.get("progress", 0),
+            "current_step": task_info.get("current_step", "In esecuzione")
+        }
+    
+    # Per i task completati
+    return {
+        "status": task_info["state"].lower(), 
+        "result": task_info["result"],
+        "progress": 100,
+        "current_step": "Completato"
+    }
 
 # ───────────────────────────────────────────────────────────────────────────────
 # EXECUTE-TRADE
@@ -822,19 +840,15 @@ async def check_model(model_file: str, _=Depends(verify_auth_token)):
 # ───────────────────────────────────────────────────────────────────────────────
 @root.post("/auth/token")
 @api.post("/auth/token")
-async def get_auth_token(keys: ApiKeys):
+async def get_auth_token(keys: Optional[ApiKeys] = None):
     try:
-        logger.info(f"Richiesta token per API key: {keys.api_key[:5]}...")
+        logger.info("Richiesta token con credenziali dal file .env")
         
-        if not keys.api_key or not keys.secret_key:
-            logger.error("Credenziali API mancanti")
-            raise HTTPException(400, "Credenziali API mancanti")
-            
-        if keys.api_key != API_KEY or keys.secret_key != API_SECRET:
-            logger.error("Credenziali API non valide")
-            raise HTTPException(401, "Credenziali API non valide")
+        if not API_KEY or not API_SECRET:
+            logger.error("Credenziali API mancanti nel file .env")
+            raise HTTPException(500, "Credenziali API mancanti nel file .env")
         
-        token = generate_auth_token(keys.api_key, keys.secret_key)
+        token = generate_auth_token(API_KEY, API_SECRET)
         logger.info("Token generato con successo")
         return {"token": token}
     except Exception as exc:

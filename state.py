@@ -15,7 +15,7 @@ class AppState:
 
     def _initialize(self):
         # Configurazioni di base
-        self.enabled_timeframes: List[str] = ["1m", "5m", "15m", "1h", "4h"]
+        self.enabled_timeframes: List[str] = ["5m", "15m", "30m", "1h", "4h"]
         self.timeframe_default: str = "15m"
         self.leverage: int = 5
         self.margin_usdt: float = 10.0
@@ -33,7 +33,19 @@ class AppState:
         }
         self.time_steps: int = 60
         self.expected_columns: List[str] = [
-            "timestamp", "open", "high", "low", "close", "volume"
+            "timestamp", "open", "high", "low", "close", "volume",
+            "ema5", "ema10", "ema20",
+            "macd", "macd_signal", "macd_histogram",
+            "rsi_fast", "stoch_rsi",
+            "atr",
+            "bollinger_hband", "bollinger_lband", "bollinger_pband",
+            "vwap", "adx",
+            "roc", "log_return",
+            "tenkan_sen", "kijun_sen", "senkou_span_a", "senkou_span_b", "chikou_span",
+            "williams_r", "obv",
+            "sma_fast", "sma_slow", "sma_fast_trend", "sma_slow_trend", "sma_cross",
+            "close_lag_1", "volume_lag_1",
+            "weekday_sin", "weekday_cos", "hour_sin", "hour_cos"
         ]
 
         # Stato runtime

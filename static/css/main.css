@@ -1,0 +1,539 @@
+/* main.css - Stili principali dell'applicazione */
+
+/* Stili per il sistema di tab */
+.page {
+    display: none;
+}
+
+.page.active {
+    display: block;
+    animation: fadeIn 0.5s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Stili per la sidebar */
+.sidebar {
+    height: 100vh;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 250px;
+    background: #343a40;
+    color: white;
+    padding-top: 20px;
+    z-index: 1000;
+    transition: all 0.3s;
+}
+
+.sidebar .nav-link {
+    padding: 10px 20px;
+    color: rgba(255, 255, 255, 0.8);
+    display: block;
+    transition: 0.3s;
+    border-left: 3px solid transparent;
+}
+
+.sidebar .nav-link:hover {
+    color: white;
+    background: rgba(255, 255, 255, 0.1);
+    border-left: 3px solid rgba(255, 255, 255, 0.5);
+}
+
+.sidebar .nav-link.active {
+    background: #007bff;
+    color: white;
+    border-left: 3px solid #fff;
+}
+
+.sidebar .nav-header {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 10px 20px;
+    margin-top: 15px;
+    margin-bottom: 5px;
+}
+
+.content {
+    margin-left: 250px;
+    padding: 20px;
+    transition: all 0.3s;
+}
+
+/* Stili per il contenuto principale */
+.header-section {
+    background: linear-gradient(to right, #11998e, #38ef7d);
+    color: white;
+    padding: 30px 0;
+    margin-bottom: 30px;
+    border-radius: 10px;
+}
+
+/* Correzioni per le card */
+.custom-card {
+    transition: all 0.3s ease;
+    border-radius: 15px;
+    overflow: hidden;
+    border: none;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+}
+
+.custom-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+.card-header {
+    background: linear-gradient(to right, #4b6cb7, #182848);
+    color: white;
+    font-weight: 600;
+    border: none;
+    padding: 12px 20px;
+}
+
+/* Miglioramenti per la tabella delle criptovalute */
+.table-crypto {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 8px;
+}
+
+.table-crypto th {
+    border-bottom: 2px solid #e9ecef;
+    font-weight: 500;
+    color: #6c757d;
+    padding: 12px 15px;
+}
+
+.table-crypto td {
+    padding: 12px 15px;
+    vertical-align: middle;
+    background-color: white;
+    border: none;
+}
+
+.table-crypto tr td:first-child {
+    border-top-left-radius: 10px;
+    border-bottom-left-radius: 10px;
+}
+
+.table-crypto tr td:last-child {
+    border-top-right-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+
+.crypto-row {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    transition: all 0.2s;
+}
+
+.crypto-row:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+}
+
+/* Stili per i grafici */
+.chart-container {
+    position: relative;
+    height: 50vh;
+    width: 100%;
+}
+
+/* Responsività */
+@media (max-width: 992px) {
+    .sidebar {
+        width: 200px;
+    }
+    
+    .content {
+        margin-left: 200px;
+    }
+}
+
+@media (max-width: 768px) {
+    .sidebar {
+        width: 75px;
+        overflow: hidden;
+    }
+    
+    .sidebar .nav-link span {
+        display: none;
+    }
+    
+    .sidebar .nav-link i {
+        font-size: 1.25rem;
+    }
+    
+    .sidebar .nav-header {
+        display: none;
+    }
+    
+    .content {
+        margin-left: 75px;
+    }
+}
+
+/* Stili per i selettori di criptovalute */
+.crypto-selector-container {
+    width: 100%;
+}
+
+.crypto-selector-buttons {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.crypto-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    height: 70px;
+    border-radius: 10px;
+    padding: 10px;
+    transition: all 0.3s ease;
+}
+
+.crypto-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.crypto-label {
+    font-size: 0.8rem;
+    margin-top: 5px;
+}
+
+.btn-check:checked + .crypto-btn {
+    background-color: #0d6efd;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(13, 110, 253, 0.3);
+}
+
+/* Stili per il selettore di giorni */
+.selection-container {
+    background-color: #f8f9fa;
+    border-radius: 10px;
+    padding: 15px;
+}
+
+.selection-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.selection-title {
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+}
+
+.selection-counter {
+    font-weight: 600;
+    color: #0d6efd;
+}
+
+.range-with-labels {
+    position: relative;
+    padding: 0 10px;
+    margin-top: 10px;
+}
+
+.range-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 5px;
+}
+
+.range-labels span {
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+/* Stili per la selezione di criptovalute nel training */
+.crypto-train-selection {
+    width: 100%;
+}
+
+.crypto-train-selection .btn {
+    flex: 1;
+    border-radius: 6px;
+    margin: 0 3px;
+    font-weight: 600;
+}
+
+.btn-check:checked + .btn {
+    box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.25);
+}
+
+/* Stili per i selettori di modelli */
+.models-selection-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    width: 100%;
+}
+
+.model-item {
+    width: 100%;
+}
+
+.btn-model {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 80px;
+    border-radius: 10px;
+    transition: all 0.3s ease;
+    border: 1px solid #dee2e6;
+    background-color: #fff;
+    color: #495057;
+    padding: 10px;
+}
+
+.model-icon {
+    font-size: 1.8rem;
+    margin-bottom: 8px;
+    transition: all 0.3s ease;
+    color: #6c757d;
+}
+
+.model-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.btn-check:checked + .btn-model {
+    background-color: #0d6efd;
+    color: white;
+    transform: translateY(-3px);
+    box-shadow: 0 4px 8px rgba(13, 110, 253, 0.3);
+    border-color: #0d6efd;
+}
+
+.btn-check:checked + .btn-model .model-icon {
+    color: white;
+    transform: scale(1.1);
+}
+
+/* Stili per i selettori di timeframe */
+.timeframes-selection-flex {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+}
+
+.timeframes-selection-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+    width: 100%;
+}
+
+.timeframe-item {
+    width: 100%;
+}
+
+.btn-timeframe {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 40px;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    border: 1px solid #dee2e6;
+    background-color: #fff;
+    color: #495057;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.btn-check:checked + .btn-timeframe {
+    background-color: #0d6efd;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 3px 6px rgba(13, 110, 253, 0.25);
+    border-color: #0d6efd;
+}
+
+/* Stile per il pulsante gradient */
+.btn-gradient {
+    background: linear-gradient(45deg, #2196F3, #3f51b5);
+    border: none;
+    color: white;
+    font-weight: 600;
+    padding: 0.5rem 1.5rem;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.btn-gradient:hover {
+    background: linear-gradient(45deg, #1976D2, #303f9f);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    color: white;
+}
+
+.btn-gradient:active, 
+.btn-gradient:focus {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    color: white;
+}
+
+.btn-gradient.running {
+    background: linear-gradient(45deg, #d32f2f, #f44336);
+}
+
+.btn-gradient.running:hover {
+    background: linear-gradient(45deg, #b71c1c, #e53935);
+}
+
+/* Miglioramenti per selettori in modalità mobile */
+@media (max-width: 768px) {
+    .models-selection-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    
+    .timeframes-selection-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+    
+    .btn-model {
+        height: 70px;
+    }
+    
+    .model-icon {
+        font-size: 1.5rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .models-selection-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 5px;
+    }
+    
+    .timeframes-selection-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 5px;
+    }
+    
+    .btn-model {
+        height: 60px;
+        padding: 5px;
+    }
+    
+    .model-icon {
+        font-size: 1.2rem;
+        margin-bottom: 4px;
+    }
+    
+    .model-name {
+        font-size: 0.8rem;
+    }
+}
+
+/* Animazioni e transizioni per i componenti */
+@keyframes pulse-light {
+    0% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0.2); }
+    70% { box-shadow: 0 0 0 6px rgba(13, 110, 253, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0); }
+}
+
+@keyframes float {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-5px); }
+    100% { transform: translateY(0px); }
+}
+
+@keyframes highlight {
+    0% { background-color: rgba(13, 110, 253, 0.1); }
+    100% { background-color: transparent; }
+}
+
+.btn-model:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 15px rgba(13, 110, 253, 0.2);
+}
+
+.btn-model:active {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(13, 110, 253, 0.15);
+}
+
+.btn-timeframe:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 3px 10px rgba(13, 110, 253, 0.15);
+}
+
+.btn-timeframe:active {
+    transform: translateY(-1px);
+    box-shadow: 0 1px 5px rgba(13, 110, 253, 0.1);
+}
+
+.btn-check:checked + .btn-model,
+.btn-check:checked + .btn-timeframe {
+    animation: pulse-light 1.5s infinite;
+}
+
+.selection-container {
+    transition: all 0.3s ease;
+}
+
+.selection-container:hover {
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+}
+
+/* Animazioni per il selettore a intervalli giorni */
+.range-with-labels {
+    position: relative;
+}
+
+input[type=range]::-webkit-slider-thumb {
+    transition: all 0.2s ease;
+}
+
+input[type=range]::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+}
+
+/* Animazioni per i contatori */
+.selection-counter {
+    transition: all 0.3s ease;
+}
+
+.selection-counter.error, 
+.selection-counter.warning {
+    animation: pulse 1.5s infinite;
+}
+
+/* Miglioramento del feedback nei selettori radio di criptovalute */
+.crypto-btn:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 15px rgba(13, 110, 253, 0.2);
+}
+
+.crypto-btn:active {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(13, 110, 253, 0.15);
+}
+
+.btn-check:checked + .crypto-btn {
+    animation: pulse-light 1.5s infinite;
+} 

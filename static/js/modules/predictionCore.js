@@ -79,8 +79,13 @@ async function startPredictions(controlBtn) {
         controlBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Inizializzazione...';
 
         // Imposta i valori predefiniti per i parametri di trading
-        const topCryptoSelect = document.getElementById('top-crypto-select');
-        const topCrypto = topCryptoSelect ? parseInt(topCryptoSelect.value) : 3;
+        let topCrypto = 50; // Valore predefinito
+
+        // Ottieni il valore selezionato dai pulsanti radio
+        const selectedCryptoBtn = document.querySelector('input[name="crypto-count"]:checked');
+        if (selectedCryptoBtn) {
+            topCrypto = parseInt(selectedCryptoBtn.value);
+        }
         
         // Ottieni i valori di leva e margine dagli slider
         const leverageRange = document.getElementById('leverage-range');

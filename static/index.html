@@ -1015,45 +1015,70 @@
                                     <div class="d-flex gap-3 align-items-center">
                                         <div class="selection-container">
                                             <div class="selection-header mb-1">
-                                                <span class="selection-title">Modelli</span>
+                                                <span class="selection-title"><i class="fas fa-robot me-1"></i> Modelli</span>
                                                 <span class="selection-counter" id="models-counter">0/3</span>
                                             </div>
-                                            <div class="btn-group btn-group-sm selection-group" role="group" aria-label="Selezione Modelli">
-                                                <input type="checkbox" class="btn-check model-select" id="lstm-model" autocomplete="off">
-                                                <label class="btn btn-outline-primary" for="lstm-model" data-bs-toggle="tooltip" title="Long Short-Term Memory">LSTM</label>
+                                            <div class="models-selection-grid">
+                                                <div class="model-item">
+                                                    <input type="checkbox" class="btn-check model-select" id="lstm-model" autocomplete="off">
+                                                    <label class="btn btn-model" for="lstm-model" data-bs-toggle="tooltip" title="Long Short-Term Memory">
+                                                        <div class="model-icon"><i class="fas fa-brain"></i></div>
+                                                        <div class="model-name">LSTM</div>
+                                                    </label>
+                                                </div>
                                                 
-                                                <input type="checkbox" class="btn-check model-select" id="rf-model" autocomplete="off">
-                                                <label class="btn btn-outline-primary" for="rf-model" data-bs-toggle="tooltip" title="Random Forest">RF</label>
+                                                <div class="model-item">
+                                                    <input type="checkbox" class="btn-check model-select" id="rf-model" autocomplete="off">
+                                                    <label class="btn btn-model" for="rf-model" data-bs-toggle="tooltip" title="Random Forest">
+                                                        <div class="model-icon"><i class="fas fa-tree"></i></div>
+                                                        <div class="model-name">RF</div>
+                                                    </label>
+                                                </div>
                                                 
-                                                <input type="checkbox" class="btn-check model-select" id="xgb-model" autocomplete="off">
-                                                <label class="btn btn-outline-primary" for="xgb-model" data-bs-toggle="tooltip" title="XGBoost">XGB</label>
+                                                <div class="model-item">
+                                                    <input type="checkbox" class="btn-check model-select" id="xgb-model" autocomplete="off">
+                                                    <label class="btn btn-model" for="xgb-model" data-bs-toggle="tooltip" title="XGBoost">
+                                                        <div class="model-icon"><i class="fas fa-bolt"></i></div>
+                                                        <div class="model-name">XGB</div>
+                                                    </label>
+                                                </div>
                                             </div>
                                         </div>
                                         
                                         <div class="selection-container">
                                             <div class="selection-header mb-1">
-                                                <span class="selection-title">Timeframes</span>
+                                                <span class="selection-title"><i class="fas fa-clock me-1"></i> Timeframes</span>
                                                 <span class="selection-counter" id="timeframes-counter">0/3</span>
                                             </div>
-                                            <div class="btn-group btn-group-sm selection-group" role="group" aria-label="Selezione Timeframe">
-                                                <input type="checkbox" class="btn-check timeframe-select" id="tf-5m" autocomplete="off">
-                                                <label class="btn btn-outline-secondary" for="tf-5m" data-bs-toggle="tooltip" title="5 minuti">5m</label>
+                                            <div class="timeframes-selection-grid">
+                                                <div class="timeframe-item">
+                                                    <input type="checkbox" class="btn-check timeframe-select" id="timeframe-5m" value="5m">
+                                                    <label class="btn btn-timeframe" for="timeframe-5m">5m</label>
+                                                </div>
                                                 
-                                                <input type="checkbox" class="btn-check timeframe-select" id="tf-15m" autocomplete="off">
-                                                <label class="btn btn-outline-secondary" for="tf-15m" data-bs-toggle="tooltip" title="15 minuti">15m</label>
+                                                <div class="timeframe-item">
+                                                    <input type="checkbox" class="btn-check timeframe-select" id="timeframe-15m" value="15m">
+                                                    <label class="btn btn-timeframe" for="timeframe-15m">15m</label>
+                                                </div>
                                                 
-                                                <input type="checkbox" class="btn-check timeframe-select" id="tf-30m" autocomplete="off">
-                                                <label class="btn btn-outline-secondary" for="tf-30m" data-bs-toggle="tooltip" title="30 minuti">30m</label>
+                                                <div class="timeframe-item">
+                                                    <input type="checkbox" class="btn-check timeframe-select" id="timeframe-30m" value="30m">
+                                                    <label class="btn btn-timeframe" for="timeframe-30m">30m</label>
+                                                </div>
                                                 
-                                                <input type="checkbox" class="btn-check timeframe-select" id="tf-1h" autocomplete="off">
-                                                <label class="btn btn-outline-secondary" for="tf-1h" data-bs-toggle="tooltip" title="1 ora">1h</label>
+                                                <div class="timeframe-item">
+                                                    <input type="checkbox" class="btn-check timeframe-select" id="timeframe-1h" value="1h">
+                                                    <label class="btn btn-timeframe" for="timeframe-1h">1h</label>
+                                                </div>
                                                 
-                                                <input type="checkbox" class="btn-check timeframe-select" id="tf-4h" autocomplete="off">
-                                                <label class="btn btn-outline-secondary" for="tf-4h" data-bs-toggle="tooltip" title="4 ore">4h</label>
+                                                <div class="timeframe-item">
+                                                    <input type="checkbox" class="btn-check timeframe-select" id="timeframe-4h" value="4h">
+                                                    <label class="btn btn-timeframe" for="timeframe-4h">4h</label>
+                                                </div>
                                             </div>
                                         </div>
                                         
-                                        <button id="predictions-control-btn" class="btn btn-sm btn-success" disabled>
+                                        <button id="predictions-control-btn" class="btn btn-sm btn-gradient" disabled>
                                             <i class="fas fa-play me-1"></i> Avvia
                                         </button>
                                     </div>
@@ -1070,19 +1095,38 @@
                                         <div class="card-body">
                                             <div class="row">
                                                 <div class="col-md-12 mb-3">
-                                                    <label for="top-crypto-select" class="form-label d-flex justify-content-between">
+                                                    <label for="crypto-selection" class="form-label mb-2">
                                                         <span>Numero di criptovalute da analizzare</span>
-                                                        <span class="badge bg-primary" id="top-crypto-value">150</span>
+                                                        <span class="badge bg-primary float-end" id="top-crypto-value">50</span>
                                                     </label>
-                                                    <select class="form-select" id="top-crypto-select">
-                                                        <option value="3">3 (Minimo, più veloce)</option>
-                                                        <option value="15">15 (Leggero)</option>
-                                                        <option value="30">30 (Medio)</option>
-                                                        <option value="50">50 (Completo)</option>
-                                                        <option value="100">100 (Esteso)</option>
-                                                        <option value="150" selected>150 (Massimo)</option>
-                                                    </select>
-                                                    <div class="form-text">Maggiore è il numero, più completa sarà l'analisi ma richiederà più tempo.</div>
+                                                    <div class="crypto-selector-container">
+                                                        <div class="crypto-selector-buttons">
+                                                            <input type="radio" class="btn-check" name="crypto-count" id="crypto-10" value="10">
+                                                            <label class="btn btn-outline-primary crypto-btn" for="crypto-10">
+                                                                <span class="crypto-value">10</span>
+                                                                <span class="crypto-label">Base</span>
+                                                            </label>
+                                                            
+                                                            <input type="radio" class="btn-check" name="crypto-count" id="crypto-30" value="30">
+                                                            <label class="btn btn-outline-primary crypto-btn" for="crypto-30">
+                                                                <span class="crypto-value">30</span>
+                                                                <span class="crypto-label">Standard</span>
+                                                            </label>
+                                                            
+                                                            <input type="radio" class="btn-check" name="crypto-count" id="crypto-50" value="50" checked>
+                                                            <label class="btn btn-outline-primary crypto-btn" for="crypto-50">
+                                                                <span class="crypto-value">50</span>
+                                                                <span class="crypto-label">Completo</span>
+                                                            </label>
+                                                            
+                                                            <input type="radio" class="btn-check" name="crypto-count" id="crypto-100" value="100">
+                                                            <label class="btn btn-outline-primary crypto-btn" for="crypto-100">
+                                                                <span class="crypto-value">100</span>
+                                                                <span class="crypto-label">Pro</span>
+                                                            </label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="form-text mt-2">Maggiore è il numero, più completa sarà l'analisi ma richiederà più tempo.</div>
                                                 </div>
                                             </div>
                                             <div class="row mt-3">
@@ -1256,101 +1300,6 @@
                                             </div>
                                         </div>
                                         
-                                        <div class="initialization-progress mt-3">
-                                            <div class="progress" style="height: 4px;">
-                                                <div id="init-progress-bar" class="progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="small text-muted mt-2">
-                                        <i class="fas fa-info-circle me-1"></i> Le predizioni mostrano i segnali generati dai modelli per i top symbols. Un valore di confidence più alto indica una maggiore probabilità della direzione prevista.
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Sezione Modelli -->
-                <div id="models-section" class="section d-none">
-                    <h2>Training Modelli</h2>
-                    <div class="row mt-4">
-                        <div class="col-md-6">
-                            <div class="card">
-                                <div class="card-header">
-                                    <h5>Configurazione Training</h5>
-                                </div>
-                                <div class="card-body">
-                                    <form id="model-training-form">
-                                        <div class="mb-3">
-                                            <label for="model-type" class="form-label">Tipo di Modello</label>
-                                            <select class="form-select" id="model-type" required>
-                                                <option value="lstm">LSTM</option>
-                                                <option value="rf">Random Forest</option>
-                                                <option value="xgb">XGBoost</option>
-                                            </select>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label for="timeframe" class="form-label">Timeframe</label>
-                                            <select class="form-select" id="timeframe" required>
-                                                <option value="5m">5 minuti</option>
-                                                <option value="15m">15 minuti</option>
-                                                <option value="30m">30 minuti</option>
-                                                <option value="1h">1 ora</option>
-                                                <option value="4h">4 ore</option>
-                                            </select>
-                                        </div>
-                                        <div class="d-flex">
-                                            <button type="submit" class="btn btn-primary me-2">Train</button>
-                                            <button type="button" id="train-all-models-btn" class="btn btn-success me-2">
-                                                <i class="fas fa-tasks me-2"></i>Train di Tutti i Modelli
-                                            </button>
-                                            <button type="button" id="train-missing-models-btn" class="btn btn-warning">
-                                                <i class="fas fa-exclamation-triangle me-2"></i>Train Modelli Mancanti
-                                            </button>
-                                        </div>
-                                        <div id="train-all-progress" class="mt-3 d-none">
-                                            <div class="alert alert-info">
-                                                <div class="d-flex align-items-center">
-                                                    <div class="me-3">
-                                                        <i class="fas fa-cog fa-spin fa-2x"></i>
-                                                    </div>
-                                                    <div>
-                                                        <h5 class="mb-1" id="train-all-title">Training in sequenza...</h5>
-                                                        <p class="mb-0">Completati: <span id="completed-models">0</span>/<span id="total-models">15</span></p>
-                                                        <p class="mb-0">Modello attuale: <span id="current-model-training">-</span></p>
-                                                        <div class="progress mt-2" style="height: 5px;">
-                                                            <div id="train-all-progress-bar" class="progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </form>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="card">
-                                <div class="card-header">
-                                    <h5>Stato Training</h5>
-                                </div>
-                                <div class="card-body">
-                                    <div class="training-status-card">
-                                        <h5>Stato Training</h5>
-                                        
-                                        <!-- Informazioni sul modello in training -->
-                                        <div class="alert alert-light border d-flex align-items-center mb-3" id="current-training-info">
-                                            <div class="d-flex align-items-center">
-                                                <i class="fas fa-brain text-primary me-3 fa-2x"></i>
-                                                <div>
-                                                    <h6 class="mb-0">Modello in training:</h6>
-                                                    <p class="mb-0 fw-bold" id="current-training-model">Nessun training in corso</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        
                                         <!-- Nuova barra di progresso migliorata -->
                                         <div class="progress-tracker">
                                             <div class="progress-steps">
@@ -1418,6 +1367,229 @@
                                     </div>
 
                                     <div class="training-logs">
+                                        <h5>Log di Training</h5>
+                                        <div id="training-logs" class="logs-container"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sezione Modelli -->
+                <div id="models-section" class="section d-none">
+                    <h2>Training Modelli</h2>
+                    <!-- Layout orizzontale per configurazione e stato training -->
+                    <div class="row mt-4">
+                        <div class="col-md-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>Configurazione Training</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <!-- Colonna configurazione - resa più compatta -->
+                                        <div class="col-md-7">
+                                            <form id="model-training-form" class="d-flex flex-column">
+                                                <div class="d-flex gap-3 flex-wrap">
+                                                    <!-- Selezione Modelli (resa orizzontale) -->
+                                                    <div class="selection-container flex-grow-1">
+                                                        <div class="selection-header">
+                                                            <div class="selection-title"><i class="fas fa-robot me-2"></i> Modelli</div>
+                                                            <div id="model-counter" class="selection-counter">Seleziona almeno uno</div>
+                                                        </div>
+                                                        <div class="models-selection-grid">
+                                                            <div class="model-item">
+                                                                <input type="checkbox" class="btn-check model-select" id="model-lstm" value="lstm" checked>
+                                                                <label class="btn btn-model" for="model-lstm">
+                                                                    <div class="model-icon"><i class="fas fa-brain"></i></div>
+                                                                    <div class="model-name">LSTM</div>
+                                                                </label>
+                                                            </div>
+                                                            
+                                                            <div class="model-item">
+                                                                <input type="checkbox" class="btn-check model-select" id="model-rf" value="rf" checked>
+                                                                <label class="btn btn-model" for="model-rf">
+                                                                    <div class="model-icon"><i class="fas fa-tree"></i></div>
+                                                                    <div class="model-name">Random Forest</div>
+                                                                </label>
+                                                            </div>
+                                                            
+                                                            <div class="model-item">
+                                                                <input type="checkbox" class="btn-check model-select" id="model-xgb" value="xgb" checked>
+                                                                <label class="btn btn-model" for="model-xgb">
+                                                                    <div class="model-icon"><i class="fas fa-bolt"></i></div>
+                                                                    <div class="model-name">XGBoost</div>
+                                                                </label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <!-- Intervalli di Timeframe (reso orizzontale) -->
+                                                    <div class="selection-container flex-grow-1">
+                                                        <div class="selection-header">
+                                                            <div class="selection-title"><i class="fas fa-clock me-2"></i> Timeframes</div>
+                                                            <div id="timeframe-counter" class="selection-counter">Seleziona almeno uno</div>
+                                                        </div>
+                                                        <div class="timeframes-selection-grid">
+                                                            <div class="timeframe-item">
+                                                                <input type="checkbox" class="btn-check timeframe-select" id="timeframe-5m" value="5m">
+                                                                <label class="btn btn-timeframe" for="timeframe-5m">5m</label>
+                                                            </div>
+                                                            
+                                                            <div class="timeframe-item">
+                                                                <input type="checkbox" class="btn-check timeframe-select" id="timeframe-15m" value="15m">
+                                                                <label class="btn btn-timeframe" for="timeframe-15m">15m</label>
+                                                            </div>
+                                                            
+                                                            <div class="timeframe-item">
+                                                                <input type="checkbox" class="btn-check timeframe-select" id="timeframe-30m" value="30m">
+                                                                <label class="btn btn-timeframe" for="timeframe-30m">30m</label>
+                                                            </div>
+                                                            
+                                                            <div class="timeframe-item">
+                                                                <input type="checkbox" class="btn-check timeframe-select" id="timeframe-1h" value="1h">
+                                                                <label class="btn btn-timeframe" for="timeframe-1h">1h</label>
+                                                            </div>
+                                                            
+                                                            <div class="timeframe-item">
+                                                                <input type="checkbox" class="btn-check timeframe-select" id="timeframe-4h" value="4h">
+                                                                <label class="btn btn-timeframe" for="timeframe-4h">4h</label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Parametri di Training in layout orizzontale -->
+                                                <div class="d-flex gap-3 mt-3 flex-wrap">
+                                                    <!-- Giorni di Dati (reso come criptovalute) -->
+                                                    <div class="selection-container flex-grow-1">
+                                                        <div class="selection-header">
+                                                            <div class="selection-title"><i class="fas fa-calendar-alt me-2"></i> Giorni di Dati</div>
+                                                            <div id="days-value" class="selection-counter badge bg-primary">30</div>
+                                                        </div>
+                                                        <div class="btn-group d-flex flex-wrap crypto-train-selection" role="group">
+                                                            <input type="radio" class="btn-check" name="data-limit-days" id="days-10" value="10">
+                                                            <label class="btn btn-outline-primary" for="days-10">10</label>
+                                                            
+                                                            <input type="radio" class="btn-check" name="data-limit-days" id="days-30" value="30" checked>
+                                                            <label class="btn btn-outline-primary" for="days-30">30</label>
+                                                            
+                                                            <input type="radio" class="btn-check" name="data-limit-days" id="days-60" value="60">
+                                                            <label class="btn btn-outline-primary" for="days-60">60</label>
+                                                            
+                                                            <input type="radio" class="btn-check" name="data-limit-days" id="days-90" value="90">
+                                                            <label class="btn btn-outline-primary" for="days-90">90</label>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <div class="selection-container flex-grow-1">
+                                                        <div class="selection-header">
+                                                            <div class="selection-title"><i class="fas fa-coins me-2"></i> Criptovalute</div>
+                                                            <div id="train-crypto-counter" class="selection-counter badge bg-primary">30</div>
+                                                        </div>
+                                                        <div class="btn-group d-flex flex-wrap crypto-train-selection" role="group">
+                                                            <input type="radio" class="btn-check" name="train-crypto-count" id="train-crypto-10" value="10">
+                                                            <label class="btn btn-outline-primary" for="train-crypto-10">10</label>
+                                                            
+                                                            <input type="radio" class="btn-check" name="train-crypto-count" id="train-crypto-30" value="30" checked>
+                                                            <label class="btn btn-outline-primary" for="train-crypto-30">30</label>
+                                                            
+                                                            <input type="radio" class="btn-check" name="train-crypto-count" id="train-crypto-50" value="50">
+                                                            <label class="btn btn-outline-primary" for="train-crypto-50">50</label>
+                                                            
+                                                            <input type="radio" class="btn-check" name="train-crypto-count" id="train-crypto-100" value="100">
+                                                            <label class="btn btn-outline-primary" for="train-crypto-100">100</label>
+                                                        </div>
+                                                    </div>
+                                                
+                                                    <!-- Pulsante submit rimosso -->
+                                                </div>
+                                            </form>
+                                        </div>
+                                        
+                                        <!-- Colonna stato training -->
+                                        <div class="col-md-5">
+                                            <div class="training-status-card">
+                                                <!-- Info coda di training -->
+                                                <div id="queue-info" class="mb-2"></div>
+                                                
+                                                <!-- Stato attuale -->
+                                                <div class="alert alert-light mb-2" id="current-training-info">
+                                                    <strong>Modello:</strong> <span id="current-training-model">Nessun training in corso</span>
+                                                </div>
+                                                
+                                                <!-- Terminale progresso -->
+                                                <div class="terminal-progress-container" style="display: none;">
+                                                    <div id="terminal-progress-text" class="font-monospace">Inizializzazione...</div>
+                                                </div>
+                                                
+                                                <!-- Metriche finali -->
+                                                <div id="training-metrics" class="d-none">
+                                                    <h6><i class="fas fa-chart-line me-2"></i> Metriche Finali</h6>
+                                                    <div id="metrics-content"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Pulsante di avvio training centralizzato -->
+                                    <div class="d-flex justify-content-center my-3">
+                                        <button type="submit" id="train-model-btn" class="btn btn-lg btn-gradient">
+                                            <i class="fas fa-graduation-cap me-2"></i>Avvia Training
+                                        </button>
+                                    </div>
+                                    
+                                    <!-- Barra di progresso orizzontale - riposizionata -->
+                                    <div class="progress-tracker mt-3">
+                                        <div class="progress-steps">
+                                            <div class="progress-bar-bg"></div>
+                                            <div id="progress-bar-fill" class="progress-bar-fill"></div>
+                                            
+                                            <div id="step-init" class="step">
+                                                <div class="step-icon">
+                                                    <i class="fas fa-play"></i>
+                                                </div>
+                                                <div class="step-label">Inizio</div>
+                                                <div class="step-details" id="step-init-details"></div>
+                                            </div>
+                                            
+                                            <div id="step-data" class="step">
+                                                <div class="step-icon">
+                                                    <i class="fas fa-database"></i>
+                                                </div>
+                                                <div class="step-label">Dati</div>
+                                                <div class="step-details" id="step-data-details">Recupero volumi</div>
+                                            </div>
+                                            
+                                            <div id="step-prep" class="step">
+                                                <div class="step-icon">
+                                                    <i class="fas fa-table"></i>
+                                                </div>
+                                                <div class="step-label">Preparazione</div>
+                                                <div class="step-details" id="step-prep-details">Elaborazione features</div>
+                                            </div>
+                                            
+                                            <div id="step-train" class="step">
+                                                <div class="step-icon">
+                                                    <i class="fas fa-cogs"></i>
+                                                </div>
+                                                <div class="step-label">Training</div>
+                                                <div class="step-details" id="step-train-details">Addestramento modello</div>
+                                            </div>
+                                            
+                                            <div id="step-complete" class="step">
+                                                <div class="step-icon">
+                                                    <i class="fas fa-check"></i>
+                                                </div>
+                                                <div class="step-label">Completato</div>
+                                                <div class="step-details" id="step-complete-details"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Log di training sotto al resto -->
+                                    <div class="training-logs mt-3">
                                         <h5>Log di Training</h5>
                                         <div id="training-logs" class="logs-container"></div>
                                     </div>

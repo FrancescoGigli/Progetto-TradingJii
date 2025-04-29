@@ -30,7 +30,7 @@ class ModelConfig(BaseModel):
 
 class TradingConfig(BaseModel):
     excluded_symbols: List[str] = app_state.excluded_symbols
-    top_train_crypto: int = app_state.top_train_crypto
+    top_train_crypto: int = 50
     top_analysis_crypto: int = app_state.top_analysis_crypto
     trade_cycle_interval: int = app_state.trade_cycle_interval
     train_if_not_found: bool = app_state.train_if_not_found

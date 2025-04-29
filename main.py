@@ -73,6 +73,67 @@ def normalize_weights(raw_weights):
 
 normalized_weights = normalize_weights(raw_weights)
 
+# Funzione per verificare quali modelli mancano
+def check_missing_models(timeframes, models):
+    missing_models = {}
+    for tf in timeframes:
+        missing_for_tf = []
+        
+        if 'lstm' in models and not os.path.exists(get_lstm_model_file(tf)):
+            missing_for_tf.append('lstm')
+            
+        if 'rf' in models and not os.path.exists(get_rf_model_file(tf)):
+            missing_for_tf.append('rf')
+            
+        if 'xgb' in models and not os.path.exists(get_xgb_model_file(tf)):
+            missing_for_tf.append('xgb')
+            
+        if missing_for_tf:
+            missing_models[tf] = missing_for_tf
+            
+    return missing_models
+
+# Funzione per selezionare modelli da trainare interattivamente
+def select_models_to_train(missing_models):
+    if not missing_models:
+        print(colored("✅ Tutti i modelli sono già addestrati!", "green"))
+        return {}
+    
+    print(colored("\n=== MODELLI MANCANTI ===", "yellow"))
+    timeframes = list(missing_models.keys())
+    
+    for i, tf in enumerate(timeframes):
+        print(f"{i+1}. Timeframe {tf}: {', '.join(missing_models[tf])}")
+    
+    print("\nOpzioni:")
+    print("A. Addestra tutti i modelli mancanti")
+    print("S. Seleziona specifici modelli da addestrare")
+    print("N. Non addestrare nessun modello (avvia solo il bot)")
+    
+    choice = input("\nScelta [A/S/N]: ").strip().upper()
+    
+    if choice == 'N':
+        return {}
+        
+    if choice == 'A':
+        return missing_models
+        
+    if choice == 'S':
+        selected = {}
+        
+        for tf in timeframes:
+            print(f"\nTimeframe {tf}:")
+            for model in missing_models[tf]:
+                train_it = input(f"Addestrare il modello {model.upper()}? [s/n]: ").strip().lower() == 's'
+                if train_it:
+                    selected.setdefault(tf, []).append(model)
+        
+        return selected
+        
+    # Default: addestra tutto se input non valido
+    print(colored("Input non valido, verranno addestrati tutti i modelli mancanti.", "yellow"))
+    return missing_models
+
 # --- Funzioni ausiliarie ---
 async def countdown_timer(duration):
     for remaining in tqdm(range(duration, 0, -1), desc="Attesa ciclo successivo", ncols=80, ascii=True):
@@ -197,9 +258,38 @@ async def trade_signals():
             logging.info(colored(f"Aspettando {wait_time} secondi prima di riprovare...", "yellow"))
             await asyncio.sleep(wait_time)
 
+# Funzione asincrona per addestrare un singolo modello
+async def train_model(exchange, symbols, model_type, timeframe):
+    logging.info(colored(f"Avvio training {model_type.upper()} per timeframe {timeframe}...", "cyan"))
+    
+    try:
+        if model_type == 'lstm':
+            model, scaler, _ = await train_lstm_model_for_timeframe(
+                exchange, symbols, timeframe=timeframe, timestep=TIME_STEPS)
+            model_path = get_lstm_model_file(timeframe)
+            
+        elif model_type == 'rf':
+            model, scaler, _ = await train_random_forest_model_wrapper(
+                symbols, exchange, timestep=TIME_STEPS, timeframe=timeframe)
+            model_path = get_rf_model_file(timeframe)
+            
+        elif model_type == 'xgb':
+            model, scaler, _ = await train_xgboost_model_wrapper(
+                symbols, exchange, timestep=TIME_STEPS, timeframe=timeframe)
+            model_path = get_xgb_model_file(timeframe)
+            
+        logging.info(colored(f"✅ Training {model_type.upper()} per {timeframe} completato! Modello salvato in {model_path}", "green"))
+        return model, scaler
+    except Exception as e:
+        logging.error(colored(f"❌ Errore durante il training {model_type.upper()} per {timeframe}: {e}", "red"))
+        return None, None
+
 # --- Funzione Main ---
 async def main():
     global async_exchange, lstm_models, lstm_scalers, rf_models, rf_scalers, xgb_models, xgb_scalers, min_amounts
+
+    print(colored("\n=== TRADING JII - SISTEMA DI TRADING ALGORITMICO ===", "cyan"))
+    print(colored("Inizializzazione...", "yellow"))
 
     async_exchange = ccxt_async.bybit(exchange_config)
     await async_exchange.load_markets()
@@ -215,43 +305,87 @@ async def main():
 
         top_symbols_analysis = await get_top_symbols(async_exchange, all_symbols_analysis, top_n=TOP_ANALYSIS_CRYPTO)
         
-        # Verifichiamo prima se tutti i modelli esistono già
-        models_exist = True
-        for tf in ENABLED_TIMEFRAMES:
-            # Verifica l'esistenza dei file dei modelli
-            if ('lstm' in selected_models and not os.path.exists(get_lstm_model_file(tf))) or \
-               ('rf' in selected_models and not os.path.exists(get_rf_model_file(tf))) or \
-               ('xgb' in selected_models and not os.path.exists(get_xgb_model_file(tf))):
-                models_exist = False
-                break
+        # Controlla quali modelli mancano
+        missing_models = check_missing_models(ENABLED_TIMEFRAMES, selected_models)
         
-        # Solo se i modelli non esistono e TRAIN_IF_NOT_FOUND è True, allora scarica i dati per il training
-        if not models_exist and TRAIN_IF_NOT_FOUND:
-            logging.info(colored("Modelli non trovati. Scarico dati per il training...", "yellow"))
-            top_symbols_training = await get_top_symbols(async_exchange, all_symbols, top_n=TOP_TRAIN_CRYPTO)
+        if missing_models:
+            print(colored(f"Alcuni modelli non sono stati trovati per i timeframe: {', '.join(missing_models.keys())}", "yellow"))
             
-            # Validazione dei dati prima del training
-            for symbol in top_symbols_training[:]:
-                for tf in ENABLED_TIMEFRAMES:
-                    df = await fetch_and_save_data(async_exchange, symbol, tf)
-                    if df is not None and (df.isnull().any().any() or np.isinf(df).any().any()):
-                        logging.warning(f"Removing {symbol} from training set due to invalid data")
-                        top_symbols_training.remove(symbol)
-                        break
-                        
-            logging.info(f"{colored('Numero di monete per il training:', 'cyan')} {colored(str(len(top_symbols_training)), 'yellow')}")
+            # Chiedi all'utente quali modelli vuole trainare
+            models_to_train = select_models_to_train(missing_models)
+            
+            if models_to_train:
+                print(colored("\nPreparazione per il training dei modelli selezionati...", "cyan"))
+                
+                # Prepara i dati per il training solo se necessario
+                top_symbols_training = await get_top_symbols(async_exchange, all_symbols, top_n=TOP_TRAIN_CRYPTO)
+                
+                # Validazione dei dati prima del training
+                validated_symbols = []
+                print(colored("Validazione dei dati per il training...", "cyan"))
+                
+                for i, symbol in enumerate(top_symbols_training):
+                    valid = True
+                    print(f"Verificando {symbol} ({i+1}/{len(top_symbols_training)})...", end="\r")
+                    
+                    for tf in ENABLED_TIMEFRAMES:
+                        df = await fetch_and_save_data(async_exchange, symbol, tf)
+                        if df is None or df.isnull().any().any() or np.isinf(df).any().any():
+                            valid = False
+                            break
+                    
+                    if valid:
+                        validated_symbols.append(symbol)
+                
+                print(" " * 80, end="\r")  # Clear the line
+                print(colored(f"✅ Dati validati: {len(validated_symbols)}/{len(top_symbols_training)} simboli utilizzabili", "green"))
+                
+                # Se non ci sono abbastanza simboli validi, avvisa l'utente
+                if len(validated_symbols) < 10:
+                    proceed = input(colored(f"ATTENZIONE: Solo {len(validated_symbols)} simboli validi trovati. Continuare? [s/n]: ", "red")).strip().lower() == 's'
+                    if not proceed:
+                        print(colored("Training annullato dall'utente.", "red"))
+                        models_to_train = {}
+                
+                # Training dei modelli selezionati
+                if models_to_train:
+                    print(colored("\nInizio training dei modelli...", "cyan"))
+                    ensure_trained_models_dir()
+                    
+                    # Initialize models and scalers
+                    lstm_models = {}
+                    lstm_scalers = {}
+                    rf_models = {}
+                    rf_scalers = {}
+                    xgb_models = {}
+                    xgb_scalers = {}
+                    
+                    # Train models in sequence
+                    for tf in models_to_train:
+                        for model_type in models_to_train[tf]:
+                            model, scaler = await train_model(async_exchange, validated_symbols, model_type, tf)
+                            
+                            if model is not None:
+                                if model_type == 'lstm':
+                                    lstm_models[tf] = model
+                                    lstm_scalers[tf] = scaler
+                                elif model_type == 'rf':
+                                    rf_models[tf] = model
+                                    rf_scalers[tf] = scaler
+                                elif model_type == 'xgb':
+                                    xgb_models[tf] = model
+                                    xgb_scalers[tf] = scaler
+            else:
+                print(colored("Nessun modello selezionato per il training.", "yellow"))
+                # Imposta TRAIN_IF_NOT_FOUND a False per evitare errori
+                app_state.train_if_not_found = False
         else:
-            logging.info(colored("Tutti i modelli esistono già. Salto la fase di download dati per il training.", "green"))
+            print(colored("✅ Tutti i modelli sono già presenti sul disco.", "green"))
             top_symbols_training = []  # Nessuna moneta per il training se i modelli esistono
 
-        logging.info(f"{colored('Numero di monete per analisi operativa:', 'cyan')} {colored(str(len(top_symbols_analysis)), 'yellow')}")
-
-        min_amounts = await fetch_min_amounts(async_exchange, top_symbols_analysis, markets)
-
-        # Ensure trained_models directory exists
-        ensure_trained_models_dir()
+        print(colored("\nCaricamento modelli...", "cyan"))
         
-        # Initialize models and scalers
+        # Load models
         lstm_models = {}
         lstm_scalers = {}
         rf_models = {}
@@ -292,12 +426,19 @@ async def main():
                 else:
                     raise Exception(f"XGBoost model for timeframe {tf} not available. Train models first.")
 
-        logging.info(colored("Modelli caricati da disco o allenati per tutti i timeframe abilitati.", "magenta"))
+        print(colored("✅ Modelli caricati con successo!", "green"))
+        
+        min_amounts = await fetch_min_amounts(async_exchange, top_symbols_analysis, markets)
         await load_existing_positions(async_exchange)
 
         trade_count = len(top_symbols_analysis)
-        logging.info(f"{colored('Numero totale di trade stimati (basato sui simboli per analisi):', 'cyan')} {colored(str(trade_count), 'yellow')}")
-
+        print(colored(f"\n=== TRADING BOT PRONTO ===", "cyan"))
+        print(f"• Timeframes attivi: {', '.join(ENABLED_TIMEFRAMES)}")
+        print(f"• Modelli utilizzati: {', '.join(selected_models)}")
+        print(f"• Simboli per analisi: {trade_count}")
+        print(f"• Intervallo ciclo trading: {TRADE_CYCLE_INTERVAL} secondi")
+        
+        print(colored("\nAvvio del bot di trading...", "green"))
         await asyncio.gather(
             trade_signals(),
             monitor_open_trades(async_exchange)

@@ -2,25 +2,78 @@
 import asyncio
 import logging
 import pandas as pd
+import random
+import time
 from datetime import datetime, timedelta
 from config import TIMEFRAME_DEFAULT, DATA_LIMIT_DAYS, TOP_ANALYSIS_CRYPTO
 from termcolor import colored
 
+# Rate limiting e backoff esponenziale
+MAX_RETRIES = 5
+BASE_DELAY = 0.5  # Delay base in secondi
+REQUEST_DELAY = 0.25  # Ritardo minimo tra richieste sequenziali
+MAX_CONCURRENT_REQUESTS = 5  # Massimo numero di richieste concorrenti
+
+# Semaforo per limitare richieste concorrenti
+api_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+
+async def fetch_with_backoff(fetch_func, *args, **kwargs):
+    """Wrapper per richieste API con backoff esponenziale."""
+    retry = 0
+    while retry < MAX_RETRIES:
+        try:
+            # Acquisisci il semaforo per limitare le richieste concorrenti
+            async with api_semaphore:
+                # Aggiungi un ritardo casuale per evitare burst di richieste
+                await asyncio.sleep(REQUEST_DELAY + random.random() * 0.2)
+                return await fetch_func(*args, **kwargs)
+        except Exception as e:
+            retry += 1
+            if "throttle" in str(e).lower() or "rate limit" in str(e).lower():
+                # Backoff esponenziale con jitter
+                delay = BASE_DELAY * (2 ** retry) + random.random()
+                logging.warning(f"Rate limit hit, retrying in {delay:.2f}s... ({retry}/{MAX_RETRIES})")
+                await asyncio.sleep(delay)
+            else:
+                if retry >= MAX_RETRIES:
+                    logging.error(f"Failed after {MAX_RETRIES} retries: {e}")
+                    raise
+                # Per altri errori, ritenta con un backoff più breve
+                delay = BASE_DELAY * retry + random.random()
+                logging.warning(f"Error: {e}, retrying in {delay:.2f}s... ({retry}/{MAX_RETRIES})")
+                await asyncio.sleep(delay)
+    
+    raise Exception(f"Failed after {MAX_RETRIES} retries")
+
 async def fetch_markets(exchange):
-    return await exchange.load_markets()
+    return await fetch_with_backoff(exchange.load_markets)
 
 async def fetch_ticker_volume(exchange, symbol):
     try:
-        ticker = await exchange.fetch_ticker(symbol)
+        ticker = await fetch_with_backoff(exchange.fetch_ticker, symbol)
         return symbol, ticker.get('quoteVolume')
     except Exception as e:
         logging.error(f"Error fetching ticker volume for {symbol}: {e}")
         return symbol, None
 
 async def get_top_symbols(exchange, symbols, top_n=TOP_ANALYSIS_CRYPTO):
-    tasks = [fetch_ticker_volume(exchange, symbol) for symbol in symbols]
-    results = await asyncio.gather(*tasks)
-    symbol_volumes = [(symbol, volume) for symbol, volume in results if volume is not None]
+    # Dividi i simboli in batch per evitare troppe richieste simultanee
+    batch_size = MAX_CONCURRENT_REQUESTS * 2
+    all_results = []
+    
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i:i+batch_size]
+        logging.info(f"Fetching batch {i//batch_size + 1}/{(len(symbols) + batch_size - 1)//batch_size} of symbols ({len(batch)} symbols)")
+        
+        tasks = [fetch_ticker_volume(exchange, symbol) for symbol in batch]
+        batch_results = await asyncio.gather(*tasks)
+        all_results.extend(batch_results)
+        
+        # Breve pausa tra i batch
+        if i + batch_size < len(symbols):
+            await asyncio.sleep(1)
+    
+    symbol_volumes = [(symbol, volume) for symbol, volume in all_results if volume is not None]
     symbol_volumes.sort(key=lambda x: x[1], reverse=True)
     return [x[0] for x in symbol_volumes[:top_n]]
 
@@ -34,7 +87,7 @@ async def fetch_min_amounts(exchange, top_symbols, markets):
     return min_amounts
 
 async def get_data_async(exchange, symbol, timeframe=TIMEFRAME_DEFAULT, limit=1000):
-    """Scarica OHLCV grezzi; non aggiunge indicatori."""
+    """Scarica OHLCV grezzi con gestione del rate limit."""
     ohlcv_all = []
     since_dt = datetime.utcnow() - timedelta(days=DATA_LIMIT_DAYS)
     since = int(since_dt.timestamp() * 1000)
@@ -42,10 +95,19 @@ async def get_data_async(exchange, symbol, timeframe=TIMEFRAME_DEFAULT, limit=10
 
     while True:
         try:
-            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, since=since)
+            ohlcv = await fetch_with_backoff(
+                exchange.fetch_ohlcv,
+                symbol, 
+                timeframe=timeframe, 
+                limit=limit, 
+                since=since
+            )
         except Exception as e:
             logging.error(f"Error fetching ohlcv for {symbol}: {e}")
+            # Se fallisce dopo tutti i tentativi, ritorna eventuali dati raccolti 
+            # o None se non ce ne sono
             break
+            
         if not ohlcv:
             break
 

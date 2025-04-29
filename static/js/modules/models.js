@@ -7,6 +7,8 @@ import { createComparisonChart } from './charts.js';
 let modelMetricsData = {};
 let currentMetric = 'accuracy';
 let trainingInProgress = false;
+let trainingQueue = []; // Coda per il training di più modelli
+let currentQueueItem = null; // Elemento corrente in elaborazione dalla coda
 
 // Funzione per controllare lo stato di tutti i modelli
 export async function checkAllModelsStatus() {
@@ -396,55 +398,135 @@ export async function handleTrainingFormSubmit(e) {
     }
     
     try {
-        // Configura le credenziali API se non sono già state configurate
-        const apiKey = localStorage.getItem('apiKey');
-        const apiSecret = localStorage.getItem('apiSecret');
-        if (apiKey && apiSecret) {
-            setupApiService(apiKey, apiSecret);
-        } else {
-            showAlert('Errore: Credenziali API non configurate', 'danger');
+        // Ottieni i timeframe selezionati - Correggo il selettore per prendere i checkbox corretti
+        const selectedTimeframes = Array.from(document.querySelectorAll('input.timeframe-select:checked'))
+            .map(checkbox => checkbox.value);
+        
+        // Ottieni i modelli selezionati - Correggo il selettore per prendere i checkbox corretti
+        const selectedModels = Array.from(document.querySelectorAll('input.model-select:checked'))
+            .map(checkbox => checkbox.value);
+        
+        console.log('Timeframes selezionati:', selectedTimeframes);
+        console.log('Modelli selezionati:', selectedModels);
+        
+        // Verifica che ci sia almeno un timeframe e un modello selezionato
+        if (selectedTimeframes.length === 0) {
+            showAlert('Seleziona almeno un intervallo di tempo', 'warning');
             return;
         }
         
-        const modelType = document.getElementById('model-type')?.value;
-        const timeframe = document.getElementById('timeframe')?.value;
-        // Utilizziamo valori fissi invece di quelli dinamici
-        const dataLimitDays = 50;  // Valore fisso: 50 giorni
-        const topTrainCrypto = 100; // Valore fisso: 100 criptovalute
-        
-        console.log('Parametri di training:', { modelType, timeframe, dataLimitDays, topTrainCrypto });
-        
-        if (!modelType || !timeframe) {
-            console.error('Parametri mancanti', { modelType, timeframe });
-            showAlert('Errore: Parametri mancanti per il training.', 'danger');
+        if (selectedModels.length === 0) {
+            showAlert('Seleziona almeno un modello da addestrare', 'warning');
             return;
         }
         
-        // Imposta lo stato del training
+        // Ottieni gli altri parametri
+        const dataLimitDays = parseInt(document.getElementById('data-limit-days').value);
+        
+        // Ottieni il valore selezionato dai pulsanti radio per il numero di criptovalute
+        let topTrainCrypto = 30; // Valore predefinito
+        const selectedTrainCryptoBtn = document.querySelector('input[name="train-crypto-count"]:checked');
+        if (selectedTrainCryptoBtn) {
+            topTrainCrypto = parseInt(selectedTrainCryptoBtn.value);
+        }
+        
+        console.log('Parametri di training:', { 
+            selectedModels, 
+            selectedTimeframes, 
+            dataLimitDays, 
+            topTrainCrypto 
+        });
+        
+        // Prepara la coda di training
+        prepareTrainingQueue(selectedModels, selectedTimeframes, dataLimitDays, topTrainCrypto);
+        
+        // Avvia il processo di training
         trainingInProgress = true;
+        processTrainingQueue();
         
-        // Reset UI e nascondo gli elementi iniziali
-        updateTrainingProgress(0);
-        const statusElement = document.getElementById('training-status');
-        if (statusElement) {
-            statusElement.style.display = 'none';
+    } catch (error) {
+        console.error('Errore durante il training:', error);
+        updateTrainingStatus('Errore', 'danger');
+        updateTerminalProgress(0, "Errore");
+        
+        // Reset dello stato del training
+        trainingInProgress = false;
+    }
+}
+
+// Funzione per preparare la coda di training con tutte le combinazioni
+function prepareTrainingQueue(models, timeframes, dataLimitDays, topTrainCrypto) {
+    trainingQueue = [];
+    
+    // Per ogni combinazione di modello e timeframe, crea un elemento nella coda
+    for (const modelType of models) {
+        for (const timeframe of timeframes) {
+            trainingQueue.push({
+                modelType,
+                timeframe,
+                dataLimitDays,
+                topTrainCrypto
+            });
         }
-        document.getElementById('training-logs').innerHTML = '';
+    }
+    
+    // Aggiorna l'interfaccia con informazioni sulla coda
+    updateQueueInfo();
+}
+
+// Funzione per aggiornare l'interfaccia con informazioni sulla coda
+function updateQueueInfo() {
+    // Se esistono gli elementi appropriati, aggiorna le informazioni sulla coda
+    const queueInfoElement = document.getElementById('queue-info');
+    
+    if (queueInfoElement) {
+        queueInfoElement.innerHTML = `
+            <div class="alert alert-info">
+                <h6><i class="fas fa-list-check me-2"></i>Coda di Training</h6>
+                <p class="mb-0">Modelli in coda: ${trainingQueue.length}</p>
+                ${currentQueueItem ? `<p class="mb-0">In corso: ${getModelTypeName(currentQueueItem.modelType)} - ${currentQueueItem.timeframe}</p>` : ''}
+            </div>
+        `;
+    }
+}
+
+// Funzione per elaborare la coda di training
+async function processTrainingQueue() {
+    // Se la coda è vuota, termina il processo
+    if (trainingQueue.length === 0) {
+        trainingInProgress = false;
+        currentQueueItem = null;
+        updateQueueInfo();
+        showAlert('Training completato per tutti i modelli selezionati', 'success');
         
-        // Aggiorna l'informazione sul modello in training
-        updateCurrentTrainingModel(modelType, timeframe);
+        // Aggiorna la tabella dello stato dei modelli
+        checkAllModelsStatus();
+        return;
+    }
+    
+    // Prendi il prossimo elemento dalla coda
+    currentQueueItem = trainingQueue.shift();
+    updateQueueInfo();
+    
+    // Aggiorna l'interfaccia con il modello corrente
+    updateCurrentTrainingModel(currentQueueItem.modelType, currentQueueItem.timeframe);
+    
+    // Reset UI per nuovo training
+    updateTrainingProgress(0);
+    document.getElementById('training-logs').innerHTML = '';
+    
+    // Inizializza il timestamp di avvio
+    window.trainingStartTime = Date.now();
+    updateTerminalProgress(0, "Inizializzazione");
+    
+    try {
+        console.log(`Invio richiesta a /train-model per ${currentQueueItem.modelType} - ${currentQueueItem.timeframe}`);
         
-        // Inizializza il timestamp di avvio
-        window.trainingStartTime = Date.now();
-        updateTerminalProgress(0, "Inizializzazione");
-        
-        console.log(`Invio richiesta a /api/train-model`);
-        
-        const response = await makeApiRequest('/api/train-model', 'POST', {
-            model_type: modelType,
-            timeframe: timeframe,
-            data_limit_days: dataLimitDays,
-            top_train_crypto: topTrainCrypto
+        const response = await makeApiRequest('/train-model', 'POST', {
+            model_type: currentQueueItem.modelType,
+            timeframe: currentQueueItem.timeframe,
+            data_limit_days: currentQueueItem.dataLimitDays,
+            top_train_crypto: currentQueueItem.topTrainCrypto
         });
         
         if (!response) {
@@ -455,11 +537,7 @@ export async function handleTrainingFormSubmit(e) {
         let progress = 0;
         const pollInterval = setInterval(async () => {
             try {
-                // Codifica i parametri per l'URL
-                const encodedModelType = encodeURIComponent(modelType);
-                const encodedTimeframe = encodeURIComponent(timeframe);
-                
-                const statusResponse = await makeApiRequest(`/api/training-status/${encodedModelType}/${encodedTimeframe}`);
+                const statusResponse = await makeApiRequest(`/training-status/${response.task_id}`);
                 
                 if (!statusResponse) {
                     throw new Error('Errore nel recupero dello stato del training');
@@ -476,21 +554,18 @@ export async function handleTrainingFormSubmit(e) {
                     
                     // Aggiorna le metriche se disponibili
                     if (statusResponse.metrics) {
-                        displayMetrics(statusResponse.metrics, modelType, timeframe);
+                        displayMetrics(statusResponse.metrics, currentQueueItem.modelType, currentQueueItem.timeframe);
                     }
                     
                     // Aggiorna lo stato del modello appena addestrato
-                    const modelCell = document.getElementById(`${modelType}-${timeframe}`);
+                    const modelCell = document.getElementById(`${currentQueueItem.modelType}-${currentQueueItem.timeframe}`);
                     if (modelCell) {
                         modelCell.innerHTML = '<i class="fas fa-check-circle text-success me-2"></i> Disponibile';
                         modelCell.className = "model-status model-available";
                     }
                     
-                    // Aggiorna il grafico delle metriche dopo l'addestramento
-                    loadModelMetrics();
-                    
-                    // Reset dello stato del training
-                    trainingInProgress = false;
+                    // Processa il prossimo modello nella coda
+                    setTimeout(() => processTrainingQueue(), 1000);
                 } else if (statusResponse.status === 'error') {
                     clearInterval(pollInterval);
                     updateTrainingStatus('Errore', 'danger');
@@ -499,8 +574,8 @@ export async function handleTrainingFormSubmit(e) {
                     // Aggiorna l'informazione sul modello in errore
                     resetCurrentTrainingModel('error');
                     
-                    // Reset dello stato del training
-                    trainingInProgress = false;
+                    // Processa il prossimo modello nella coda, anche in caso di errore
+                    setTimeout(() => processTrainingQueue(), 1000);
                 } else {
                     // Aggiorna progresso
                     progress = statusResponse.progress || progress;
@@ -531,8 +606,8 @@ export async function handleTrainingFormSubmit(e) {
                 updateTerminalProgress(0, "Errore");
                 console.error('Errore nel monitoraggio del training:', error);
                 
-                // Reset dello stato del training
-                trainingInProgress = false;
+                // Processa il prossimo modello nella coda, anche in caso di errore
+                setTimeout(() => processTrainingQueue(), 1000);
             }
         }, 2000); // Polling ogni 2 secondi
 
@@ -541,8 +616,8 @@ export async function handleTrainingFormSubmit(e) {
         updateTrainingStatus('Errore', 'danger');
         updateTerminalProgress(0, "Errore");
         
-        // Reset dello stato del training
-        trainingInProgress = false;
+        // Processa il prossimo modello nella coda, anche in caso di errore
+        setTimeout(() => processTrainingQueue(), 1000);
     }
 }
 
@@ -735,8 +810,8 @@ function updateTrainingStatus(status, type) {
     }
 }
 
-// Funzione per aggiornare il terminale con informazioni più semplici
-function updateTerminalProgress(progress, currentStep, totalItems = 0, currentItem = 0) {
+// Aggiungi funzione per gestire il terminale di progresso
+function updateTerminalProgress(progress, currentStep, totalItems = 0, currentItem = 0, modelType = '', timeframe = '') {
     const progressElement = document.getElementById('terminal-progress-text');
     if (!progressElement) return;
     
@@ -748,27 +823,31 @@ function updateTerminalProgress(progress, currentStep, totalItems = 0, currentIt
         progressElement.parentElement.style.display = 'block';
     }
     
-    // Formatta il messaggio in modo più semplice, senza percentuali o tempi
+    // Ottieni informazioni sul modello corrente
+    modelType = currentQueueItem ? currentQueueItem.modelType : modelType;
+    timeframe = currentQueueItem ? currentQueueItem.timeframe : timeframe;
+    
+    // Formatta il messaggio con informazioni sul modello e sulla fase
     let stepDescription = currentStep || "Elaborazione";
     
     // Determina la fase attiva e una descrizione più dettagliata
     if (progress < 10) {
-        stepDescription = "Inizializzazione";
+        stepDescription = `Inizializzazione ${getModelTypeName(modelType)} - ${timeframe}`;
     } else if (progress < 40) {
-        stepDescription = "Recupero dati";
+        stepDescription = `Recupero dati ${timeframe}`;
         updateStepDetails('data', 'Recupero dati in corso');
     } else if (progress < 60) {
-        stepDescription = "Preparazione dati";
+        stepDescription = `Preparazione dati per ${getModelTypeName(modelType)}`;
         updateStepDetails('prep', 'Elaborazione features');
     } else if (progress < 100) {
-        stepDescription = "Training modello";
+        stepDescription = `Training ${getModelTypeName(modelType)} - ${timeframe} (${progress}%)`;
         updateStepDetails('train', 'Addestramento in corso');
     } else {
-        stepDescription = "Completato";
+        stepDescription = `Completato ${getModelTypeName(modelType)} - ${timeframe}`;
         updateStepDetails('complete', 'Modello addestrato');
     }
     
-    // Crea il messaggio finale semplificato
+    // Crea il messaggio finale
     progressElement.textContent = stepDescription;
 }
 
@@ -830,8 +909,48 @@ function getModelTypeName(modelType) {
 export function setupModelsEventListeners() {
     // Aggiungi event listener per il form di training
     const trainingForm = document.getElementById('model-training-form');
+    console.log('Training form trovato:', !!trainingForm);
+    
     if (trainingForm) {
+        console.log('Aggiungo event listener al form di training');
+        
+        // Inizializza i nuovi controlli dell'interfaccia migliorata
+        initializeImprovedUI();
+        
         trainingForm.addEventListener('submit', handleTrainingFormSubmit);
+        
+        // Aggiungo anche un event listener al pulsante per debug
+        const trainButton = document.getElementById('train-model-btn');
+        if (trainButton) {
+            console.log('Pulsante di training trovato, aggiungo listener di click');
+            trainButton.addEventListener('click', function(e) {
+                console.log('Pulsante di training cliccato!');
+            });
+        } else {
+            console.error('Pulsante di training non trovato!');
+        }
+    }
+    
+    // Aggiungi event listener per i timeframe
+    const timeframeCheckboxes = document.querySelectorAll('input.timeframe-select');
+    console.log('Timeframe checkboxes trovati:', timeframeCheckboxes.length);
+    
+    if (timeframeCheckboxes.length > 0) {
+        timeframeCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', updateTimeframeCounter);
+        });
+        updateTimeframeCounter(); // Inizializza il contatore
+    }
+    
+    // Aggiungi event listener per i modelli
+    const modelCheckboxes = document.querySelectorAll('input.model-select');
+    console.log('Model checkboxes trovati:', modelCheckboxes.length);
+    
+    if (modelCheckboxes.length > 0) {
+        modelCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', updateModelCounter);
+        });
+        updateModelCounter(); // Inizializza il contatore
     }
 
     // Aggiungi event listener per i pulsanti delle metriche
@@ -864,4 +983,80 @@ export function setupModelsEventListeners() {
     document.addEventListener('models-selected', () => {
         checkAllModelsStatus();
     });
+}
+
+// Funzione per inizializzare i nuovi controlli dell'interfaccia migliorata
+function initializeImprovedUI() {
+    // Inizializza lo slider per il numero di giorni
+    const daysSlider = document.getElementById('data-limit-days');
+    const daysValue = document.getElementById('days-value');
+    
+    if (daysSlider && daysValue) {
+        // Imposta il valore iniziale
+        daysValue.textContent = daysSlider.value;
+        
+        // Aggiorna il valore quando lo slider cambia
+        daysSlider.addEventListener('input', function() {
+            daysValue.textContent = this.value;
+        });
+    }
+    
+    // Inizializza i pulsanti radio per il numero di criptovalute
+    const cryptoButtons = document.querySelectorAll('input[name="train-crypto-count"]');
+    const cryptoCounter = document.getElementById('train-crypto-counter');
+    
+    if (cryptoButtons.length && cryptoCounter) {
+        // Imposta il valore iniziale
+        const checkedButton = document.querySelector('input[name="train-crypto-count"]:checked');
+        if (checkedButton) {
+            cryptoCounter.textContent = checkedButton.value;
+        }
+        
+        // Aggiorna il contatore quando cambia la selezione
+        cryptoButtons.forEach(button => {
+            button.addEventListener('change', function() {
+                if (this.checked) {
+                    cryptoCounter.textContent = this.value;
+                }
+            });
+        });
+    }
+}
+
+// Funzione per aggiornare il contatore dei timeframe
+function updateTimeframeCounter() {
+    // Correggo il selettore per prendere i checkbox corretti
+    const selectedTimeframes = document.querySelectorAll('input.timeframe-select:checked').length;
+    const counterElement = document.getElementById('timeframe-counter');
+    
+    if (counterElement) {
+        counterElement.textContent = `${selectedTimeframes} selezionati`;
+        
+        // Aggiorna la classe in base al numero di timeframe selezionati
+        counterElement.className = 'selection-counter';
+        if (selectedTimeframes === 0) {
+            counterElement.classList.add('error');
+            counterElement.textContent = 'Seleziona almeno uno';
+        } else if (selectedTimeframes > 3) {
+            counterElement.classList.add('warning');
+        }
+    }
+}
+
+// Funzione per aggiornare il contatore dei modelli
+function updateModelCounter() {
+    // Correggo il selettore per prendere i checkbox corretti
+    const selectedModels = document.querySelectorAll('input.model-select:checked').length;
+    const counterElement = document.getElementById('model-counter');
+    
+    if (counterElement) {
+        counterElement.textContent = `${selectedModels} selezionati`;
+        
+        // Aggiorna la classe in base al numero di modelli selezionati
+        counterElement.className = 'selection-counter';
+        if (selectedModels === 0) {
+            counterElement.classList.add('error');
+            counterElement.textContent = 'Seleziona almeno uno';
+        }
+    }
 } 

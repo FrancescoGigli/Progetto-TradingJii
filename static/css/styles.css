@@ -351,7 +351,53 @@ main {
     color: #dc3545;
 }
 
-/* Stili per il log di training */
+/* Stili per i log di training */
+.training-logs {
+    margin-top: 20px;
+}
+
+.training-logs h5 {
+    color: #3a4d62;
+    font-weight: 600;
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+}
+
+.training-logs h5:before {
+    content: '\f4da';
+    font-family: 'Font Awesome 5 Free';
+    font-weight: 900;
+    margin-right: 10px;
+    color: #667eea;
+}
+
+.logs-container {
+    display: flex;
+    flex-direction: column;
+    height: 150px;
+    overflow-y: auto;
+}
+
+.logs-container::-webkit-scrollbar {
+    width: 8px;
+}
+
+.logs-container::-webkit-scrollbar-track {
+    background: #f0f0f0;
+    border-radius: 10px;
+}
+
+.logs-container::-webkit-scrollbar-thumb {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 10px;
+}
+
+.logs-container::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+}
+
+/* Effetto di ingresso per i log */
 .log-entry {
     padding: 8px;
     margin: 4px 0;
@@ -359,46 +405,70 @@ main {
     font-family: monospace;
     font-size: 14px;
     line-height: 1.4;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    transition: all 0.2s ease;
+    animation: fadeInUp 0.4s ease;
+    transform-origin: bottom;
+}
+
+.log-entry:hover {
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
 
 .log-entry.info {
     background-color: rgba(0, 123, 255, 0.1);
     color: #007bff;
+    border-left: 3px solid #007bff;
 }
 
 .log-entry.success {
     background-color: rgba(40, 167, 69, 0.1);
     color: #28a745;
+    border-left: 3px solid #28a745;
 }
 
 .log-entry.error {
     background-color: rgba(220, 53, 69, 0.1);
     color: #dc3545;
+    border-left: 3px solid #dc3545;
 }
 
 .log-entry.warning {
     background-color: rgba(255, 193, 7, 0.1);
     color: #ffc107;
+    border-left: 3px solid #ffc107;
 }
 
 .log-timestamp {
     color: #6c757d;
     margin-right: 8px;
+    font-size: 0.85em;
 }
 
 .details-container {
     margin-top: 8px;
     padding-left: 16px;
     border-left: 2px solid rgba(0, 0, 0, 0.1);
+    background-color: rgba(255, 255, 255, 0.5);
+    border-radius: 4px;
+    padding: 8px;
 }
 
 .detail-item {
     margin: 4px 0;
+    display: flex;
+    justify-content: space-between;
 }
 
 .detail-key {
     font-weight: bold;
     margin-right: 8px;
+    color: #555;
+}
+
+.detail-value {
+    color: #333;
+    font-weight: 500;
 }
 
 /* Stili per il progresso del training */
@@ -411,18 +481,57 @@ main {
     background-color: #e9ecef;
     border-radius: 10px;
     overflow: hidden;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
 }
 
 .progress-bar-fill {
     height: 100%;
-    background-color: #007bff;
-    transition: width 0.3s ease;
+    background: linear-gradient(90deg, #4481eb 0%, #04befe 100%);
+    transition: width 0.5s ease;
+    box-shadow: 0 0 10px rgba(68, 129, 235, 0.5);
+    position: relative;
+    overflow: hidden;
+}
+
+.progress-bar-fill:after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background-image: linear-gradient(
+        -45deg, 
+        rgba(255, 255, 255, .2) 25%, 
+        transparent 25%, 
+        transparent 50%, 
+        rgba(255, 255, 255, .2) 50%, 
+        rgba(255, 255, 255, .2) 75%, 
+        transparent 75%, 
+        transparent
+    );
+    background-size: 50px 50px;
+    animation: move 2s linear infinite;
+    border-radius: 10px;
+    overflow: hidden;
+    z-index: 1;
+}
+
+@keyframes move {
+    0% {
+        background-position: 0 0;
+    }
+    100% {
+        background-position: 50px 50px;
+    }
 }
 
 .progress-text {
     margin-top: 8px;
     text-align: center;
-    font-weight: bold;
+    font-weight: 500;
+    color: #333;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
 .metrics-container {
@@ -433,39 +542,63 @@ main {
 }
 
 .metric-item {
-    padding: 12px;
-    background-color: #f8f9fa;
-    border-radius: 8px;
+    padding: 16px;
+    background: linear-gradient(145deg, #f8f9fa, #e6e7e8);
+    border-radius: 12px;
     text-align: center;
+    box-shadow: 5px 5px 10px rgba(0,0,0,0.05), -5px -5px 10px rgba(255,255,255,0.8);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.metric-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 6px 6px 12px rgba(0,0,0,0.08), -6px -6px 12px rgba(255,255,255,1);
 }
 
 .metric-key {
     display: block;
     font-weight: bold;
-    margin-bottom: 4px;
+    margin-bottom: 8px;
+    color: #555;
 }
 
 .metric-value {
-    font-size: 1.2em;
+    font-size: 1.5em;
     color: #007bff;
+    font-weight: 700;
 }
 
 /* Stili per la sezione di training */
 .training-card {
     transition: all 0.3s ease;
     border: none;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.05);
+    border-radius: 12px;
+    overflow: hidden;
 }
 
 .training-card:hover {
-    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    box-shadow: 0 15px 30px rgba(0,0,0,0.1);
 }
 
 .training-card .card-header {
-    background-color: #2c3e50;
+    background: linear-gradient(120deg, #2c3e50, #4a6d8c);
     color: white;
     border-bottom: none;
-    padding: 1rem;
+    padding: 1.2rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.training-card .card-header:after {
+    content: '';
+    position: absolute;
+    width: 150%;
+    height: 150%;
+    top: -50%;
+    left: -25%;
+    background: radial-gradient(rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+    transform: rotate(25deg);
 }
 
 .training-form {
@@ -478,15 +611,17 @@ main {
     padding: 0.75rem;
     font-size: 1rem;
     transition: all 0.3s ease;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);
 }
 
 .training-form .form-control:focus {
     border-color: #3498db;
     box-shadow: 0 0 0 0.2rem rgba(52,152,219,0.25);
+    background-color: rgba(52,152,219,0.05);
 }
 
 .training-form .form-label {
-    font-weight: 500;
+    font-weight: 600;
     color: #2c3e50;
     margin-bottom: 0.5rem;
 }
@@ -496,692 +631,461 @@ main {
     font-size: 0.875rem;
 }
 
-/* Stili per le metriche */
-.metric-card {
-    background-color: #fff;
+/* Stili migliorati per i pulsanti */
+.btn-gradient {
+    background: linear-gradient(45deg, #2b5876, #4e4376);
+    color: white;
+    border: none;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 12px 24px;
     border-radius: 8px;
-    padding: 1rem;
-    margin: 0.5rem;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     transition: all 0.3s ease;
+    box-shadow: 0 4px 6px rgba(50, 50, 93, 0.11), 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-.metric-card:hover {
+.btn-gradient:hover {
+    background: linear-gradient(45deg, #4e4376, #2b5876);
     transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    box-shadow: 0 7px 14px rgba(50, 50, 93, 0.1), 0 3px 6px rgba(0, 0, 0, 0.08);
+    color: white;
 }
 
-.metric-value {
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: #2c3e50;
+.btn-gradient:active {
+    transform: translateY(1px);
+    box-shadow: 0 3px 6px rgba(50, 50, 93, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-.metric-label {
-    font-size: 0.875rem;
-    color: #7f8c8d;
-    margin-top: 0.25rem;
-}
-
-/* Stili per il log */
-.log-container {
-    background-color: #f8f9fa;
-    border-radius: 8px;
-    padding: 1rem;
-    margin-top: 1rem;
-}
-
-.log-header {
+/* Stili per il sistema di fasi - layout orizzontale */
+.progress-steps {
+    position: relative;
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1rem;
+    margin: 20px 0;
 }
 
-.log-content {
-    max-height: 300px;
-    overflow-y: auto;
-    padding: 0.5rem;
-}
-
-.log-entry {
-    padding: 0.75rem;
-    margin-bottom: 0.5rem;
-    border-radius: 6px;
-    background-color: #fff;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-}
-
-.log-entry.info {
-    border-left: 4px solid #3498db;
-}
-
-.log-entry.success {
-    border-left: 4px solid #2ecc71;
-}
-
-.log-entry.warning {
-    border-left: 4px solid #f1c40f;
-}
-
-.log-entry.error {
-    border-left: 4px solid #e74c3c;
-}
-
-.details-container {
-    background-color: #f8f9fa;
-    border-radius: 4px;
-    padding: 0.5rem;
-    margin-top: 0.5rem;
-}
-
-.detail-item {
-    display: flex;
-    justify-content: space-between;
-    padding: 0.25rem 0;
-    font-size: 0.875rem;
-}
-
-.detail-key {
-    color: #7f8c8d;
-    margin-right: 1rem;
-}
-
-.detail-value {
-    color: #2c3e50;
-    font-weight: 500;
-}
-
-/* Stili per i badge di stato */
-.status-badge {
-    display: inline-block;
-    padding: 0.35rem 0.75rem;
-    border-radius: 50rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-    text-align: center;
-    white-space: nowrap;
-    vertical-align: baseline;
-}
-
-.status-badge.trained {
-    background-color: #2ecc71;
-    color: white;
-}
-
-.status-badge.not-trained {
-    background-color: #e74c3c;
-    color: white;
-}
-
-.status-badge.training {
-    background-color: #3498db;
-    color: white;
-    animation: pulse 2s infinite;
-}
-
-.status-badge.error {
-    background-color: #e74c3c;
-    color: white;
-}
-
-/* Animazione pulse per il badge di training */
-@keyframes pulse {
-    0% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.5;
-    }
-    100% {
-        opacity: 1;
-    }
-}
-
-/* Responsive adjustments */
-@media (max-width: 768px) {
-    .metric-card {
-        margin: 0.25rem;
-        padding: 0.75rem;
-    }
-    
-    .metric-value {
-        font-size: 1.25rem;
-    }
-    
-    .training-form .form-control {
-        padding: 0.5rem;
-    }
-    
-    .log-content {
-        max-height: 200px;
-    }
-}
-
-/* Stili per il log nella sidebar */
-.sidebar-footer .log-container {
-    background-color: #2c3e50;
-    border-radius: 8px;
-    padding: 1rem;
-    margin-top: 1rem;
-}
-
-.sidebar-footer .log-content {
-    max-height: 200px;
-    overflow-y: auto;
-    padding: 0.5rem;
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 0.875rem;
-    color: #ecf0f1;
-    line-height: 1.4;
-}
-
-.sidebar-footer .log-entry {
-    padding: 0.5rem;
-    margin-bottom: 0.5rem;
-    border-radius: 4px;
-    background-color: rgba(255, 255, 255, 0.1);
-}
-
-.sidebar-footer .log-entry:last-child {
-    margin-bottom: 0;
-}
-
-.sidebar-footer .log-entry.info {
-    border-left: 3px solid #3498db;
-}
-
-.sidebar-footer .log-entry.success {
-    border-left: 3px solid #2ecc71;
-}
-
-.sidebar-footer .log-entry.warning {
-    border-left: 3px solid #f1c40f;
-}
-
-.sidebar-footer .log-entry.error {
-    border-left: 3px solid #e74c3c;
-}
-
-/* Stili per il Training Dashboard */
-.training-dashboard {
-    padding: 15px;
-}
-
-.training-status-card {
-    background: #f8f9fa;
-    padding: 15px;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-}
-
-.stat-card {
-    background: #f8f9fa;
-    padding: 15px;
-    border-radius: 8px;
-    text-align: center;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-}
-
-.stat-card h6 {
-    color: #6c757d;
-    margin-bottom: 10px;
-}
-
-.stat-card h3 {
-    color: #212529;
-    margin: 0;
-}
-
-.performance-chart {
-    background: #f8f9fa;
-    padding: 15px;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-}
-
-.training-logs {
-    background: #f8f9fa;
-    padding: 15px;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-}
-
-.logs-container {
-    max-height: 200px;
-    overflow-y: auto;
-    background-color: #f8f9fa;
-    border-radius: 4px;
-    padding: 10px;
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 0.85rem;
-    margin-top: 10px;
-}
-
-.log-entry {
-    padding: 4px 0;
-    border-bottom: 1px solid #eee;
-}
-
-.log-entry:last-child {
-    border-bottom: none;
-}
-
-.log-entry.info {
-    color: #0dcaf0;
-}
-
-.log-entry.success {
-    color: #198754;
-}
-
-.log-entry.warning {
-    color: #ffc107;
-}
-
-.log-entry.error {
-    color: #dc3545;
-}
-
-#training-status-badge {
-    font-size: 0.9em;
-    padding: 5px 10px;
-}
-
-#training-status-badge.bg-success {
-    background-color: #198754 !important;
-}
-
-#training-status-badge.bg-warning {
-    background-color: #ffc107 !important;
-}
-
-#training-status-badge.bg-danger {
-    background-color: #dc3545 !important;
-}
-
-#training-status-badge.bg-secondary {
-    background-color: #6c757d !important;
-}
-
-/* Stili per la dashboard di training */
-.training-status-card {
-    background-color: #f8f9fa;
-    border-radius: 4px;
-    padding: 15px;
-    margin-bottom: 15px;
-}
-
-.stat-card {
-    background-color: #f8f9fa;
-    border-radius: 4px;
-    padding: 15px;
-    text-align: center;
-}
-
-.performance-chart {
-    background-color: #f8f9fa;
-    border-radius: 4px;
-    padding: 15px;
-    margin-bottom: 15px;
-}
-
-.training-logs {
-    background-color: #f8f9fa;
-    border-radius: 4px;
-    padding: 15px;
-}
-
-/* Tema scuro per i log di training */
-@media (prefers-color-scheme: dark) {
-    .logs-container, .training-status-card, .stat-card, .performance-chart, .training-logs {
-        background-color: #2d2d2d;
-    }
-    
-    .log-entry {
-        border-bottom: 1px solid #444;
-    }
-}
-
-/* Stili generali */
-body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-}
-
-/* Stili per la visualizzazione attività del bot */
-.activity-visualization-container {
-    position: relative;
-    transition: all 0.3s ease;
-}
-
-.activity-visualization-container:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-#current-activity-marker {
-    animation: pulse 1.5s infinite;
-}
-
-.trading-event {
+.progress-bar-bg {
     position: absolute;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-size: 12px;
-    transition: all 0.3s ease;
-    opacity: 0;
-    transform: scale(0);
-    z-index: 5;
-}
-
-.trading-event.appear {
-    opacity: 1;
-    transform: scale(1);
-}
-
-.trading-event.buy {
-    background-color: rgba(40, 167, 69, 0.8);
-    box-shadow: 0 0 8px rgba(40, 167, 69, 0.5);
-}
-
-.trading-event.sell {
-    background-color: rgba(220, 53, 69, 0.8);
-    box-shadow: 0 0 8px rgba(220, 53, 69, 0.5);
-}
-
-.trading-event.analysis {
-    background-color: rgba(255, 193, 7, 0.8);
-    box-shadow: 0 0 8px rgba(255, 193, 7, 0.5);
-}
-
-.stat-item {
-    padding: 10px 15px;
-    border-radius: 8px;
-    background-color: #fff;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-    transition: all 0.3s ease;
-}
-
-.stat-item:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.stat-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-}
-
-.stat-label {
-    font-size: 0.8rem;
-    color: #6c757d;
-}
-
-/* Animazioni */
-@keyframes pulse {
-    0% {
-        box-shadow: 0 0 0 0 rgba(13, 110, 253, 0.7);
-    }
-    70% {
-        box-shadow: 0 0 0 10px rgba(13, 110, 253, 0);
-    }
-    100% {
-        box-shadow: 0 0 0 0 rgba(13, 110, 253, 0);
-    }
-}
-
-@keyframes slide-in {
-    0% {
-        opacity: 0;
-        transform: translateX(-20px);
-    }
-    100% {
-        opacity: 1;
-        transform: translateX(0);
-    }
-}
-
-/* Stili per la timeline di attività recenti */
-.timeline-container {
-    position: relative;
-    padding-left: 40px;
-}
-
-.timeline-container::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 15px;
-    height: 100%;
-    width: 2px;
-    background-color: #dee2e6;
-}
-
-.timeline-item {
-    position: relative;
-    margin-bottom: 20px;
-    animation: slide-in 0.3s ease;
-}
-
-.timeline-badge {
-    position: absolute;
-    left: -40px;
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
+    top: 16px;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background-color: #e9ecef;
     z-index: 1;
 }
 
-.timeline-content {
-    padding: 12px 15px;
-    background-color: #fff;
-    border-radius: 6px;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+.progress-bar-fill {
+    position: absolute;
+    top: 16px;
+    left: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #4481eb 0%, #04befe 100%);
+    z-index: 2;
+    transition: width 0.5s ease;
 }
 
-.timeline-time {
-    font-size: 0.75rem;
-    color: #6c757d;
-    margin-bottom: 5px;
+.step {
+    position: relative;
+    z-index: 3;
+    text-align: center;
+    width: 70px;
 }
 
-.timeline-title {
-    font-weight: 600;
-    margin-bottom: 5px;
+/* Layout orizzontale per le selezioni di timeframe e modelli */
+.timeframes-selection-grid, .models-selection-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 10px;
 }
 
-.timeline-details {
-    font-size: 0.875rem;
+.timeframe-item, .model-item {
+    position: relative;
+    flex: 0 0 auto;
 }
 
-/* Stili per il grafico di performance */
-#performance-visualization {
-    transition: all 0.3s ease;
+/* Stile migliorato per la sezione di stato training */
+.training-status-card {
+    display: flex;
+    flex-direction: column;
 }
 
-#performance-visualization:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-}
-
-/* Animazioni per nuovi eventi di trading */
-.new-event {
-    animation: pop-in 0.5s ease;
-}
-
-@keyframes pop-in {
-    0% {
-        opacity: 0;
-        transform: scale(0);
-    }
-    70% {
-        transform: scale(1.2);
-    }
-    100% {
-        opacity: 1;
-        transform: scale(1);
-    }
-}
-
-/* Stili per le notifiche di trading */
-.trade-notification {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    padding: 15px 20px;
-    border-radius: 8px;
-    background-color: white;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-    z-index: 1050;
+/* Visualizzazione terminale e log in formato orizzontale */
+.terminal-progress-container {
     display: flex;
     align-items: center;
-    min-width: 300px;
-    transform: translateX(400px);
-    transition: transform 0.5s ease;
+    padding: 8px 15px;
+    margin-top: 15px;
 }
 
-.trade-notification.show {
-    transform: translateX(0);
+#terminal-progress-text {
+    flex: 1;
 }
 
-.trade-notification-icon {
-    width: 40px;
-    height: 40px;
+/* Layout orizzontale per le metriche */
+#training-metrics {
+    display: flex;
+    flex-direction: column;
+}
+
+#metrics-content {
+    overflow-x: auto;
+}
+
+/* Layout orizzontale per i log di training */
+.training-logs {
+    margin-top: 20px;
+}
+
+.logs-container {
+    display: flex;
+    flex-direction: column;
+    height: 150px;
+    overflow-y: auto;
+}
+
+/* Layout per timeframe e modelli che si estende in orizzontale */
+.selection-container {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 20px;
+}
+
+.selection-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+/* Allinea i pulsanti di selezione in orizzontale */
+.btn-timeframe, .btn-model {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px;
+    min-width: 60px;
+}
+
+.model-item .model-icon {
+    font-size: 1.2rem;
+    margin-bottom: 5px;
+}
+
+.model-item .model-name {
+    font-size: 0.8rem;
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Stili per step con layout orizzontale */
+.step-icon {
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
+    background-color: #f8f9fa;
+    border: 2px solid #dee2e6;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
-    margin-right: 15px;
-}
-
-.trade-notification-content {
-    flex-grow: 1;
-}
-
-.trade-notification-title {
-    font-weight: 600;
-    margin-bottom: 3px;
-}
-
-.trade-notification-message {
-    font-size: 0.875rem;
-    color: #6c757d;
-}
-
-.trade-notification-close {
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: #6c757d;
-    font-size: 1.2rem;
-}
-
-.trade-notification.buy .trade-notification-icon {
-    background-color: #28a745;
-}
-
-.trade-notification.sell .trade-notification-icon {
-    background-color: #dc3545;
-}
-
-.trade-notification.analysis .trade-notification-icon {
-    background-color: #17a2b8;
-}
-
-/* Stili per le predizioni */
-.prediction-card {
+    margin: 0 auto;
     transition: all 0.3s ease;
-    border: 1px solid #e0e0e0;
-    margin-bottom: 15px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    color: #6c757d;
+    font-size: 14px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
-.prediction-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+.step.active .step-icon {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-color: transparent;
+    color: white;
+    transform: scale(1.1);
+    box-shadow: 0 0 15px rgba(102, 126, 234, 0.5);
 }
 
-.prediction-card .card-header {
-    padding: 10px 15px;
-    font-weight: bold;
-    border-bottom: 1px solid #e0e0e0;
+.step.completed .step-icon {
+    background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+    border-color: transparent;
+    color: white;
 }
 
-.prediction-card .card-body {
+.step-label {
+    margin-top: 8px;
+    font-size: 0.8rem;
+    color: #6c757d;
+    font-weight: 500;
+}
+
+.step.active .step-label {
+    color: #4a6cf7;
+    font-weight: 600;
+}
+
+.step.completed .step-label {
+    color: #06b6d4;
+    font-weight: 600;
+}
+
+.step-details {
+    font-size: 0.7rem;
+    color: #999;
+    margin-top: 2px;
+}
+
+/* Stile per il layout orizzontale della form di training */
+#model-training-form {
+    flex-flow: row wrap;
+}
+
+.selection-container {
+    background: linear-gradient(145deg, #ffffff, #f0f0f0);
+    border-radius: 12px;
     padding: 15px;
+    box-shadow: 5px 5px 10px rgba(0,0,0,0.05), -5px -5px 10px rgba(255,255,255,0.8);
+    transition: all 0.3s ease;
+    margin-bottom: 0;
 }
 
-/* Animazione per le nuove predizioni */
-@keyframes highlight-pulse {
-    0% {
-        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
-        transform: scale(1);
+.selection-container:hover {
+    box-shadow: 7px 7px 15px rgba(0,0,0,0.07), -7px -7px 15px rgba(255,255,255,1);
+}
+
+.form-text {
+    font-size: 0.75rem;
+    color: #6c757d;
+}
+
+/* Stile per il terminale di progresso */
+.terminal-progress-container {
+    background-color: #1a1a1a;
+    border-radius: 8px;
+    padding: 8px 15px;
+    margin: 10px 0;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+.terminal-progress-container:before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #ff8a00, #e52e71);
+}
+
+#terminal-progress-text {
+    color: #32cd32;
+    padding: 2px 0;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* Stile per i log di training orizzontali */
+.logs-container {
+    max-height: 150px;
+    overflow-y: auto;
+    padding: 10px;
+    border-radius: 8px;
+    background: linear-gradient(145deg, #ffffff, #f0f0f0);
+    box-shadow: 5px 5px 10px rgba(0,0,0,0.05), -5px -5px 10px rgba(255,255,255,0.8);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9rem;
+    scrollbar-width: thin;
+    scrollbar-color: #667eea #f0f0f0;
+}
+
+/* Tema scuro per gli elementi */
+@media (prefers-color-scheme: dark) {
+    .selection-container {
+        background: linear-gradient(145deg, #2d2d2d, #262626);
+        box-shadow: 5px 5px 10px rgba(0,0,0,0.2), -5px -5px 10px rgba(40,40,40,0.3);
     }
-    50% {
-        box-shadow: 0 0 0 10px rgba(40, 167, 69, 0);
-        transform: scale(1.03);
+    
+    .selection-container:hover {
+        box-shadow: 7px 7px 15px rgba(0,0,0,0.3), -7px -7px 15px rgba(40,40,40,0.4);
     }
-    100% {
-        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
-        transform: scale(1);
+    
+    .step-icon {
+        background-color: #2d2d2d;
+        border-color: #495057;
+        color: #adb5bd;
     }
-}
-
-.highlight-prediction {
-    animation: highlight-pulse 1.5s ease-in-out;
-    border: 1px solid #28a745;
-}
-
-/* Stili per la notifica di nuove predizioni */
-.prediction-notification {
-    opacity: 0;
-    transform: translateX(50px);
-    animation: slide-in-notification 0.5s forwards;
-}
-
-@keyframes slide-in-notification {
-    to {
-        opacity: 1;
-        transform: translateX(0);
+    
+    .step-label {
+        color: #adb5bd;
+    }
+    
+    .step-details {
+        color: #6c757d;
+    }
+    
+    .logs-container {
+        background: linear-gradient(145deg, #2d2d2d, #262626);
+        box-shadow: 5px 5px 10px rgba(0,0,0,0.2), -5px -5px 10px rgba(40,40,40,0.3);
+        scrollbar-color: #4dabf7 #2d2d2d;
     }
 }
 
-/* Container per le predizioni */
-#prediction-cards-container {
-    min-height: 200px;
+/* Stile migliorato per il pulsante di training */
+#train-model-btn {
+    padding: 12px 30px;
+    font-size: 1.1rem;
+    background: linear-gradient(45deg, #2b5876, #4e4376);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+    border-radius: 50px;
+    border: none;
+    transition: all 0.3s ease;
 }
 
-/* Stili per gli indicatori di direzione */
-.direction-indicator {
-    display: inline-block;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    margin-right: 8px;
-    text-align: center;
-    line-height: 24px;
+#train-model-btn:hover {
+    background: linear-gradient(45deg, #4e4376, #2b5876);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
 }
 
-.direction-up {
-    background-color: #28a745;
+#train-model-btn:active {
+    transform: translateY(1px);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+}
+
+/* Stile migliorato per i selettori di giorni e criptovalute */
+.btn-check + .btn-outline-primary {
+    border-color: #0d6efd;
+    color: #0d6efd;
+    font-weight: 500;
+    padding: 8px 15px;
+    transition: all 0.2s ease;
+    min-width: 55px;
+    background-color: #f8f9fa;
+}
+
+.btn-check:checked + .btn-outline-primary {
+    background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
     color: white;
+    border-color: #0d6efd;
+    box-shadow: 0 3px 8px rgba(13, 110, 253, 0.4);
+    transform: scale(1.05);
 }
 
-.direction-down {
-    background-color: #dc3545;
+.btn-check + .btn-outline-primary:hover {
+    background-color: rgba(13, 110, 253, 0.1);
+    border-color: #0d6efd;
+}
+
+/* Stile per i selettori di modelli e timeframe */
+.btn-model, .btn-timeframe {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    color: #495057;
+    transition: all 0.2s ease;
+}
+
+.btn-model:hover, .btn-timeframe:hover {
+    background-color: #e9ecef;
+    border-color: #ced4da;
+}
+
+.btn-check:checked + .btn-model, .btn-check:checked + .btn-timeframe {
+    background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
     color: white;
+    border-color: #0d6efd;
+    box-shadow: 0 3px 8px rgba(13, 110, 253, 0.4);
 }
 
-.direction-neutral {
+/* Stile per i contatori di selezione */
+.selection-counter {
+    background-color: #e9ecef;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    color: #495057;
+}
+
+.selection-counter.warning {
     background-color: #ffc107;
-    color: #212529;
+    color: #000;
+}
+
+.selection-counter.error {
+    background-color: #dc3545;
+    color: #fff;
+}
+
+/* Stile per i contenitori di selezione */
+.selection-container {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 12px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    border: 1px solid #dee2e6;
+}
+
+.selection-container:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+/* Stile per i titoli di selezione */
+.selection-title {
+    color: #495057;
+    font-weight: 500;
+}
+
+/* Stile per i gruppi di pulsanti */
+.crypto-train-selection, .timeframes-selection-grid, .models-selection-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+/* Stile per i pulsanti di selezione cripto */
+.crypto-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 12px;
+    min-width: 70px;
+}
+
+.crypto-value {
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+.crypto-label {
+    font-size: 0.75rem;
+    margin-top: 2px;
+}
+
+/* Stile per il pulsante di training */
+#train-model-btn {
+    padding: 12px 30px;
+    font-size: 1.1rem;
+    background: linear-gradient(45deg, #0d6efd, #0a58ca);
+    box-shadow: 0 4px 15px rgba(13, 110, 253, 0.3);
+    border-radius: 50px;
+    border: none;
+    transition: all 0.3s ease;
+}
+
+#train-model-btn:hover {
+    background: linear-gradient(45deg, #0a58ca, #0d6efd);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(13, 110, 253, 0.4);
+}
+
+#train-model-btn:active {
+    transform: translateY(1px);
+    box-shadow: 0 3px 10px rgba(13, 110, 253, 0.3);
 } 
