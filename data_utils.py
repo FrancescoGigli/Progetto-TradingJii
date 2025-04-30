@@ -15,18 +15,25 @@ from ta.trend import CCIIndicator
 from config import EXPECTED_COLUMNS
 
 def add_technical_indicators(df):
+    # Creare una copia del DataFrame per evitare warning o modifiche indesiderate
+    df = df.copy()
+    
     # Verifica se l'indice è già di tipo datetime
     if isinstance(df.index, pd.DatetimeIndex):
-        # Salva l'indice come timestamp per usarlo più tardi
+        # Usa l'indice esistente
         timestamp_index = df.index
     else:
-        # Se l'indice non è datetime, prova a convertirlo
-        try:
-            timestamp_index = pd.to_datetime(df.index)
-            df.index = timestamp_index
-        except Exception as e:
-            print(f"Errore nella conversione dell'indice a datetime: {e}")
-            # Se la conversione fallisce, crea un indice fittizio
+        # Se l'indice non è datetime e c'è una colonna timestamp, prova a usarla
+        if 'timestamp' in df.columns:
+            try:
+                timestamp_index = pd.to_datetime(df['timestamp'])
+                # Non impostiamo l'indice del DataFrame, ma usiamo timestamp_index per le operazioni
+            except Exception as e:
+                print(f"Errore nella conversione della colonna timestamp a datetime: {e}")
+                # Creiamo un indice fittizio
+                timestamp_index = pd.date_range(start='2023-01-01', periods=len(df), freq='1H')
+        else:
+            # Nessuna colonna timestamp, creiamo un indice fittizio
             timestamp_index = pd.date_range(start='2023-01-01', periods=len(df), freq='1H')
     
     # Calcolo delle EMA
@@ -148,8 +155,6 @@ def add_technical_indicators(df):
         df['obv'] = 0.0
 
     # Nuovi indicatori: Money Flow Index (MFI) e Commodity Channel Index (CCI)
-    # Nota: questi indicatori vengono calcolati ma non sono inclusi in EXPECTED_COLUMNS
-    # quindi verranno scartati alla fine. Se vuoi usarli, aggiungili a EXPECTED_COLUMNS in config.py
     try:
         mfi = MFIIndicator(high=df['high'], low=df['low'], close=df['close'], volume=df['volume'], window=14)
         df['mfi'] = mfi.money_flow_index()
@@ -184,54 +189,52 @@ def add_technical_indicators(df):
     df['volume_lag_1'] = df['volume'].shift(1)
 
     # Codifica ciclica delle informazioni temporali
-    if isinstance(df.index, pd.DatetimeIndex):
-        df['weekday_sin'] = np.sin(2 * np.pi * df.index.dayofweek / 7)
-        df['weekday_cos'] = np.cos(2 * np.pi * df.index.dayofweek / 7)
-        df['hour_sin'] = np.sin(2 * np.pi * df.index.hour / 24)
-        df['hour_cos'] = np.cos(2 * np.pi * df.index.hour / 24)
-    else:
-        # In caso l'indice non sia datetime, aggiungi valori di default
+    # Usiamo timestamp_index che è stata creata all'inizio
+    try:
+        df['weekday_sin'] = np.sin(2 * np.pi * timestamp_index.dayofweek / 7)
+        df['weekday_cos'] = np.cos(2 * np.pi * timestamp_index.dayofweek / 7)
+        df['hour_sin'] = np.sin(2 * np.pi * timestamp_index.hour / 24)
+        df['hour_cos'] = np.cos(2 * np.pi * timestamp_index.hour / 24)
+    except Exception as e:
+        print(f"Errore nel calcolo delle feature cicliche: {e}")
         df['weekday_sin'] = 0
         df['weekday_cos'] = 0
         df['hour_sin'] = 0
         df['hour_cos'] = 0
-        print("L'indice non è di tipo datetime, impossibile calcolare informazioni temporali cicliche")
 
     # Propagazione forward e backward per gestire eventuali NaN
     df.ffill(inplace=True)
     df.bfill(inplace=True)
     
-    # Aggiungi sempre 'timestamp' come colonna, indipendentemente da EXPECTED_COLUMNS
-    if 'timestamp' not in df.columns:
-        df['timestamp'] = timestamp_index
-    
     # Verifica quali colonne sono effettivamente presenti in EXPECTED_COLUMNS
-    missing_columns = [col for col in EXPECTED_COLUMNS if col not in df.columns]
+    missing_columns = [col for col in EXPECTED_COLUMNS if col not in df.columns and col != 'timestamp']
     if missing_columns:
         print(f"Attenzione: le seguenti colonne sono mancanti: {missing_columns}")
         # Aggiungi colonne mancanti con valore 0
         for col in missing_columns:
             df[col] = 0.0
     
-    # Make sure timestamp is always included in the returned DataFrame
-    df_final = df[EXPECTED_COLUMNS].round(4)
-    
-    # Se timestamp non è in EXPECTED_COLUMNS ma vogliamo comunque includerlo
-    if 'timestamp' not in EXPECTED_COLUMNS:
-        df_final['timestamp'] = timestamp_index
-        
-    return df_final
+    # Restituisci il DataFrame con le colonne attese
+    columns_to_return = [col for col in EXPECTED_COLUMNS if col != 'timestamp' and col in df.columns]
+    return df[columns_to_return].round(4)
 
 def prepare_data(df):
     required_initial = ['open', 'high', 'low', 'close', 'volume']
     for col in required_initial:
         if col not in df.columns:
             raise ValueError(f"Column {col} missing in input data.")
+    
+    # Assicuriamoci che 'timestamp' non causi problemi
+    if 'timestamp' in df.columns:
+        # Salva timestamp solo se necessario per altri calcoli
+        timestamp_col = df['timestamp']
+        df = df.drop(columns=['timestamp'])
+        
     df = add_technical_indicators(df)
     
-    # Assicurati che timestamp non sia incluso nell'array di valori
-    if 'timestamp' in df.columns and 'timestamp' not in EXPECTED_COLUMNS:
-        return df.drop(columns=['timestamp']).values
+    # Verifica quali colonne sono in EXPECTED_COLUMNS e presenti in df
+    valid_cols = [col for col in EXPECTED_COLUMNS if col != 'timestamp' and col in df.columns]
     
-    return df[EXPECTED_COLUMNS].values
+    # Restituisci solo le colonne valide
+    return df[valid_cols].values
 

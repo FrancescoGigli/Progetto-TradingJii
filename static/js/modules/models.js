@@ -919,12 +919,13 @@ export function setupModelsEventListeners() {
         
         trainingForm.addEventListener('submit', handleTrainingFormSubmit);
         
-        // Aggiungo anche un event listener al pulsante per debug
+        // Aggiungo event listener per il pulsante di training
         const trainButton = document.getElementById('train-model-btn');
         if (trainButton) {
             console.log('Pulsante di training trovato, aggiungo listener di click');
             trainButton.addEventListener('click', function(e) {
-                console.log('Pulsante di training cliccato!');
+                e.preventDefault(); // Previeni il comportamento di default del form
+                handleTrainingFormSubmit(e);
             });
         } else {
             console.error('Pulsante di training non trovato!');
@@ -937,7 +938,17 @@ export function setupModelsEventListeners() {
     
     if (timeframeCheckboxes.length > 0) {
         timeframeCheckboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', updateTimeframeCounter);
+            checkbox.addEventListener('change', function() {
+                updateTimeframeCounter(); // Aggiorna il contatore
+                // Imposta valore predefinito se questo è il primo checkbox selezionato
+                if (document.querySelectorAll('input.timeframe-select:checked').length === 1 && this.checked) {
+                    // Seleziona questo checkbox anche nella sezione dashboard se esiste
+                    const dashboardCheckbox = document.querySelector(`#timeframe-${this.value}`);
+                    if (dashboardCheckbox) {
+                        dashboardCheckbox.checked = true;
+                    }
+                }
+            });
         });
         updateTimeframeCounter(); // Inizializza il contatore
     }
@@ -982,6 +993,7 @@ export function setupModelsEventListeners() {
     // Carica eventi quando la sezione modelli viene selezionata
     document.addEventListener('models-selected', () => {
         checkAllModelsStatus();
+        preselezionaDashboardTimeframes();
     });
 }
 
@@ -1025,20 +1037,76 @@ function initializeImprovedUI() {
 
 // Funzione per aggiornare il contatore dei timeframe
 function updateTimeframeCounter() {
-    // Correggo il selettore per prendere i checkbox corretti
-    const selectedTimeframes = document.querySelectorAll('input.timeframe-select:checked').length;
+    // Seleziona i checkbox dei timeframe
+    const timeframeCheckboxes = document.querySelectorAll('input.timeframe-select');
+    const selectedCheckboxes = document.querySelectorAll('input.timeframe-select:checked');
     const counterElement = document.getElementById('timeframe-counter');
     
+    // Numero massimo di timeframe selezionabili
+    const MAX_TIMEFRAMES = 3;
+    
+    // Conta i timeframe selezionati
+    const selectedTimeframes = selectedCheckboxes.length;
+    
     if (counterElement) {
-        counterElement.textContent = `${selectedTimeframes} selezionati`;
-        
-        // Aggiorna la classe in base al numero di timeframe selezionati
-        counterElement.className = 'selection-counter';
+        // Aggiorna il testo del contatore
         if (selectedTimeframes === 0) {
-            counterElement.classList.add('error');
             counterElement.textContent = 'Seleziona almeno uno';
-        } else if (selectedTimeframes > 3) {
-            counterElement.classList.add('warning');
+            counterElement.className = 'selection-counter error';
+        } else if (selectedTimeframes > MAX_TIMEFRAMES) {
+            counterElement.textContent = `Massimo ${MAX_TIMEFRAMES} timeframe!`;
+            counterElement.className = 'selection-counter error';
+            
+            // Trova l'ultimo checkbox selezionato e deselezionalo
+            // (controllo che ci siano più di MAX_TIMEFRAMES elementi selezionati)
+            if (selectedCheckboxes.length > MAX_TIMEFRAMES) {
+                // Prendi l'ultimo checkbox selezionato e deselezionalo
+                const lastSelected = selectedCheckboxes[selectedCheckboxes.length - 1];
+                lastSelected.checked = false;
+                
+                // Aggiorna nuovamente il contatore con il valore corretto
+                setTimeout(() => updateTimeframeCounter(), 0);
+                return;
+            }
+        } else if (selectedTimeframes === MAX_TIMEFRAMES) {
+            counterElement.textContent = `${selectedTimeframes}/${MAX_TIMEFRAMES} (massimo)`;
+            counterElement.className = 'selection-counter warning';
+            
+            // Disabilita i checkbox non selezionati
+            timeframeCheckboxes.forEach(checkbox => {
+                if (!checkbox.checked) {
+                    checkbox.disabled = true;
+                    // Aggiungi una classe per indicare visivamente che il checkbox è disabilitato
+                    checkbox.nextElementSibling.classList.add('disabled');
+                }
+            });
+        } else {
+            counterElement.textContent = `${selectedTimeframes}/${MAX_TIMEFRAMES}`;
+            counterElement.className = 'selection-counter';
+            
+            // Riabilita tutti i checkbox
+            timeframeCheckboxes.forEach(checkbox => {
+                checkbox.disabled = false;
+                // Rimuovi la classe per indicare visivamente che il checkbox è disabilitato
+                checkbox.nextElementSibling.classList.remove('disabled');
+            });
+        }
+    }
+    
+    // Abilita/disabilita il pulsante di training in base alle selezioni
+    const trainButton = document.getElementById('train-model-btn');
+    if (trainButton) {
+        // Verifica anche che ci sia almeno un modello selezionato
+        const selectedModels = document.querySelectorAll('input.model-select:checked').length;
+        
+        if (selectedTimeframes === 0 || selectedModels === 0) {
+            trainButton.disabled = true;
+            trainButton.classList.add('btn-secondary');
+            trainButton.classList.remove('btn-gradient');
+        } else {
+            trainButton.disabled = false;
+            trainButton.classList.remove('btn-secondary');
+            trainButton.classList.add('btn-gradient');
         }
     }
 }
@@ -1058,5 +1126,29 @@ function updateModelCounter() {
             counterElement.classList.add('error');
             counterElement.textContent = 'Seleziona almeno uno';
         }
+    }
+}
+
+// Funzione per preselezionare i timeframe dalla dashboard
+function preselezionaDashboardTimeframes() {
+    // Verifica i timeframe selezionati nella dashboard
+    const dashboardTimeframes = document.querySelectorAll('#dashboard-section input.timeframe-select:checked');
+    if (dashboardTimeframes.length > 0) {
+        // Deseleziona tutti i timeframe nella sezione modelli
+        document.querySelectorAll('#models-section input.timeframe-select').forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        
+        // Seleziona nella sezione modelli solo i timeframe selezionati nella dashboard
+        dashboardTimeframes.forEach(checkbox => {
+            const value = checkbox.value;
+            const modelCheckbox = document.querySelector(`#models-section input.timeframe-select[value="${value}"]`);
+            if (modelCheckbox) {
+                modelCheckbox.checked = true;
+            }
+        });
+        
+        // Aggiorna il contatore
+        updateTimeframeCounter();
     }
 } 

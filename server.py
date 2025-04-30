@@ -12,6 +12,8 @@ import atexit
 import json
 from flask import Flask, send_from_directory, request, jsonify
 from flask_cors import CORS
+import logging
+from datetime import datetime
 
 # === Configurazione colori ===
 try:
@@ -175,6 +177,10 @@ def run_frontend_server():
     print(colored_text("Avvio del server frontend...", "magenta"))
     app = Flask(__name__, static_folder='static', static_url_path='')
     CORS(app)
+    
+    # Disattiva i log delle richieste HTTP
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)  # Mostra solo errori gravi, non richieste 404
 
     @app.route('/')
     def index():
@@ -200,72 +206,124 @@ def run_frontend_server():
                 "message": f"Errore nell'avvio del training: {str(e)}"
             }), 500
     
-    @app.route('/api/status', methods=['GET'])
-    def get_status():
-        # Controlla i parametri di richiesta
-        model_name = request.args.get('model')
-        timeframe = request.args.get('timeframe')
-
-        if model_name and timeframe:
-            # Verifica se il modello esiste
-            model_exists = False
-            model_details = {}
+    @app.route('/api/model-metrics/<model_name>/<timeframe>', methods=['GET'])
+    def get_model_metrics(model_name, timeframe):
+        """Endpoint per ottenere le metriche dettagliate di un modello specifico."""
+        try:
+            # Percorso del file delle metriche
+            metrics_file = os.path.join("logs", "plots", f"training_metrics_{timeframe}.json")
             
-            # Directory dei modelli addestrati
-            model_dir = "trained_models"
-            if not os.path.exists(model_dir):
-                os.makedirs(model_dir, exist_ok=True)
+            # Controllo se il file esiste
+            if not os.path.exists(metrics_file):
+                return jsonify({
+                    "status": "error", 
+                    "message": f"Metriche non disponibili per il modello {model_name} con timeframe {timeframe}"
+                }), 404
             
-            # Verifica in base al tipo di modello
-            if model_name.lower() == 'lstm':
-                model_file = f"{model_dir}/lstm_model_{timeframe}.h5"
-                scaler_file = f"{model_dir}/lstm_scaler_{timeframe}.pkl"
-                model_exists = os.path.exists(model_file) and os.path.exists(scaler_file)
-                if model_exists:
-                    model_details = {
-                        "model_file": model_file,
-                        "scaler_file": scaler_file,
-                        "size": os.path.getsize(model_file) if os.path.exists(model_file) else 0
-                    }
-                
-            elif model_name.lower() in ['rf', 'random_forest']:
-                model_file = f"{model_dir}/rf_model_{timeframe}.pkl"
-                scaler_file = f"{model_dir}/rf_scaler_{timeframe}.pkl"
-                model_exists = os.path.exists(model_file) and os.path.exists(scaler_file)
-                if model_exists:
-                    model_details = {
-                        "model_file": model_file,
-                        "scaler_file": scaler_file,
-                        "size": os.path.getsize(model_file) if os.path.exists(model_file) else 0
-                    }
-                
-            elif model_name.lower() in ['xgb', 'xgboost']:
-                model_file = f"{model_dir}/xgb_model_{timeframe}.pkl"
-                scaler_file = f"{model_dir}/xgb_scaler_{timeframe}.pkl"
-                model_exists = os.path.exists(model_file) and os.path.exists(scaler_file)
-                if model_exists:
-                    model_details = {
-                        "model_file": model_file,
-                        "scaler_file": scaler_file,
-                        "size": os.path.getsize(model_file) if os.path.exists(model_file) else 0
-                    }
-                
-            # Solo per debug, stampa informazioni sul controllo
-            print(colored_text(f"Controllo modello {model_name} per timeframe {timeframe}: {'Disponibile' if model_exists else 'Non disponibile'}", "cyan"))
+            # Legge il file delle metriche
+            with open(metrics_file, 'r') as f:
+                metrics_data = json.load(f)
+            
+            # Aggiungi informazioni sul modello specifico
+            metrics_data["model_info"] = {
+                "model_name": model_name,
+                "timeframe": timeframe,
+                "model_file": f"trained_models/{model_name}_model_{timeframe}.h5" 
+                              if model_name == "lstm" else f"trained_models/{model_name}_model_{timeframe}.pkl",
+                "is_available": True  # Potresti verificare l'esistenza del file del modello
+            }
             
             return jsonify({
-                "available": model_exists,
-                "model": model_name,
-                "timeframe": timeframe,
-                "details": model_details
+                "status": "success",
+                "data": metrics_data
             })
-        else:
-            # Restituisci lo stato generale
+        except Exception as e:
+            print(colored_text(f"Errore nel recupero delle metriche: {str(e)}", "red"))
+            return jsonify({
+                "status": "error", 
+                "message": f"Errore nel recupero delle metriche: {str(e)}"
+            }), 500
+    
+    @app.route('/api/models', methods=['GET'])
+    def list_available_models():
+        """Endpoint per ottenere la lista di tutti i modelli disponibili con le loro metriche base."""
+        try:
+            # Directory dei modelli addestrati
+            model_dir = "trained_models"
+            metrics_dir = os.path.join("logs", "plots")
+            
+            if not os.path.exists(model_dir):
+                return jsonify({
+                    "status": "success",
+                    "data": {
+                        "models": []
+                    }
+                })
+            
+            # Lista tutti i file nella directory dei modelli
+            models = []
+            for file in os.listdir(model_dir):
+                if file.endswith('.h5') or file.endswith('.pkl'):
+                    # Estrai informazioni dal nome del file
+                    parts = file.split('_')
+                    if len(parts) >= 3:
+                        model_type = parts[0]
+                        timeframe = parts[2].split('.')[0]
+                        
+                        # Controlla se esistono metriche per questo modello
+                        metrics_file = os.path.join(metrics_dir, f"training_metrics_{timeframe}.json")
+                        metrics_available = os.path.exists(metrics_file)
+                        
+                        if metrics_available:
+                            # Carica le metriche di base se disponibili
+                            with open(metrics_file, 'r') as f:
+                                metrics = json.load(f)
+                                basic_metrics = {
+                                    "accuracy": metrics["validation"]["final_accuracy"],
+                                    "loss": metrics["validation"]["final_loss"],
+                                    "epochs": metrics["summary"]["epochs_trained"],
+                                    "condition": metrics["summary"]["model_condition"]
+                                }
+                        else:
+                            basic_metrics = None
+                        
+                        models.append({
+                            "model_type": model_type,
+                            "timeframe": timeframe,
+                            "file_path": os.path.join(model_dir, file),
+                            "metrics_available": metrics_available,
+                            "basic_metrics": basic_metrics
+                        })
+            
+            return jsonify({
+                "status": "success",
+                "data": {
+                    "models": models
+                }
+            })
+        except Exception as e:
+            print(colored_text(f"Errore nell'elenco dei modelli: {str(e)}", "red"))
+            return jsonify({
+                "status": "error", 
+                "message": f"Errore nell'elenco dei modelli: {str(e)}"
+            }), 500
+
+    @app.route('/api/status', methods=['GET'])
+    def get_status():
+        """Endpoint per lo stato generale del sistema."""
+        try:
+            # Informazioni generali di stato
             return jsonify({
                 "status": "online",
                 "api_running": True,
-                "version": "1.0.0"
+                "version": "1.0.0",
+                "server_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             })
+        except Exception as e:
+            return jsonify({
+                "status": "error",
+                "message": str(e)
+            }), 500
 
     thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=5000), daemon=True)
     thread.start()

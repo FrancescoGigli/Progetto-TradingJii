@@ -104,7 +104,7 @@ def get_rf_model_file(tf):
 def get_rf_scaler_file(tf):
     return _mp("rf", tf, "_scaler.pkl")
 def get_xgb_model_file(tf):
-    return _mp("xgb", tf, ".json")
+    return _mp("xgb", tf, ".model")
 def get_xgb_scaler_file(tf):
     return _mp("xgb", tf, "_scaler.pkl")
 

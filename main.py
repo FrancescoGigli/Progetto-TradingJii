@@ -2,7 +2,7 @@
 import sys
 import os
 import numpy as np
-from datetime import timedelta
+from datetime import timedelta, datetime
 import asyncio
 import logging
 import re
@@ -79,14 +79,37 @@ def check_missing_models(timeframes, models):
     for tf in timeframes:
         missing_for_tf = []
         
-        if 'lstm' in models and not os.path.exists(get_lstm_model_file(tf)):
-            missing_for_tf.append('lstm')
+        if 'lstm' in models:
+            lstm_file = get_lstm_model_file(tf)
+            if not os.path.exists(lstm_file):
+                print(colored(f"File LSTM non trovato: {lstm_file}", "yellow"))
+                missing_for_tf.append('lstm')
+            else:
+                print(colored(f"File LSTM trovato: {lstm_file}", "green"))
             
-        if 'rf' in models and not os.path.exists(get_rf_model_file(tf)):
-            missing_for_tf.append('rf')
+        if 'rf' in models:
+            rf_file = get_rf_model_file(tf)
+            if not os.path.exists(rf_file):
+                print(colored(f"File RF non trovato: {rf_file}", "yellow")) 
+                missing_for_tf.append('rf')
+            else:
+                print(colored(f"File RF trovato: {rf_file}", "green"))
             
-        if 'xgb' in models and not os.path.exists(get_xgb_model_file(tf)):
-            missing_for_tf.append('xgb')
+        if 'xgb' in models:
+            xgb_file = get_xgb_model_file(tf)
+            print(colored(f"Cercando file XGB: {xgb_file}", "cyan"))
+            
+            # Controllo anche l'estensione alternativa .model per XGBoost
+            alt_xgb_file = f"trained_models/xgb_model_{tf}.model"
+            
+            if not os.path.exists(xgb_file) and not os.path.exists(alt_xgb_file):
+                print(colored(f"File XGB non trovato (cercato: {xgb_file} e {alt_xgb_file})", "yellow"))
+                missing_for_tf.append('xgb')
+            else:
+                if os.path.exists(xgb_file):
+                    print(colored(f"File XGB trovato: {xgb_file}", "green"))
+                else:
+                    print(colored(f"File XGB trovato con estensione alternativa: {alt_xgb_file}", "green"))
             
         if missing_for_tf:
             missing_models[tf] = missing_for_tf
@@ -284,6 +307,71 @@ async def train_model(exchange, symbols, model_type, timeframe):
         logging.error(colored(f"Errore durante il training {model_type.upper()} per {timeframe}: {e}", "red"))
         return None, None
 
+# Funzione asincrona per addestrare tutti i modelli in parallelo
+async def train_models_in_parallel(exchange, symbols, model_types, timeframes):
+    """Addestra tutti i modelli per tutti i timeframe in parallelo.
+    
+    Args:
+        exchange: L'exchange da utilizzare per i dati
+        symbols: Lista di simboli da utilizzare per il training
+        model_types: Lista di tipi di modelli da addestrare ('lstm', 'rf', 'xgb')
+        timeframes: Lista di timeframe da utilizzare
+    
+    Returns:
+        Un dizionario contenente tutti i modelli e gli scaler addestrati
+    """
+    
+    print(colored(f"Avvio training parallelo di {len(model_types) * len(timeframes)} modelli...", "cyan"))
+    
+    # Preparazione per i task paralleli
+    tasks = []
+    model_results = {}
+    
+    # Inizializza il dizionario dei risultati
+    for model_type in model_types:
+        model_results[model_type] = {'models': {}, 'scalers': {}}
+    
+    # Crea i task per ogni combinazione di modello e timeframe
+    for tf in timeframes:
+        for model_type in model_types:
+            print(colored(f"Aggiunto task per training {model_type.upper()} - {tf}", "cyan"))
+            tasks.append(train_model(exchange, symbols, model_type, tf))
+    
+    # Esegui tutti i task in parallelo
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # Processa i risultati
+    task_index = 0
+    for tf in timeframes:
+        for model_type in model_types:
+            result = results[task_index]
+            task_index += 1
+            
+            # Gestione degli errori
+            if isinstance(result, Exception):
+                logging.error(f"Errore nel training {model_type} per {tf}: {result}")
+                continue
+                
+            # Estrai modello e scaler
+            model, scaler = result
+            
+            if model is not None and scaler is not None:
+                # Salva nel dizionario dei risultati
+                model_results[model_type]['models'][tf] = model
+                model_results[model_type]['scalers'][tf] = scaler
+                print(colored(f"Training {model_type.upper()} per {tf} completato con successo", "green"))
+            else:
+                logging.warning(f"Training {model_type.upper()} per {tf} fallito o prodotto risultato None")
+    
+    # Riassunto dei risultati
+    print(colored("\n=== RIEPILOGO TRAINING ===", "cyan"))
+    for model_type in model_types:
+        successful = len(model_results[model_type]['models'])
+        print(colored(f"{model_type.upper()}: {successful}/{len(timeframes)} modelli addestrati", 
+                     "green" if successful == len(timeframes) else "yellow"))
+    
+    return model_results
+
 # Nuova funzione per gestire il training-only
 async def execute_training_only(timeframes=None, models=None, num_symbols=None):
     print(colored("\n=== MODALITÀ TRAINING MODELLI ===", "cyan"))
@@ -338,15 +426,34 @@ async def execute_training_only(timeframes=None, models=None, num_symbols=None):
         print(" " * 80, end="\r")  # Clear the line
         print(colored(f"Dati validati: {len(validated_symbols)}/{len(top_symbols_training)} simboli utilizzabili", "green"))
         
+        # Verifica se ci sono abbastanza dati
+        if len(validated_symbols) < 10:
+            proceed = input(colored(f"ATTENZIONE: Solo {len(validated_symbols)} simboli validi trovati. Continuare? [s/n]: ", "red")).strip().lower() == 's'
+            if not proceed:
+                print(colored("Training annullato dall'utente.", "red"))
+                return
+        
         # Crea directory per i modelli
         ensure_trained_models_dir()
         
-        # Training dei modelli
-        for tf in timeframes:
-            for model in models:
-                await train_model(async_exchange, validated_symbols, model, tf)
+        # Misura il tempo di addestramento
+        start_time = datetime.now()
         
-        print(colored("\nTraining completato con successo!", "green"))
+        # Training parallelo dei modelli
+        print(colored("\nAvvio training parallelo di tutti i modelli...", "cyan"))
+        model_results = await train_models_in_parallel(
+            async_exchange, 
+            validated_symbols, 
+            models, 
+            timeframes
+        )
+        
+        # Calcola e mostra il tempo totale
+        total_time = datetime.now() - start_time
+        total_models = len(models) * len(timeframes)
+        
+        print(colored(f"\nTraining completato in {total_time}!", "green"))
+        print(colored(f"Tempo medio per modello: {total_time/total_models}", "cyan"))
         
     except Exception as e:
         print(colored(f"Errore durante il training: {e}", "red"))
@@ -448,10 +555,47 @@ async def main():
                     xgb_models = {}
                     xgb_scalers = {}
                     
-                    # Train models in sequence
-                    for tf in models_to_train:
-                        for model_type in models_to_train[tf]:
-                            model, scaler = await train_model(async_exchange, validated_symbols, model_type, tf)
+                    # Prepara lista di modelli e timeframe da addestrare
+                    tf_to_train = list(models_to_train.keys())
+                    
+                    # Prepara dizionario per modelli da addestrare per ogni timeframe
+                    models_by_tf = {}
+                    for tf in tf_to_train:
+                        models_by_tf[tf] = models_to_train[tf]
+                    
+                    # Misura il tempo di training
+                    start_time = datetime.now()
+                    
+                    try:
+                        # Converti il dizionario di modelli_to_train in liste piatte per il training parallelo
+                        all_tfs = []
+                        all_models = []
+                        
+                        for tf, model_list in models_to_train.items():
+                            for model_type in model_list:
+                                all_tfs.append(tf)
+                                all_models.append(model_type)
+                        
+                        print(colored(f"Avvio training parallelo di {len(all_tfs)} modelli...", "cyan"))
+                        
+                        # Crea task per ogni combinazione (tf, model)
+                        tasks = [train_model(async_exchange, validated_symbols, model_type, tf) 
+                                for tf, model_type in zip(all_tfs, all_models)]
+                        
+                        # Esegui tutti i training in parallelo
+                        train_results = await asyncio.gather(*tasks, return_exceptions=True)
+                        
+                        # Processa i risultati
+                        for i, result in enumerate(train_results):
+                            tf = all_tfs[i]
+                            model_type = all_models[i]
+                            
+                            # Gestione eccezioni
+                            if isinstance(result, Exception):
+                                logging.error(f"Errore nel training di {model_type} per {tf}: {str(result)}")
+                                continue
+                            
+                            model, scaler = result
                             
                             if model is not None:
                                 if model_type == 'lstm':
@@ -463,6 +607,32 @@ async def main():
                                 elif model_type == 'xgb':
                                     xgb_models[tf] = model
                                     xgb_scalers[tf] = scaler
+                                
+                                print(colored(f"Training di {model_type} per {tf} completato con successo", "green"))
+                        
+                        total_time = datetime.now() - start_time
+                        print(colored(f"Training completato in {total_time}", "green"))
+                    
+                    except Exception as e:
+                        print(colored(f"Errore durante il training parallelo: {str(e)}", "red"))
+                        # Se fallisce il parallelo, prova il metodo sequenziale
+                        print(colored("Tentativo con training sequenziale...", "yellow"))
+                        
+                        # Train models in sequence (fallback)
+                        for tf in models_to_train:
+                            for model_type in models_to_train[tf]:
+                                model, scaler = await train_model(async_exchange, validated_symbols, model_type, tf)
+                                
+                                if model is not None:
+                                    if model_type == 'lstm':
+                                        lstm_models[tf] = model
+                                        lstm_scalers[tf] = scaler
+                                    elif model_type == 'rf':
+                                        rf_models[tf] = model
+                                        rf_scalers[tf] = scaler
+                                    elif model_type == 'xgb':
+                                        xgb_models[tf] = model
+                                        xgb_scalers[tf] = scaler
             else:
                 print(colored("Nessun modello selezionato per il training.", "yellow"))
                 # Imposta TRAIN_IF_NOT_FOUND a False per evitare errori

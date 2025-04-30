@@ -356,7 +356,7 @@ export function getSelectedModels() {
 
 export function getSelectedTimeframes() {
     const checked = Array.from(document.querySelectorAll('.timeframe-select:checked'));
-    return checked.map(cb => cb.id.replace('tf-', ''));
+    return checked.map(cb => cb.id.replace('timeframe-', ''));
 }
 
 export function validateSelection() {

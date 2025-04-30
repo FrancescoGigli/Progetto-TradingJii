@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Metriche Modello - Trading Bot</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">Trading Bot</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/training.html">Training</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/models.html">Modelli</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <h1 id="model-title">Dettagli Modello</h1>
+                <div id="model-info" class="my-3">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Caricamento...</span>
+                    </div>
+                    <span class="ms-2">Caricamento informazioni modello...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="card-title mb-0">Performance del Modello</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="accuracy-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="card-title mb-0">Loss del Modello</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="loss-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="card-title mb-0">Riepilogo Performance</h5>
+                    </div>
+                    <div class="card-body">
+                        <table class="table">
+                            <tbody id="performance-summary">
+                                <tr>
+                                    <td colspan="2" class="text-center">Caricamento...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header" id="model-condition-header">
+                        <h5 class="card-title mb-0">Stato del Modello</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="model-condition" class="mb-3">
+                            <p>Caricamento...</p>
+                        </div>
+                        <div id="recommendations">
+                            <h6>Raccomandazioni:</h6>
+                            <ul id="recommendations-list">
+                                <li>Caricamento...</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="card-title mb-0">Dati Dettagliati</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped" id="metrics-table">
+                                <thead>
+                                    <tr>
+                                        <th>Epoca</th>
+                                        <th>Loss (Training)</th>
+                                        <th>Loss (Validazione)</th>
+                                        <th>Accuracy (Training)</th>
+                                        <th>Accuracy (Validazione)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="5" class="text-center">Caricamento...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Ottieni i parametri dall'URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const modelName = urlParams.get('model') || 'lstm';
+        const timeframe = urlParams.get('timeframe') || '4h';
+
+        // Funzione per formattare i numeri
+        function formatNumber(num) {
+            return num.toFixed(4);
+        }
+
+        // Funzione per ottenere il colore in base alla condizione del modello
+        function getConditionColor(condition) {
+            switch(condition) {
+                case 'overfit': return 'danger';
+                case 'underfit': return 'warning';
+                default: return 'success';
+            }
+        }
+
+        // Funzione per ottenere la descrizione della condizione
+        function getConditionDescription(condition) {
+            switch(condition) {
+                case 'overfit': 
+                    return 'Il modello è sovra-addestrato: funziona bene sui dati di training ma non generalizza bene su dati nuovi.';
+                case 'underfit': 
+                    return 'Il modello è sotto-addestrato: non ha ancora imparato abbastanza dai dati di training.';
+                default: 
+                    return 'Il modello è ben bilanciato: ha un buon compromesso tra performance su dati di training e di validazione.';
+            }
+        }
+
+        // Carica le metriche del modello
+        async function loadModelMetrics() {
+            try {
+                const response = await fetch(`/api/model-metrics/${modelName}/${timeframe}`);
+                if (!response.ok) {
+                    throw new Error('Errore nel caricamento delle metriche');
+                }
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    return data.data;
+                } else {
+                    throw new Error(data.message || 'Errore sconosciuto');
+                }
+            } catch (error) {
+                console.error('Errore:', error);
+                document.getElementById('model-info').innerHTML = 
+                    `<div class="alert alert-danger">Errore: ${error.message}</div>`;
+                return null;
+            }
+        }
+
+        // Crea grafici con Chart.js
+        function createCharts(metrics) {
+            const rawMetrics = metrics.raw_metrics;
+            const epochs = Array.from({length: rawMetrics.loss.length}, (_, i) => i + 1);
+
+            // Grafico Accuracy
+            const accuracyChart = new Chart(
+                document.getElementById('accuracy-chart'),
+                {
+                    type: 'line',
+                    data: {
+                        labels: epochs,
+                        datasets: [
+                            {
+                                label: 'Training',
+                                data: rawMetrics.accuracy,
+                                borderColor: 'rgba(54, 162, 235, 1)',
+                                backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                                tension: 0.1,
+                                fill: true
+                            },
+                            {
+                                label: 'Validazione',
+                                data: rawMetrics.val_accuracy,
+                                borderColor: 'rgba(255, 99, 132, 1)',
+                                backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                                tension: 0.1,
+                                fill: true
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Accuratezza del modello'
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false
+                            }
+                        },
+                        scales: {
+                            y: {
+                                min: 0,
+                                max: 1
+                            }
+                        }
+                    }
+                }
+            );
+
+            // Grafico Loss
+            const lossChart = new Chart(
+                document.getElementById('loss-chart'),
+                {
+                    type: 'line',
+                    data: {
+                        labels: epochs,
+                        datasets: [
+                            {
+                                label: 'Training',
+                                data: rawMetrics.loss,
+                                borderColor: 'rgba(54, 162, 235, 1)',
+                                backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                                tension: 0.1,
+                                fill: true
+                            },
+                            {
+                                label: 'Validazione',
+                                data: rawMetrics.val_loss,
+                                borderColor: 'rgba(255, 99, 132, 1)',
+                                backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                                tension: 0.1,
+                                fill: true
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Loss del modello'
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false
+                            }
+                        }
+                    }
+                }
+            );
+        }
+
+        // Popola la tabella delle metriche
+        function populateMetricsTable(metrics) {
+            const tableBody = document.getElementById('metrics-table').querySelector('tbody');
+            tableBody.innerHTML = '';
+
+            const rawMetrics = metrics.raw_metrics;
+            const epochs = Array.from({length: rawMetrics.loss.length}, (_, i) => i + 1);
+
+            for (let i = 0; i < epochs.length; i++) {
+                const row = document.createElement('tr');
+                
+                // Evidenzia la miglior epoca
+                if (i === metrics.summary.best_epoch) {
+                    row.classList.add('table-success');
+                }
+                
+                row.innerHTML = `
+                    <td>${epochs[i]}</td>
+                    <td>${formatNumber(rawMetrics.loss[i])}</td>
+                    <td>${formatNumber(rawMetrics.val_loss[i])}</td>
+                    <td>${formatNumber(rawMetrics.accuracy[i])}</td>
+                    <td>${formatNumber(rawMetrics.val_accuracy[i])}</td>
+                `;
+                tableBody.appendChild(row);
+            }
+        }
+
+        // Popola il riepilogo delle performance
+        function populatePerformanceSummary(metrics) {
+            const summaryBody = document.getElementById('performance-summary');
+            summaryBody.innerHTML = `
+                <tr>
+                    <th>Epoche totali:</th>
+                    <td>${metrics.summary.epochs_trained}</td>
+                </tr>
+                <tr>
+                    <th>Miglior epoca:</th>
+                    <td>${metrics.summary.best_epoch + 1}</td>
+                </tr>
+                <tr>
+                    <th colspan="2" class="table-primary">Training</th>
+                </tr>
+                <tr>
+                    <th>Accuracy finale:</th>
+                    <td>${formatNumber(metrics.training.final_accuracy)}</td>
+                </tr>
+                <tr>
+                    <th>Miglior accuracy:</th>
+                    <td>${formatNumber(metrics.training.best_accuracy)}</td>
+                </tr>
+                <tr>
+                    <th>Loss finale:</th>
+                    <td>${formatNumber(metrics.training.final_loss)}</td>
+                </tr>
+                <tr>
+                    <th colspan="2" class="table-info">Validazione</th>
+                </tr>
+                <tr>
+                    <th>Accuracy finale:</th>
+                    <td>${formatNumber(metrics.validation.final_accuracy)}</td>
+                </tr>
+                <tr>
+                    <th>Miglior accuracy:</th>
+                    <td>${formatNumber(metrics.validation.best_accuracy)}</td>
+                </tr>
+                <tr>
+                    <th>Loss finale:</th>
+                    <td>${formatNumber(metrics.validation.final_loss)}</td>
+                </tr>
+            `;
+        }
+
+        // Popola la sezione sulla condizione del modello
+        function populateModelCondition(metrics) {
+            const conditionHeader = document.getElementById('model-condition-header');
+            const conditionDiv = document.getElementById('model-condition');
+            const recommendationsList = document.getElementById('recommendations-list');
+            
+            const condition = metrics.summary.model_condition;
+            const conditionColor = getConditionColor(condition);
+            
+            // Imposta il colore dell'header in base alla condizione
+            conditionHeader.className = `card-header bg-${conditionColor} text-white`;
+            conditionHeader.innerHTML = `<h5 class="card-title mb-0">Stato del Modello: ${condition}</h5>`;
+            
+            // Imposta la descrizione della condizione
+            conditionDiv.innerHTML = `<p>${getConditionDescription(condition)}</p>`;
+            
+            // Popola le raccomandazioni
+            recommendationsList.innerHTML = '';
+            metrics.model_analysis.recommendations.forEach(rec => {
+                const li = document.createElement('li');
+                li.textContent = rec;
+                recommendationsList.appendChild(li);
+            });
+        }
+
+        // Funzione principale per inizializzare la pagina
+        async function initPage() {
+            // Aggiorna il titolo della pagina
+            document.getElementById('model-title').textContent = 
+                `Metriche Modello ${modelName.toUpperCase()} (${timeframe})`;
+            
+            // Carica le metriche
+            const metrics = await loadModelMetrics();
+            if (!metrics) return;
+            
+            // Aggiorna le informazioni del modello
+            document.getElementById('model-info').innerHTML = `
+                <div class="alert alert-info">
+                    <strong>Modello:</strong> ${metrics.model_info.model_name.toUpperCase()} | 
+                    <strong>Timeframe:</strong> ${metrics.model_info.timeframe} | 
+                    <strong>File:</strong> ${metrics.model_info.model_file}
+                </div>
+            `;
+            
+            // Crea i grafici
+            createCharts(metrics);
+            
+            // Popola la tabella delle metriche
+            populateMetricsTable(metrics);
+            
+            // Popola il riepilogo delle performance
+            populatePerformanceSummary(metrics);
+            
+            // Popola la sezione sulla condizione del modello
+            populateModelCondition(metrics);
+        }
+
+        // Avvia il caricamento della pagina
+        document.addEventListener('DOMContentLoaded', initPage);
+    </script>
+</body>
+</html> 
