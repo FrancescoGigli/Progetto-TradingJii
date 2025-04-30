@@ -215,9 +215,10 @@ async function checkModelStatus() {
 
     console.log("Auto-status.js: Controllo effettivo dei file dei modelli...");
     
-    // Reset dei modelli mancanti
+    // Reset dei modelli mancanti - questa è la parte cruciale
     missingModels = {};
     models.forEach(model => {
+        // Assicurarsi di inizializzare ogni modello con un array vuoto
         missingModels[model] = [];
     });
     
@@ -290,6 +291,9 @@ async function checkModelStatus() {
         }
     }
     
+    // Dopo aver controllato tutto, stampa un log dei modelli mancanti (per debug)
+    console.log("Modelli mancanti:", JSON.stringify(missingModels));
+    
     // Aggiorna i pulsanti di training in base ai modelli mancanti
     updateTrainingButtons();
 }
@@ -312,6 +316,9 @@ function updateTrainingButtons() {
             totalMissing += missingModels[model].length;
         }
     }
+    
+    // Assicurati che gli stili personalizzati siano aggiunti
+    addCustomStyles();
     
     // Crea un container grid per i pulsanti
     const gridContainer = document.createElement('div');
@@ -356,37 +363,34 @@ function updateTrainingButtons() {
         col.className = 'col-md-4';
         
         // Crea il pulsante
-        const singleModelBtn = document.createElement('button');
-        singleModelBtn.type = 'button';
-        singleModelBtn.id = `train-${model}-btn`;
-        singleModelBtn.className = `btn btn-${btnColor} btn-md btn-train w-100`;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.id = `train-${model}-btn`;
+        btn.className = `btn btn-${btnColor} btn-train w-100`;
         
         // Controlla se questo modello ha un training attivo
         if (activeTraining.isRunning && activeTraining.model === model && activeTraining.type === 'single') {
-            singleModelBtn.classList.add('training-btn-active');
-            singleModelBtn.classList.add('btn-stop');
+            btn.classList.add('running');
+            btn.innerHTML = `<i class="fas fa-stop me-2"></i>Stop ${modelName}`;
+        } else {
+            btn.innerHTML = `<i class="fas fa-${icon} me-2"></i>Train ${modelName}`;
         }
         
         // Aggiungi badge se ci sono modelli mancanti
-        let badgeHtml = '';
         if (missingCount > 0) {
-            badgeHtml = `<span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">${missingCount}</span>`;
-            singleModelBtn.classList.add('position-relative');
+            btn.innerHTML += `<span class="train-badge">${missingCount}</span>`;
+            btn.classList.add('position-relative');
         }
         
-        singleModelBtn.innerHTML = `<i class="fas fa-${icon} me-2"></i>Train ${modelName} ${badgeHtml}`;
-        
-        singleModelBtn.addEventListener('click', function() {
-            // Se c'è già un training attivo per questo modello, fermalo
+        btn.addEventListener('click', () => {
             if (activeTraining.isRunning && activeTraining.model === model && activeTraining.type === 'single') {
                 stopTraining();
             } else {
-                // Altrimenti avvia il training
                 trainSingleModel(model);
             }
         });
         
-        col.appendChild(singleModelBtn);
+        col.appendChild(btn);
         firstRow.appendChild(col);
     }
     
@@ -397,22 +401,20 @@ function updateTrainingButtons() {
     const trainSelectedModelBtn = document.createElement('button');
     trainSelectedModelBtn.type = 'button';
     trainSelectedModelBtn.id = 'train-selected-model-btn';
-    trainSelectedModelBtn.className = 'btn btn-md btn-primary btn-train w-100';
+    trainSelectedModelBtn.className = 'btn btn-primary btn-train w-100';
     
     // Controlla se c'è un training di tipo "selected" attivo
     if (activeTraining.isRunning && activeTraining.type === 'selected') {
-        trainSelectedModelBtn.classList.add('training-btn-active');
-        trainSelectedModelBtn.classList.add('btn-stop');
+        trainSelectedModelBtn.classList.add('running');
+        trainSelectedModelBtn.innerHTML = '<i class="fas fa-stop me-2"></i>Stop Training';
+    } else {
+        trainSelectedModelBtn.innerHTML = '<i class="fas fa-check-double me-2"></i>Train Selezionato';
     }
     
-    trainSelectedModelBtn.innerHTML = '<i class="fas fa-check-double me-2"></i>Train modello selezionato';
-    
-    trainSelectedModelBtn.addEventListener('click', function() {
-        // Se c'è già un training attivo di tipo "selected", fermalo
+    trainSelectedModelBtn.addEventListener('click', () => {
         if (activeTraining.isRunning && activeTraining.type === 'selected') {
             stopTraining();
         } else {
-            // Altrimenti avvia il training per il modello selezionato
             trainSelectedModel();
         }
     });
@@ -427,34 +429,23 @@ function updateTrainingButtons() {
     const trainMissingBtn = document.createElement('button');
     trainMissingBtn.type = 'button';
     trainMissingBtn.id = 'train-missing-btn';
-    trainMissingBtn.className = 'btn btn-md btn-train w-100';
+    trainMissingBtn.className = `btn btn-${hasMissing ? 'warning' : 'outline-success'} btn-train w-100`;
     trainMissingBtn.disabled = !hasMissing;
     
     // Controlla se c'è un training di tipo "missing" attivo
     if (activeTraining.isRunning && activeTraining.type === 'missing') {
-        trainMissingBtn.classList.add('training-btn-active');
-        trainMissingBtn.classList.add('btn-stop');
+        trainMissingBtn.classList.add('running');
+        trainMissingBtn.innerHTML = '<i class="fas fa-stop me-2"></i>Stop Training';
     } else {
-        // Imposta il colore appropriato in base allo stato
-        if (hasMissing) {
-            trainMissingBtn.className += ' btn-warning';
-        } else {
-            trainMissingBtn.className += ' btn-outline-success';
-        }
+        trainMissingBtn.innerHTML = hasMissing ? 
+            `<i class="fas fa-exclamation-triangle me-2"></i>Modelli mancanti (${totalMissing})` :
+            `<i class="fas fa-check-circle me-2"></i>Nessun modello mancante`;
     }
     
-    if (hasMissing) {
-        trainMissingBtn.innerHTML = `<i class="fas fa-exclamation-triangle me-2"></i>Modelli mancanti (${totalMissing})`;
-    } else {
-        trainMissingBtn.innerHTML = `<i class="fas fa-check-circle me-2"></i>Nessun modello mancante`;
-    }
-    
-    trainMissingBtn.addEventListener('click', function() {
-        // Se c'è già un training attivo di tipo "missing", fermalo
+    trainMissingBtn.addEventListener('click', () => {
         if (activeTraining.isRunning && activeTraining.type === 'missing') {
             stopTraining();
         } else {
-            // Altrimenti avvia il training
             trainSelectedModels(true);
         }
     });
@@ -469,23 +460,20 @@ function updateTrainingButtons() {
     const trainAllBtn = document.createElement('button');
     trainAllBtn.type = 'button';
     trainAllBtn.id = 'train-all-btn';
-    trainAllBtn.className = 'btn btn-md btn-primary btn-train w-100';
+    trainAllBtn.className = 'btn btn-primary btn-train w-100';
     
     // Controlla se c'è un training di tipo "all" attivo
     if (activeTraining.isRunning && activeTraining.type === 'all') {
-        trainAllBtn.classList.add('training-btn-active');
-        trainAllBtn.classList.add('btn-stop');
-        trainAllBtn.innerHTML = '<i class="fas fa-stop-circle me-2"></i>Stop training';
+        trainAllBtn.classList.add('running');
+        trainAllBtn.innerHTML = '<i class="fas fa-stop me-2"></i>Stop Training';
     } else {
-        trainAllBtn.innerHTML = '<i class="fas fa-sync-alt me-2"></i>Train tutti i modelli';
+        trainAllBtn.innerHTML = '<i class="fas fa-sync-alt me-2"></i>Train Tutti';
     }
     
-    trainAllBtn.addEventListener('click', function() {
-        // Se c'è già un training attivo di tipo "all", fermalo
+    trainAllBtn.addEventListener('click', () => {
         if (activeTraining.isRunning && activeTraining.type === 'all') {
             stopTraining();
         } else {
-            // Altrimenti avvia il training
             trainSelectedModels(false);
         }
     });
@@ -692,14 +680,15 @@ async function monitorTrainingProgress(taskId) {
 
 // Funzione per addestrare un singolo modello
 function trainSingleModel(modelType) {
+    // Se c'è già un training attivo per questo modello, fermalo
+    if (activeTraining.isRunning && activeTraining.model === modelType && activeTraining.type === 'single') {
+        stopTraining();
+        return;
+    }
+
     // Recupera i timeframe selezionati dal form
     const selectedTimeframes = [...document.querySelectorAll('.timeframe-select:checked')].map(cb => cb.value);
     if (selectedTimeframes.length === 0) {
-        return;
-    }
-    
-    // Se c'è già un training attivo, blocca
-    if (activeTraining.isRunning) {
         return;
     }
     
@@ -759,7 +748,7 @@ function trainSingleModel(modelType) {
     // Prepara i dati per la richiesta API
     const taskData = {
         model_type: modelType,
-        timeframe: selectedTimeframes[0], // Per ora, accetta un solo timeframe
+        timeframe: selectedTimeframes,
         data_limit_days: parseInt(dataLimitDays),
         top_train_crypto: parseInt(trainCryptoCount)
     };
@@ -838,7 +827,7 @@ function trainSelectedModel() {
     // Prepara i dati per la richiesta API
     const taskData = {
         model_type: modelType,
-        timeframe: selectedTimeframes[0], // Per ora, accetta un solo timeframe
+        timeframe: selectedTimeframes,
         data_limit_days: parseInt(dataLimitDays),
         top_train_crypto: parseInt(trainCryptoCount)
     };
@@ -861,8 +850,9 @@ function trainSelectedModels(onlyMissing) {
         return;
     }
     
-    // Se c'è già un training attivo, blocca
-    if (activeTraining.isRunning) {
+    // Se c'è già un training attivo dello stesso tipo, fermalo
+    if (activeTraining.isRunning && activeTraining.type === (onlyMissing ? 'missing' : 'all')) {
+        stopTraining();
         return;
     }
     
@@ -879,12 +869,14 @@ function trainSelectedModels(onlyMissing) {
         });
         
         if (selectedTimeframes.length === 0) {
+            console.log("Nessun modello mancante da addestrare");
             return;
         }
     } else {
         // Se addestriamo tutti, prendi i timeframe selezionati dal form
         selectedTimeframes = [...document.querySelectorAll('.timeframe-select:checked')].map(cb => cb.value);
         if (selectedTimeframes.length === 0) {
+            console.log("Seleziona almeno un timeframe");
             return;
         }
     }
@@ -949,10 +941,115 @@ function trainSelectedModels(onlyMissing) {
     
     // Avvia il training reale
     startRealTraining(taskData);
-    
-    // Mostra una notifica invece di un alert
-    const tasksMessage = totalTasks > 1 ? ` (${totalTasks} modelli)` : '';
-    showTrainingNotification('info', `Training ${onlyMissing ? 'dei modelli mancanti' : 'di tutti i modelli'} avviato${tasksMessage}`);
+}
+
+// Aggiungere stili Bootstrap per i badge
+function addCustomStyles() {
+    const styleId = 'custom-badge-styles';
+    if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.textContent = `
+            .btn-train {
+                position: relative;
+                overflow: hidden;
+                transition: all 0.3s ease;
+                min-width: 140px;
+                font-weight: 500;
+            }
+
+            .btn-train:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            }
+
+            .btn-train:active {
+                transform: translateY(0);
+            }
+
+            .btn-train.running {
+                animation: pulse-btn 1.5s infinite;
+            }
+
+            .btn-train.running:hover {
+                animation: none;
+                background-color: #dc3545;
+                border-color: #dc3545;
+            }
+
+            .btn-train.running::after {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(
+                    90deg,
+                    transparent,
+                    rgba(255, 255, 255, 0.2),
+                    transparent
+                );
+                animation: shimmer 2s infinite;
+            }
+
+            .train-badge {
+                position: absolute;
+                top: 8px;
+                right: 12px;
+                font-size: 0.8rem;
+                min-width: 22px;
+                height: 22px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 0 7px;
+                border: 2px solid #222;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                color: #fff;
+                background: #dc3545;
+                border-radius: 12px;
+                z-index: 2;
+            }
+
+            .btn-purple {
+                background: linear-gradient(45deg, #6f42c1, #4b2991);
+                color: #fff !important;
+                border: none;
+            }
+            
+            .btn-purple:hover, .btn-purple:focus {
+                background: linear-gradient(45deg, #4b2991, #6f42c1);
+                color: #fff !important;
+                border: none;
+            }
+
+            @keyframes shimmer {
+                0% { left: -100%; }
+                100% { left: 100%; }
+            }
+
+            @keyframes pulse-btn {
+                0% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0.4); }
+                70% { box-shadow: 0 0 0 10px rgba(13, 110, 253, 0); }
+                100% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0); }
+            }
+
+            /* Stili specifici per i diversi tipi di pulsanti */
+            .btn-train.btn-info.running {
+                background: linear-gradient(45deg, #0dcaf0, #0d6efd);
+            }
+
+            .btn-train.btn-success.running {
+                background: linear-gradient(45deg, #198754, #20c997);
+            }
+
+            .btn-train.btn-purple.running {
+                background: linear-gradient(45deg, #6f42c1, #4b2991);
+            }
+        `;
+        document.head.appendChild(style);
+    }
 }
 
 // Esegui la funzione quando il DOM è caricato
