@@ -96,7 +96,7 @@ def check_missing_models(timeframes, models):
 # Funzione per selezionare modelli da trainare interattivamente
 def select_models_to_train(missing_models):
     if not missing_models:
-        print(colored("✅ Tutti i modelli sono già addestrati!", "green"))
+        print(colored("Tutti i modelli sono già addestrati!", "green"))
         return {}
     
     print(colored("\n=== MODELLI MANCANTI ===", "yellow"))
@@ -278,10 +278,10 @@ async def train_model(exchange, symbols, model_type, timeframe):
                 symbols, exchange, timestep=TIME_STEPS, timeframe=timeframe)
             model_path = get_xgb_model_file(timeframe)
             
-        logging.info(colored(f"✅ Training {model_type.upper()} per {timeframe} completato! Modello salvato in {model_path}", "green"))
+        logging.info(colored(f"Training {model_type.upper()} per {timeframe} completato! Modello salvato in {model_path}", "green"))
         return model, scaler
     except Exception as e:
-        logging.error(colored(f"❌ Errore durante il training {model_type.upper()} per {timeframe}: {e}", "red"))
+        logging.error(colored(f"Errore durante il training {model_type.upper()} per {timeframe}: {e}", "red"))
         return None, None
 
 # Nuova funzione per gestire il training-only
@@ -336,7 +336,7 @@ async def execute_training_only(timeframes=None, models=None, num_symbols=None):
                 validated_symbols.append(symbol)
         
         print(" " * 80, end="\r")  # Clear the line
-        print(colored(f"✅ Dati validati: {len(validated_symbols)}/{len(top_symbols_training)} simboli utilizzabili", "green"))
+        print(colored(f"Dati validati: {len(validated_symbols)}/{len(top_symbols_training)} simboli utilizzabili", "green"))
         
         # Crea directory per i modelli
         ensure_trained_models_dir()
@@ -346,10 +346,10 @@ async def execute_training_only(timeframes=None, models=None, num_symbols=None):
             for model in models:
                 await train_model(async_exchange, validated_symbols, model, tf)
         
-        print(colored("\n✅ Training completato con successo!", "green"))
+        print(colored("\nTraining completato con successo!", "green"))
         
     except Exception as e:
-        print(colored(f"❌ Errore durante il training: {e}", "red"))
+        print(colored(f"Errore durante il training: {e}", "red"))
     
     finally:
         await async_exchange.close()
@@ -426,7 +426,7 @@ async def main():
                         validated_symbols.append(symbol)
                 
                 print(" " * 80, end="\r")  # Clear the line
-                print(colored(f"✅ Dati validati: {len(validated_symbols)}/{len(top_symbols_training)} simboli utilizzabili", "green"))
+                print(colored(f"Dati validati: {len(validated_symbols)}/{len(top_symbols_training)} simboli utilizzabili", "green"))
                 
                 # Se non ci sono abbastanza simboli validi, avvisa l'utente
                 if len(validated_symbols) < 10:
@@ -468,7 +468,7 @@ async def main():
                 # Imposta TRAIN_IF_NOT_FOUND a False per evitare errori
                 app_state.train_if_not_found = False
         else:
-            print(colored("✅ Tutti i modelli sono già presenti sul disco.", "green"))
+            print(colored("Tutti i modelli sono già presenti sul disco.", "green"))
             top_symbols_training = []  # Nessuna moneta per il training se i modelli esistono
 
         print(colored("\nCaricamento modelli...", "cyan"))
@@ -514,7 +514,7 @@ async def main():
                 else:
                     raise Exception(f"XGBoost model for timeframe {tf} not available. Train models first.")
 
-        print(colored("✅ Modelli caricati con successo!", "green"))
+        print(colored("Modelli caricati con successo!", "green"))
         
         min_amounts = await fetch_min_amounts(async_exchange, top_symbols_analysis, markets)
         await load_existing_positions(async_exchange)
