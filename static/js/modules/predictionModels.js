@@ -2,7 +2,7 @@
 import { showNotification } from './ui.js';
 
 // Timeframes supportati dal backend (min: 1, max: 3)
-const availableTimeframes = ['5m', '15m', '30m', '1h', '4h'];
+const availableTimeframes = ['15m', '30m', '1h', '4h'];
 
 // Numero massimo di selezioni consentite
 const MAX_SELECTION = 3;

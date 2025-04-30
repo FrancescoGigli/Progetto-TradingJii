@@ -134,6 +134,26 @@ def run_training(params):
     if not isinstance(models, list):
         models = [models]
     
+    # Lista dei timeframe consentiti
+    allowed_timeframes = ['15m', '30m', '1h', '4h']
+    
+    # Filtra per conservare solo i timeframe consentiti
+    original_count = len(timeframes)
+    filtered_timeframes = [tf for tf in timeframes if any(allowed_tf in tf.lower() for allowed_tf in allowed_timeframes)]
+    
+    # Notifica se timeframe sono stati rimossi
+    if len(filtered_timeframes) < original_count:
+        removed = set(timeframes) - set(filtered_timeframes)
+        print(colored_text(f"Nota: I seguenti timeframe sono stati rimossi dal training: {', '.join(removed)}", "yellow"))
+        print(colored_text(f"Solo i timeframe 15m, 30m, 1h e 4h sono consentiti", "yellow"))
+    
+    # Se non ci sono timeframe rimasti dopo il filtro, esci
+    if not filtered_timeframes:
+        print(colored_text("Errore: Nessun timeframe valido disponibile. Usa solo 15m, 30m, 1h o 4h", "red"))
+        return None
+    
+    timeframes = filtered_timeframes
+    
     # Conta quanti modelli verranno addestrati
     total_models = len(models) * len(timeframes)
     print(colored_text(f"Il training includerà {total_models} modelli ({', '.join(models)}) per {len(timeframes)} timeframe ({', '.join(timeframes)})", "cyan"))
@@ -210,6 +230,16 @@ def run_frontend_server():
     def get_model_metrics(model_name, timeframe):
         """Endpoint per ottenere le metriche dettagliate di un modello specifico."""
         try:
+            # Lista dei timeframe consentiti
+            allowed_timeframes = ['15m', '30m', '1h', '4h']
+            
+            # Verifica se il timeframe è consentito
+            if timeframe not in allowed_timeframes:
+                return jsonify({
+                    "status": "error", 
+                    "message": f"Timeframe {timeframe} non è supportato. Timeframe consentiti: {', '.join(allowed_timeframes)}"
+                }), 400
+            
             # Percorso del file delle metriche
             metrics_file = os.path.join("logs", "plots", f"training_metrics_{timeframe}.json")
             
@@ -260,8 +290,13 @@ def run_frontend_server():
                     }
                 })
             
+            # Lista dei timeframe consentiti
+            allowed_timeframes = ['15m', '30m', '1h', '4h']
+            
             # Lista tutti i file nella directory dei modelli
             models = []
+            model_count = 0
+            
             for file in os.listdir(model_dir):
                 if file.endswith('.h5') or file.endswith('.pkl'):
                     # Estrai informazioni dal nome del file
@@ -269,6 +304,13 @@ def run_frontend_server():
                     if len(parts) >= 3:
                         model_type = parts[0]
                         timeframe = parts[2].split('.')[0]
+                        
+                        # Controlla se il timeframe è consentito
+                        if timeframe not in allowed_timeframes:
+                            print(colored_text(f"Modello con timeframe non consentito ignorato: {file}", "yellow"))
+                            continue
+                        
+                        model_count += 1
                         
                         # Controlla se esistono metriche per questo modello
                         metrics_file = os.path.join(metrics_dir, f"training_metrics_{timeframe}.json")
@@ -294,6 +336,8 @@ def run_frontend_server():
                             "metrics_available": metrics_available,
                             "basic_metrics": basic_metrics
                         })
+            
+            print(colored_text(f"Trovati {model_count} modelli con timeframe consentiti", "cyan"))
             
             return jsonify({
                 "status": "success",

@@ -1052,11 +1052,6 @@
                                             </div>
                                             <div class="timeframes-selection-grid">
                                                 <div class="timeframe-item">
-                                                    <input type="checkbox" class="btn-check timeframe-select" id="timeframe-5m" value="5m">
-                                                    <label class="btn btn-timeframe" for="timeframe-5m">5m</label>
-                                                </div>
-                                                
-                                                <div class="timeframe-item">
                                                     <input type="checkbox" class="btn-check timeframe-select" id="timeframe-15m" value="15m">
                                                     <label class="btn btn-timeframe" for="timeframe-15m">15m</label>
                                                 </div>
@@ -1436,11 +1431,6 @@
                                                         </div>
                                                         <div class="timeframes-selection-grid">
                                                             <div class="timeframe-item">
-                                                                <input type="checkbox" class="btn-check timeframe-select" id="timeframe-5m" value="5m">
-                                                                <label class="btn btn-timeframe" for="timeframe-5m">5m</label>
-                                                            </div>
-                                                            
-                                                            <div class="timeframe-item">
                                                                 <input type="checkbox" class="btn-check timeframe-select" id="timeframe-15m" value="15m">
                                                                 <label class="btn btn-timeframe" for="timeframe-15m">15m</label>
                                                             </div>
@@ -1630,7 +1620,6 @@
                                             <thead>
                                                 <tr>
                                                     <th>Modello \ Timeframe</th>
-                                                    <th>5m</th>
                                                     <th>15m</th>
                                                     <th>30m</th>
                                                     <th>1h</th>
@@ -1640,27 +1629,24 @@
                                             <tbody id="models-status-table">
                                                 <tr>
                                                     <td><strong>LSTM</strong></td>
-                                                    <td id="lstm-5m" class="model-status">Verifica in corso...</td>
-                                                    <td id="lstm-15m" class="model-status">Verifica in corso...</td>
-                                                    <td id="lstm-30m" class="model-status">Verifica in corso...</td>
-                                                    <td id="lstm-1h" class="model-status">Verifica in corso...</td>
-                                                    <td id="lstm-4h" class="model-status">Verifica in corso...</td>
+                                                    <td id="lstm-15m" class="model-status model-checking">Verifica in corso...</td>
+                                                    <td id="lstm-30m" class="model-status model-checking">Verifica in corso...</td>
+                                                    <td id="lstm-1h" class="model-status model-checking">Verifica in corso...</td>
+                                                    <td id="lstm-4h" class="model-status model-checking">Verifica in corso...</td>
                                                 </tr>
                                                 <tr>
                                                     <td><strong>Random Forest</strong></td>
-                                                    <td id="rf-5m" class="model-status">Verifica in corso...</td>
-                                                    <td id="rf-15m" class="model-status">Verifica in corso...</td>
-                                                    <td id="rf-30m" class="model-status">Verifica in corso...</td>
-                                                    <td id="rf-1h" class="model-status">Verifica in corso...</td>
-                                                    <td id="rf-4h" class="model-status">Verifica in corso...</td>
+                                                    <td id="rf-15m" class="model-status model-checking">Verifica in corso...</td>
+                                                    <td id="rf-30m" class="model-status model-checking">Verifica in corso...</td>
+                                                    <td id="rf-1h" class="model-status model-checking">Verifica in corso...</td>
+                                                    <td id="rf-4h" class="model-status model-checking">Verifica in corso...</td>
                                                 </tr>
                                                 <tr>
                                                     <td><strong>XGBoost</strong></td>
-                                                    <td id="xgb-5m" class="model-status">Verifica in corso...</td>
-                                                    <td id="xgb-15m" class="model-status">Verifica in corso...</td>
-                                                    <td id="xgb-30m" class="model-status">Verifica in corso...</td>
-                                                    <td id="xgb-1h" class="model-status">Verifica in corso...</td>
-                                                    <td id="xgb-4h" class="model-status">Verifica in corso...</td>
+                                                    <td id="xgb-15m" class="model-status model-checking">Verifica in corso...</td>
+                                                    <td id="xgb-30m" class="model-status model-checking">Verifica in corso...</td>
+                                                    <td id="xgb-1h" class="model-status model-checking">Verifica in corso...</td>
+                                                    <td id="xgb-4h" class="model-status model-checking">Verifica in corso...</td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -1678,7 +1664,6 @@
                                     <h5>Metriche dei Modelli</h5>
                                     <div>
                                         <select id="metrics-timeframe-select" class="form-select form-select-sm">
-                                            <option value="5m">5 minuti</option>
                                             <option value="15m" selected>15 minuti</option>
                                             <option value="30m">30 minuti</option>
                                             <option value="1h">1 ora</option>

@@ -140,7 +140,7 @@
         // Ottieni i parametri dall'URL
         const urlParams = new URLSearchParams(window.location.search);
         const modelName = urlParams.get('model') || 'lstm';
-        const timeframe = urlParams.get('timeframe') || '4h';
+        const timeframe = urlParams.get('timeframe') || '15m';
 
         // Funzione per formattare i numeri
         function formatNumber(num) {

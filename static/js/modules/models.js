@@ -13,7 +13,7 @@ let currentQueueItem = null; // Elemento corrente in elaborazione dalla coda
 // Funzione per controllare lo stato di tutti i modelli
 export async function checkAllModelsStatus() {
     const modelTypes = ['lstm', 'rf', 'xgb'];
-    const timeframes = ['5m', '15m', '30m', '1h', '4h'];
+    const timeframes = ['15m', '30m', '1h', '4h'];
     
     // Utilizziamo fetch per recuperare la lista dei modelli disponibili
     try {
