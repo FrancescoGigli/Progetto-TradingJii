@@ -1,0 +1,7 @@
+# Dipendenze essenziali
+python-dotenv>=0.20.0
+ccxt>=3.0.0
+colorama>=1.1.0
+tqdm>=4.62.0
+
+# Nota: sqlite3 è incluso nella libreria standard di Python
