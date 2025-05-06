@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import ta
 import math
+from src.data.volatility_utils import calculate_volatility_rate, calculate_historical_volatility
 
 def add_technical_indicators(df):
     """
@@ -33,7 +34,7 @@ def add_technical_indicators(df):
                 df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
         
         # Fill any NaN values that might have been introduced
-        df_copy.fillna(method='ffill', inplace=True)
+        df_copy.ffill(inplace=True)
         
         # ===== Trend Indicators =====
         
@@ -67,6 +68,12 @@ def add_technical_indicators(df):
         df_copy['bollinger_hband'] = bollinger.bollinger_hband()
         df_copy['bollinger_lband'] = bollinger.bollinger_lband()
         df_copy['bollinger_pband'] = bollinger.bollinger_pband()
+        
+        # Calculate volatility rates (percent change)
+        df_copy = calculate_volatility_rate(df_copy)
+        
+        # Calculate historical volatility (standard deviation of log returns)
+        df_copy = calculate_historical_volatility(df_copy, window=20)
         
         # ===== Volume Indicators =====
         
@@ -129,8 +136,8 @@ def add_technical_indicators(df):
         df_copy['senkou_span_b'] = ichimoku.ichimoku_b()
         df_copy['chikou_span'] = df_copy['close'].shift(-26)
         
-        # Williams %R
-        df_copy['williams_r'] = ta.momentum.williams_r(df_copy['high'], df_copy['low'], df_copy['close'], window=14)
+        # Williams %R - correzione parametro (usa lbp invece di window)
+        df_copy['williams_r'] = ta.momentum.williams_r(df_copy['high'], df_copy['low'], df_copy['close'], lbp=14)
         
         # OBV (On-Balance Volume)
         df_copy['obv'] = ta.volume.on_balance_volume(df_copy['close'], df_copy['volume'])
@@ -175,8 +182,8 @@ def add_technical_indicators(df):
         df_copy['cci'] = ta.trend.cci(df_copy['high'], df_copy['low'], df_copy['close'], window=20)
         
         # Fill any remaining NaN values with forward fill, backward fill, and then 0
-        df_copy.fillna(method='ffill', inplace=True)
-        df_copy.fillna(method='bfill', inplace=True)
+        df_copy.ffill(inplace=True)
+        df_copy.bfill(inplace=True)
         df_copy.fillna(0, inplace=True)
         
         # Log the number of NaN values in the final DataFrame

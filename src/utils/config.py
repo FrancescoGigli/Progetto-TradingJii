@@ -26,6 +26,10 @@ exchange_config = {
 # Database configuration
 DB_FILE = 'crypto_data.db'
 
+# Subseries configuration
+SUBSERIES_LENGTH = 8  # Length of subseries (default: 8 time frames)
+SUBSERIES_MIN_SAMPLES = 2  # Minimum number of samples per category (reduced for testing)
+
 # Timeframes to analyze (adjust as needed)
 ENABLED_TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '4h']
 
