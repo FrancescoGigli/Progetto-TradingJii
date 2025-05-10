@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""
+Configuration module for TradingJii
+
+Contains all configuration constants and settings used throughout the application.
+"""
+
+import os
+from datetime import timedelta
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# API Keys for Bybit (from environment variables)
+API_KEY = os.environ.get('BYBIT_API_KEY', '')
+API_SECRET = os.environ.get('BYBIT_API_SECRET', '')
+
+# Database configuration
+DB_FILE = 'crypto_data.db'
+
+# Default values
+DEFAULT_TOP_SYMBOLS = 100
+DEFAULT_DAYS = 100
+DEFAULT_TIMEFRAMES = ['5m', '15m']
+DEFAULT_BATCH_SIZE = 10
+DEFAULT_CONCURRENCY = 5
+
+# Exchange configuration
+EXCHANGE_CONFIG = {
+    'apiKey': API_KEY,
+    'secret': API_SECRET,
+    'enableRateLimit': True,
+    'timeout': 30000,
+    'options': {
+        'defaultType': 'swap',
+        'adjustForTimeDifference': True
+    }
+}
+
+# Timeframe configuration
+TIMEFRAME_CONFIG = {
+    '1m': {'max_age': timedelta(minutes=5), 'ms': 60 * 1000},
+    '5m': {'max_age': timedelta(minutes=15), 'ms': 5 * 60 * 1000},
+    '15m': {'max_age': timedelta(hours=1), 'ms': 15 * 60 * 1000},
+    '30m': {'max_age': timedelta(hours=2), 'ms': 30 * 60 * 1000},
+    '1h': {'max_age': timedelta(hours=4), 'ms': 60 * 60 * 1000},
+    '4h': {'max_age': timedelta(hours=12), 'ms': 4 * 60 * 60 * 1000},
+    '1d': {'max_age': timedelta(days=2), 'ms': 24 * 60 * 60 * 1000}
+}

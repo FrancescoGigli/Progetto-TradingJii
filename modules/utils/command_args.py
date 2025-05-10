@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""
+Command-line argument parsing for TradingJii
+"""
+
+import argparse
+from modules.utils.config import (
+    DEFAULT_TOP_SYMBOLS, DEFAULT_DAYS, DEFAULT_TIMEFRAMES,
+    DEFAULT_BATCH_SIZE, DEFAULT_CONCURRENCY, TIMEFRAME_CONFIG
+)
+
+def parse_arguments():
+    """
+    Parse command-line arguments.
+    
+    Returns:
+        The parsed arguments
+    """
+    parser = argparse.ArgumentParser(
+        description='Scarica dati OHLCV delle criptovalute da Bybit',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    
+    # Parametri generali
+    parser.add_argument(
+        '-n', '--num-symbols',
+        type=int,
+        default=DEFAULT_TOP_SYMBOLS,
+        help='Numero di criptovalute da scaricare'
+    )
+    
+    parser.add_argument(
+        '-d', '--days',
+        type=int,
+        default=DEFAULT_DAYS,
+        help='Giorni di dati storici da scaricare'
+    )
+    
+    parser.add_argument(
+        '-t', '--timeframes',
+        nargs='+',
+        default=DEFAULT_TIMEFRAMES,
+        choices=list(TIMEFRAME_CONFIG.keys()),
+        help='Timeframes da scaricare'
+    )
+    
+    # Parametri di ottimizzazione
+    optimization_group = parser.add_argument_group('Parametri di ottimizzazione')
+    
+    optimization_group.add_argument(
+        '-c', '--concurrency',
+        type=int,
+        default=DEFAULT_CONCURRENCY,
+        help='Numero massimo di download paralleli per batch'
+    )
+    
+    optimization_group.add_argument(
+        '-b', '--batch-size',
+        type=int,
+        default=DEFAULT_BATCH_SIZE,
+        help='Dimensione del batch per il download'
+    )
+    
+    optimization_group.add_argument(
+        '-s', '--sequential',
+        action='store_true',
+        help='Esegui in modalità sequenziale invece che parallela'
+    )
+    
+    return parser.parse_args()
