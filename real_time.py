@@ -24,6 +24,7 @@ from modules.utils.config import DB_FILE, TIMEFRAME_CONFIG
 from modules.core.exchange import create_exchange, fetch_markets, get_top_symbols
 from modules.core.download_orchestrator import process_timeframe
 from modules.data.db_manager import init_data_tables
+from modules.data.volatility_processor import process_and_save_volatility
 
 # Inizializza colorama
 init(autoreset=True)
@@ -81,6 +82,12 @@ async def real_time_update(args):
                 grand_total_symbols["saltati"] += results["saltati"]
                 grand_total_symbols["falliti"] += results["falliti"]
                 total_records_saved += results["record_totali"]
+                
+                # Elabora la volatilità per i simboli completati
+                if results["completati"] > 0:
+                    for sym in top_symbols:
+                        # Calcola e salva la volatilità per ogni simbolo
+                        process_and_save_volatility(sym, timeframe)
         else:
             logging.info(f"{Fore.YELLOW}Modalità parallela attivata. Concorrenza massima per simbolo: {args.concurrency}{Style.RESET_ALL}")
             timeframe_tasks = []
@@ -97,6 +104,12 @@ async def real_time_update(args):
                 grand_total_symbols["saltati"] += res["saltati"]
                 grand_total_symbols["falliti"] += res["falliti"]
                 total_records_saved += res["record_totali"]
+                
+                # Elabora la volatilità per i simboli completati
+                if res["completati"] > 0:
+                    for sym in top_symbols:
+                        # Calcola e salva la volatilità per ogni simbolo
+                        process_and_save_volatility(sym, tf)
 
         # Calcola il tempo totale di esecuzione
         end_time = datetime.now()
