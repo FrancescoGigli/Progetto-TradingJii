@@ -17,7 +17,7 @@ let volatilityChart = null;
  */
 function createPriceChart(symbol, timeframe, data) {
     try {
-        console.log('Creating simplified chart for', symbol);
+        console.log('Creating price chart for', symbol);
         
         // Get the canvas element
         const ctx = document.getElementById('price-chart').getContext('2d');
@@ -39,31 +39,59 @@ function createPriceChart(symbol, timeframe, data) {
             return null;
         }
         
-        console.log(`Chart data prepared, ${chartData.length} points available`);
+        // Calculate Heikin-Ashi data
+        const haData = calculateHeikinAshi(chartData);
         
-        // Create a simpler line chart to avoid potential issues with candlestick rendering
-        const prices = chartData.map(d => d.c); // Close prices
-        const timestamps = chartData.map(d => d.x);
+        console.log(`Chart data prepared, ${haData.length} points available`);
         
         // Define colors based on theme
         const isDarkTheme = !document.body.classList.contains('light-theme');
         const gridColor = isDarkTheme ? '#2a2e39' : '#e5e7eb';
         const textColor = isDarkTheme ? '#9ca3af' : '#666666';
         
-        // Create a simple line chart first to get things working
+        // Define colors for candlesticks with improved visibility
+        const upColor = '#26a69a'; // Green for up candles
+        const downColor = '#ef5350'; // Red for down candles
+        const upColorFill = 'rgba(38, 166, 154, 0.85)'; // More opaque fill for up candles
+        const downColorFill = 'rgba(239, 83, 80, 0.85)'; // More opaque fill for down candles
+        
+        console.log('Creating Heikin-Ashi chart for', symbol);
+        
+        // Create Heikin-Ashi candlestick chart
         priceChart = new Chart(ctx, {
-            type: 'line',
+            type: 'candlestick',
             data: {
-                labels: timestamps,
                 datasets: [{
-                    label: `${symbol} Price (${timeframe})`,
-                    data: prices,
-                    fill: false,
-                    borderColor: '#2962ff',
-                    tension: 0.1,
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    pointHoverRadius: 5
+                    label: `${symbol} (${timeframe}) - Heikin-Ashi`,
+                    data: haData.map(d => ({
+                        x: d.x,
+                        o: d.o,
+                        h: d.h,
+                        l: d.l,
+                        c: d.c,
+                        // Store original values for tooltip
+                        originalOpen: d.originalOpen,
+                        originalHigh: d.originalHigh,
+                        originalLow: d.originalLow,
+                        originalClose: d.originalClose
+                    })),
+                    color: {
+                        up: upColor,
+                        down: downColor,
+                        unchanged: '#888888',
+                    },
+                    borderColor: function(context) {
+                        return context.dataset.data[context.dataIndex].o > context.dataset.data[context.dataIndex].c ? 
+                            downColor : upColor;
+                    },
+                    borderWidth: 2, // Thinner border for cleaner look
+                    wickWidth: 1.5, // Slightly thinner wicks
+                    barPercentage: 0.9,
+                    barThickness: 12, // Slightly wider candles for better visibility
+                    backgroundColor: function(context) {
+                        return context.dataset.data[context.dataIndex].o > context.dataset.data[context.dataIndex].c ? 
+                            downColorFill : upColorFill;
+                    }
                 }]
             },
             options: {
@@ -77,7 +105,7 @@ function createPriceChart(symbol, timeframe, data) {
                             displayFormats: {
                                 minute: 'HH:mm',
                                 hour: 'DD HH:mm'
-                            },
+                            }
                         },
                         grid: {
                             display: true,
@@ -100,7 +128,27 @@ function createPriceChart(symbol, timeframe, data) {
                 plugins: {
                     tooltip: {
                         mode: 'index',
-                        intersect: false
+                        intersect: false,
+                        callbacks: {
+                            label: function(tooltipItem) {
+                                const dataPoint = tooltipItem.raw;
+                                const precision = getPrecision(dataPoint.c);
+                                
+                                return [
+                                    `Heikin-Ashi Values:`,
+                                    `HA-Open: ${dataPoint.o.toFixed(precision)}`,
+                                    `HA-High: ${dataPoint.h.toFixed(precision)}`,
+                                    `HA-Low: ${dataPoint.l.toFixed(precision)}`,
+                                    `HA-Close: ${dataPoint.c.toFixed(precision)}`,
+                                    ``,
+                                    `Original Values:`,
+                                    `Open: ${dataPoint.originalOpen.toFixed(precision)}`,
+                                    `High: ${dataPoint.originalHigh.toFixed(precision)}`,
+                                    `Low: ${dataPoint.originalLow.toFixed(precision)}`,
+                                    `Close: ${dataPoint.originalClose.toFixed(precision)}`
+                                ];
+                            }
+                        }
                     },
                     legend: {
                         display: false
@@ -110,14 +158,16 @@ function createPriceChart(symbol, timeframe, data) {
             }
         });
         
-        console.log('Chart created successfully');
+        console.log('Candlestick chart created successfully');
         
-        // Create a basic volume bar chart
+        // Create a volume bar chart with original data (not HA)
         try {
-            createSimpleVolumeChart(symbol, timeframe, chartData);
+            createColoredVolumeChart(symbol, timeframe, haData);
         } catch (volumeError) {
             console.error('Error creating volume chart:', volumeError);
         }
+        
+        console.log('Heikin-Ashi chart created successfully');
         
         return priceChart;
     } catch (error) {
@@ -127,9 +177,9 @@ function createPriceChart(symbol, timeframe, data) {
 }
 
 /**
- * Create a simple volume bar chart
+ * Create a volume bar chart with colors matching candlesticks
  */
-function createSimpleVolumeChart(symbol, timeframe, chartData) {
+function createColoredVolumeChart(symbol, timeframe, chartData) {
     // Try to get the canvas element
     const volumeCanvas = document.getElementById('volume-chart');
     
@@ -154,7 +204,7 @@ function createSimpleVolumeChart(symbol, timeframe, chartData) {
         }
     }
     
-    // Get the context (again, in case we just created it)
+    // Get the context
     const volumeCtx = document.getElementById('volume-chart').getContext('2d');
     
     // If volume chart already exists, destroy it
@@ -162,18 +212,25 @@ function createSimpleVolumeChart(symbol, timeframe, chartData) {
         volumeChart.destroy();
     }
     
-    // Very simple volume chart
-    const volumes = chartData.map(d => d.volume);
-    const timestamps = chartData.map(d => d.x);
+    // Define colors for up and down volume bars
+    const upColor = 'rgba(38, 166, 154, 0.6)';  // Green for up volume
+    const downColor = 'rgba(239, 83, 80, 0.6)'; // Red for down volume
     
+    const timestamps = chartData.map(d => d.x);
+    const volumes = chartData.map(d => d.volume);
+    const colors = chartData.map(d => d.c >= d.o ? upColor : downColor);
+    
+    // Create a colored volume chart
     volumeChart = new Chart(volumeCtx, {
         type: 'bar',
         data: {
             labels: timestamps,
             datasets: [{
-                label: `Volume`,
+                label: 'Volume',
                 data: volumes,
-                backgroundColor: 'rgba(41, 98, 255, 0.5)'
+                backgroundColor: colors,
+                borderColor: colors,
+                borderWidth: 0
             }]
         },
         options: {
@@ -181,7 +238,18 @@ function createSimpleVolumeChart(symbol, timeframe, chartData) {
             maintainAspectRatio: false,
             scales: {
                 y: {
-                    beginAtZero: true
+                    beginAtZero: true,
+                    grid: {
+                        display: false
+                    },
+                    ticks: {
+                        callback: function(value) {
+                            if (value === 0) return '';
+                            if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M';
+                            if (value >= 1000) return (value / 1000).toFixed(1) + 'K';
+                            return value;
+                        }
+                    }
                 },
                 x: {
                     display: false
@@ -190,6 +258,19 @@ function createSimpleVolumeChart(symbol, timeframe, chartData) {
             plugins: {
                 legend: {
                     display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const volume = context.raw;
+                            if (volume >= 1000000) {
+                                return `Volume: ${(volume / 1000000).toFixed(2)}M`;
+                            } else if (volume >= 1000) {
+                                return `Volume: ${(volume / 1000).toFixed(2)}K`;
+                            }
+                            return `Volume: ${volume.toFixed(2)}`;
+                        }
+                    }
                 }
             },
             animation: false
@@ -200,149 +281,7 @@ function createSimpleVolumeChart(symbol, timeframe, chartData) {
 }
 
 /**
- * Create a volume bar chart in TradingView style
- * @param {string} symbol - Cryptocurrency symbol
- * @param {string} timeframe - Timeframe like '5m', '15m'
- * @param {Array} chartData - OHLCV data from the price chart
- */
-function createVolumeChart(symbol, timeframe, chartData) {
-    // Get the canvas element for volume
-    const volumeCtx = document.getElementById('volume-chart').getContext('2d');
-    
-    // Define colors
-    const upColor = 'rgba(38, 166, 154, 0.6)';  // Semi-transparent green for up volumes
-    const downColor = 'rgba(239, 83, 80, 0.6)'; // Semi-transparent red for down volumes
-    
-    // Define colors based on theme
-    const isDarkTheme = !document.body.classList.contains('light-theme');
-    
-    // Set theme-specific colors
-    const gridColor = isDarkTheme ? '#2a2e39' : '#e5e7eb';
-    const textColor = isDarkTheme ? '#9ca3af' : '#666666';
-    
-    // Prepare volume data
-    const volumeData = chartData.map(d => ({
-        x: d.x,
-        y: d.volume,
-        isBullish: d.c >= d.o
-    }));
-    
-    // Calculate max volume for y-axis scaling
-    const maxVolume = Math.max(...volumeData.map(d => d.y));
-    
-    // Create the volume chart
-    volumeChart = new Chart(volumeCtx, {
-        type: 'bar',
-        data: {
-            datasets: [{
-                label: 'Volume',
-                data: volumeData.map(d => ({
-                    x: d.x,
-                    y: d.y
-                })),
-                backgroundColor: volumeData.map(d => d.isBullish ? upColor : downColor),
-                borderColor: volumeData.map(d => d.isBullish ? upColor : downColor),
-                borderWidth: 0,
-                barPercentage: 0.9,
-                categoryPercentage: 0.8,
-                order: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: {
-                intersect: false,
-                mode: 'index',
-            },
-            scales: {
-                x: {
-                    type: 'time',
-                    time: {
-                        unit: timeframe === '5m' ? 'minute' : 'hour',
-                        displayFormats: {
-                            minute: 'HH:mm',
-                            hour: 'DD HH:mm'
-                        },
-                    },
-                    grid: {
-                        display: false,
-                        drawBorder: false
-                    },
-                    ticks: {
-                        display: false
-                    },
-                    border: {
-                        display: false
-                    }
-                },
-                y: {
-                    position: 'right',
-                    max: maxVolume * 1.5,
-                    grid: {
-                        display: true,
-                        color: gridColor,
-                        drawBorder: false,
-                        lineWidth: 0.5
-                    },
-                    ticks: {
-                        color: textColor,
-                        callback: function(value) {
-                            if (value === 0) return '';
-                            if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M';
-                            if (value >= 1000) return (value / 1000).toFixed(1) + 'K';
-                            return value;
-                        },
-                        font: {
-                            size: 9,
-                            family: "'Inter', sans-serif"
-                        },
-                        maxTicksLimit: 2
-                    },
-                    border: {
-                        color: gridColor
-                    }
-                }
-            },
-            plugins: {
-                tooltip: {
-                    enabled: true,
-                    mode: 'index',
-                    intersect: false,
-                    backgroundColor: 'rgba(21, 25, 32, 0.9)',
-                    titleColor: '#d1d4dc',
-                    bodyColor: '#d1d4dc',
-                    bodyFont: {
-                        size: 11
-                    },
-                    titleFont: {
-                        weight: 'normal',
-                        size: 11
-                    },
-                    displayColors: false,
-                    callbacks: {
-                        label: function(context) {
-                            return `Volume: ${context.raw.y.toFixed(2)}`;
-                        }
-                    }
-                },
-                legend: {
-                    display: false
-                }
-            },
-            animation: {
-                duration: 400
-            }
-        }
-    });
-    
-    return volumeChart;
-}
-
-/**
  * Helper function to determine appropriate decimal precision for price display
- * @param {number} price - The price value
- * @returns {number} - The number of decimal places to display
  */
 function getPrecision(price) {
     if (price === 0) return 2;
@@ -359,9 +298,6 @@ function getPrecision(price) {
 
 /**
  * Create a volatility chart using Chart.js
- * @param {string} symbol - Cryptocurrency symbol
- * @param {string} timeframe - Timeframe like '5m', '15m'
- * @param {Array} data - Volatility data from the API
  */
 function createVolatilityChart(symbol, timeframe, data) {
     try {
@@ -436,7 +372,7 @@ function createVolatilityChart(symbol, timeframe, data) {
                             displayFormats: {
                                 minute: 'HH:mm',
                                 hour: 'DD HH:mm'
-                            },
+                            }
                         },
                         grid: {
                             color: gridColor
@@ -461,7 +397,12 @@ function createVolatilityChart(symbol, timeframe, data) {
                 plugins: {
                     tooltip: {
                         mode: 'index',
-                        intersect: false
+                        intersect: false,
+                        callbacks: {
+                            label: function(context) {
+                                return `Volatility: ${context.raw.toFixed(2)}%`;
+                            }
+                        }
                     },
                     legend: {
                         display: false
@@ -481,8 +422,6 @@ function createVolatilityChart(symbol, timeframe, data) {
 
 /**
  * Transform API OHLCV data into the format required by Chart.js candlestick
- * @param {Array} data - OHLCV data from API
- * @returns {Array} - Formatted data for Chart.js
  */
 function prepareOHLCVData(data) {
     if (!data || !Array.isArray(data) || data.length === 0) {
@@ -514,10 +453,64 @@ function prepareOHLCVData(data) {
 }
 
 /**
+ * Calculate Heikin-Ashi candle data from regular OHLCV data
+ * Heikin-Ashi formula:
+ * - HA-Close = (Open + High + Low + Close) / 4
+ * - HA-Open = (Previous HA-Open + Previous HA-Close) / 2
+ * - HA-High = Max(High, HA-Open, HA-Close)
+ * - HA-Low = Min(Low, HA-Open, HA-Close)
+ */
+function calculateHeikinAshi(data) {
+    if (!data || !Array.isArray(data) || data.length === 0) {
+        return [];
+    }
+    
+    const result = [];
+    
+    // Process each candle
+    for (let i = 0; i < data.length; i++) {
+        const current = data[i];
+        
+        // Calculate Heikin-Ashi values
+        let haOpen, haClose, haHigh, haLow;
+        
+        // Calculate HA Close (always the same formula)
+        haClose = (current.o + current.h + current.l + current.c) / 4;
+        
+        if (i === 0) {
+            // For the first candle, use regular values
+            haOpen = current.o;
+            haHigh = current.h;
+            haLow = current.l;
+        } else {
+            // For subsequent candles, use the HA formula
+            const prev = result[i - 1];
+            haOpen = (prev.o + prev.c) / 2;
+            haHigh = Math.max(current.h, haOpen, haClose);
+            haLow = Math.min(current.l, haOpen, haClose);
+        }
+        
+        // Add to result array
+        result.push({
+            x: current.x,
+            o: haOpen,
+            h: haHigh,
+            l: haLow,
+            c: haClose,
+            volume: current.volume,
+            // Keep original values for reference if needed
+            originalOpen: current.o,
+            originalHigh: current.h,
+            originalLow: current.l,
+            originalClose: current.c
+        });
+    }
+    
+    return result;
+}
+
+/**
  * Render the pattern visualization
- * @param {string} symbol - Cryptocurrency symbol
- * @param {string} timeframe - Timeframe like '5m', '15m'
- * @param {Object} patterns - Pattern data from API
  */
 function renderPatternVisualization(symbol, timeframe, patterns) {
     try {

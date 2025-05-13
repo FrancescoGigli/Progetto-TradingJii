@@ -11,6 +11,10 @@
     --accent-color: #2962ff;
     --up-color: #26a69a;
     --down-color: #ef5350;
+    --up-color-fill: rgba(38, 166, 154, 0.85);
+    --down-color-fill: rgba(239, 83, 80, 0.85);
+    --up-color-volume: rgba(38, 166, 154, 0.6);
+    --down-color-volume: rgba(239, 83, 80, 0.6);
     --grid-color: #2a2e39;
     --hover-color: rgba(255, 255, 255, 0.05);
     --shadow-color: rgba(0, 0, 0, 0.3);
@@ -28,6 +32,10 @@ body.light-theme {
     --accent-color: #2962ff;
     --up-color: #26a69a;
     --down-color: #ef5350;
+    --up-color-fill: rgba(38, 166, 154, 0.85);
+    --down-color-fill: rgba(239, 83, 80, 0.85);
+    --up-color-volume: rgba(38, 166, 154, 0.6);
+    --down-color-volume: rgba(239, 83, 80, 0.6);
     --grid-color: #e5e7eb;
     --hover-color: rgba(0, 0, 0, 0.05);
     --shadow-color: rgba(0, 0, 0, 0.1);
@@ -354,18 +362,27 @@ body:not(.light-theme) .theme-toggle .fa-sun {
     right: 0;
     transition: opacity 0.3s ease-in-out;
     opacity: 1;
+    padding: 0 10px; /* Add some padding for better visibility */
 }
 
 .price-chart-wrapper {
-    height: 100%;
+    height: 75%; /* Reduced from 100% to make space for volume chart */
     width: 100%;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 5px;
+    margin-bottom: 5px;
+}
+
+/* Enhanced styling for better Heikin-Ashi candles visualization */
+.price-chart-wrapper canvas {
+    filter: drop-shadow(0px 2px 3px rgba(0, 0, 0, 0.2));
 }
 
 .volume-chart-wrapper {
     height: 20%;
-    position: absolute;
-    bottom: 10px; 
     width: 100%;
+    margin-top: 10px;
+    padding-top: 5px;
 }
 
 /* This ensures volatility chart takes full height without interference */
