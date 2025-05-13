@@ -4,6 +4,14 @@
  * This module provides functions for rendering price and volatility charts using Chart.js.
  */
 
+// The annotation plugin is automatically registered when loaded via script tag
+// No need to manually register it, but we'll check if it's available
+if (typeof Chart === 'undefined') {
+    console.error('Chart.js not found. Make sure it is loaded before chart-handler.js.');
+} else if (!Chart.Annotation) {
+    console.warn('Chart.js Annotation plugin might not be properly loaded. Some features may not work correctly.');
+}
+
 // Store chart instances to update or destroy them later
 let priceChart = null;
 let volumeChart = null;
@@ -84,19 +92,32 @@ function createPriceChart(symbol, timeframe, data) {
                         return context.dataset.data[context.dataIndex].o > context.dataset.data[context.dataIndex].c ? 
                             downColor : upColor;
                     },
-                    borderWidth: 2, // Thinner border for cleaner look
-                    wickWidth: 1.5, // Slightly thinner wicks
-                    barPercentage: 0.9,
-                    barThickness: 12, // Slightly wider candles for better visibility
+                    borderWidth: 2.5, // Thicker border for better visibility
+                    wickWidth: 2, // Thicker wicks
+                    barPercentage: 0.92,
+                    barThickness: 14, // Wider candles for better visibility
                     backgroundColor: function(context) {
                         return context.dataset.data[context.dataIndex].o > context.dataset.data[context.dataIndex].c ? 
                             downColorFill : upColorFill;
-                    }
+                    },
+                    pointHoverRadius: 5,  // Makes hover area larger
+                    pointHoverBorderWidth: 2
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                    axis: 'x'
+                },
+                hover: {
+                    mode: 'index',
+                    intersect: false,
+                    animationDuration: 0
+                },
+                events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
                 scales: {
                     x: {
                         type: 'time',
@@ -121,46 +142,74 @@ function createPriceChart(symbol, timeframe, data) {
                             color: gridColor
                         },
                         ticks: {
-                            color: textColor
+                            color: textColor,
+                            font: {
+                                weight: 'bold',
+                                size: 14
+                            },
+                            padding: 10,
+                            count: 6,
+                            callback: function(value) {
+                                const precision = getPrecision(value);
+                                return value.toFixed(precision);
+                            },
+                            z: 1
                         }
                     }
                 },
                 plugins: {
                     tooltip: {
-                        mode: 'index',
-                        intersect: false,
-                        callbacks: {
-                            label: function(tooltipItem) {
-                                const dataPoint = tooltipItem.raw;
-                                const precision = getPrecision(dataPoint.c);
-                                
-                                return [
-                                    `Heikin-Ashi Values:`,
-                                    `HA-Open: ${dataPoint.o.toFixed(precision)}`,
-                                    `HA-High: ${dataPoint.h.toFixed(precision)}`,
-                                    `HA-Low: ${dataPoint.l.toFixed(precision)}`,
-                                    `HA-Close: ${dataPoint.c.toFixed(precision)}`,
-                                    ``,
-                                    `Original Values:`,
-                                    `Open: ${dataPoint.originalOpen.toFixed(precision)}`,
-                                    `High: ${dataPoint.originalHigh.toFixed(precision)}`,
-                                    `Low: ${dataPoint.originalLow.toFixed(precision)}`,
-                                    `Close: ${dataPoint.originalClose.toFixed(precision)}`
-                                ];
-                            }
-                        }
+                        enabled: false, // Disable default tooltip
+                        external: externalTooltipHandler // Use custom HTML tooltip
                     },
                     legend: {
                         display: false
+                    },
+                    annotation: { 
+                        annotations: {} 
                     }
                 },
-                animation: false // Disable animation for better performance
+                animation: false 
             }
         });
+
+        // Add annotation for the last closing price if data is available
+        if (haData.length > 0) {
+            const lastCandle = haData[haData.length - 1];
+            const lastOriginalClosePrice = lastCandle.originalClose;
+            const precision = getPrecision(lastOriginalClosePrice);
+            const lastCandleColor = lastCandle.originalClose >= lastCandle.originalOpen ? upColor : downColor;
+
+            priceChart.options.plugins.annotation.annotations.lastPriceLine = {
+                type: 'line',
+                yMin: lastOriginalClosePrice,
+                yMax: lastOriginalClosePrice,
+                borderColor: lastCandleColor,
+                borderWidth: 1.5,
+                borderDash: [6, 6],
+                label: {
+                    enabled: true,
+                    content: lastOriginalClosePrice.toFixed(precision),
+                    position: 'end',
+                    backgroundColor: lastCandleColor,
+                    color: '#ffffff', 
+                    font: {
+                        weight: 'bold',
+                        size: 10
+                    },
+                    padding: {
+                        x: 6,
+                        y: 3
+                    },
+                    yAdjust: 0,
+                    xAdjust: 0 
+                }
+            };
+            priceChart.update(); 
+        }
         
         console.log('Candlestick chart created successfully');
         
-        // Create a volume bar chart with original data (not HA)
         try {
             createColoredVolumeChart(symbol, timeframe, haData);
         } catch (volumeError) {
@@ -180,47 +229,29 @@ function createPriceChart(symbol, timeframe, data) {
  * Create a volume bar chart with colors matching candlesticks
  */
 function createColoredVolumeChart(symbol, timeframe, chartData) {
-    // Try to get the canvas element
     const volumeCanvas = document.getElementById('volume-chart');
-    
-    // If volume canvas doesn't exist, create it
     if (!volumeCanvas) {
         const priceChartWrapper = document.getElementById('price-chart-wrapper');
-        
-        // Create a container for the volume chart
         const volumeWrapper = document.createElement('div');
         volumeWrapper.className = 'volume-chart-wrapper';
         volumeWrapper.style.height = '20%';
         volumeWrapper.style.marginTop = '10px';
-        
-        // Create the canvas
         const canvas = document.createElement('canvas');
         canvas.id = 'volume-chart';
         volumeWrapper.appendChild(canvas);
-        
-        // Add to DOM after price chart
         if (priceChartWrapper && priceChartWrapper.parentNode) {
             priceChartWrapper.parentNode.insertBefore(volumeWrapper, priceChartWrapper.nextSibling);
         }
     }
-    
-    // Get the context
     const volumeCtx = document.getElementById('volume-chart').getContext('2d');
-    
-    // If volume chart already exists, destroy it
     if (volumeChart) {
         volumeChart.destroy();
     }
-    
-    // Define colors for up and down volume bars
-    const upColor = 'rgba(38, 166, 154, 0.6)';  // Green for up volume
-    const downColor = 'rgba(239, 83, 80, 0.6)'; // Red for down volume
-    
+    const upColorVol = 'rgba(38, 166, 154, 0.6)';
+    const downColorVol = 'rgba(239, 83, 80, 0.6)';
     const timestamps = chartData.map(d => d.x);
     const volumes = chartData.map(d => d.volume);
-    const colors = chartData.map(d => d.c >= d.o ? upColor : downColor);
-    
-    // Create a colored volume chart
+    const colors = chartData.map(d => d.c >= d.o ? upColorVol : downColorVol);
     volumeChart = new Chart(volumeCtx, {
         type: 'bar',
         data: {
@@ -239,9 +270,7 @@ function createColoredVolumeChart(symbol, timeframe, chartData) {
             scales: {
                 y: {
                     beginAtZero: true,
-                    grid: {
-                        display: false
-                    },
+                    grid: { display: false },
                     ticks: {
                         callback: function(value) {
                             if (value === 0) return '';
@@ -251,23 +280,16 @@ function createColoredVolumeChart(symbol, timeframe, chartData) {
                         }
                     }
                 },
-                x: {
-                    display: false
-                }
+                x: { display: false }
             },
             plugins: {
-                legend: {
-                    display: false
-                },
+                legend: { display: false },
                 tooltip: {
                     callbacks: {
                         label: function(context) {
                             const volume = context.raw;
-                            if (volume >= 1000000) {
-                                return `Volume: ${(volume / 1000000).toFixed(2)}M`;
-                            } else if (volume >= 1000) {
-                                return `Volume: ${(volume / 1000).toFixed(2)}K`;
-                            }
+                            if (volume >= 1000000) return `Volume: ${(volume / 1000000).toFixed(2)}M`;
+                            if (volume >= 1000) return `Volume: ${(volume / 1000).toFixed(2)}K`;
                             return `Volume: ${volume.toFixed(2)}`;
                         }
                     }
@@ -276,7 +298,6 @@ function createColoredVolumeChart(symbol, timeframe, chartData) {
             animation: false
         }
     });
-    
     return volumeChart;
 }
 
@@ -284,15 +305,12 @@ function createColoredVolumeChart(symbol, timeframe, chartData) {
  * Helper function to determine appropriate decimal precision for price display
  */
 function getPrecision(price) {
-    if (price === 0) return 2;
-    
-    // For very small values (like many crypto prices), use more decimal places
+    if (price === 0 || !price) return 2; // Added !price check
     if (price < 0.0001) return 8;
     if (price < 0.01) return 6;
     if (price < 0.1) return 4;
     if (price < 1) return 3;
     if (price < 10) return 2;
-    
     return 2;
 }
 
@@ -302,49 +320,29 @@ function getPrecision(price) {
 function createVolatilityChart(symbol, timeframe, data) {
     try {
         console.log('Creating volatility chart for', symbol);
-        
-        // Get the canvas element for the volatility chart
         const ctx = document.getElementById('volatility-chart').getContext('2d');
-        
-        // Destroy existing volatility chart if it exists
         if (volatilityChart) {
             volatilityChart.destroy();
         }
-        
-        // We need to hide any volume chart when showing volatility
         if (volumeChart) {
             volumeChart.destroy();
             volumeChart = null;
-            
-            // Remove any volume chart container that might exist
             const volumeWrapper = document.querySelector('.volume-chart-wrapper');
             if (volumeWrapper) {
                 volumeWrapper.remove();
             }
         }
-        
         if (!data || !Array.isArray(data) || data.length === 0) {
             console.error('No volatility data available');
             return null;
         }
-        
-        // Sort data by timestamp in ascending order
         const sortedData = [...data].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-        
         console.log(`Volatility data prepared, ${sortedData.length} points available`);
-        
-        // Prepare labels and values
         const labels = sortedData.map(item => new Date(item.timestamp));
         const values = sortedData.map(item => item.volatility);
-        
-        // Define colors based on theme
         const isDarkTheme = !document.body.classList.contains('light-theme');
-        
-        // Set theme-specific colors
         const gridColor = isDarkTheme ? '#2a2e39' : '#e5e7eb';
         const textColor = isDarkTheme ? '#9ca3af' : '#666666';
-        
-        // Create a simple volatility chart
         volatilityChart = new Chart(ctx, {
             type: 'line',
             data: {
@@ -369,28 +367,17 @@ function createVolatilityChart(symbol, timeframe, data) {
                         type: 'time',
                         time: {
                             unit: timeframe === '5m' ? 'minute' : 'hour',
-                            displayFormats: {
-                                minute: 'HH:mm',
-                                hour: 'DD HH:mm'
-                            }
+                            displayFormats: { minute: 'HH:mm', hour: 'DD HH:mm' }
                         },
-                        grid: {
-                            color: gridColor
-                        },
-                        ticks: {
-                            color: textColor
-                        }
+                        grid: { color: gridColor },
+                        ticks: { color: textColor }
                     },
                     y: {
                         position: 'right',
-                        grid: {
-                            color: gridColor
-                        },
+                        grid: { color: gridColor },
                         ticks: {
                             color: textColor,
-                            callback: function(value) {
-                                return value.toFixed(2) + '%';
-                            }
+                            callback: function(value) { return value.toFixed(2) + '%'; }
                         }
                     }
                 },
@@ -399,19 +386,14 @@ function createVolatilityChart(symbol, timeframe, data) {
                         mode: 'index',
                         intersect: false,
                         callbacks: {
-                            label: function(context) {
-                                return `Volatility: ${context.raw.toFixed(2)}%`;
-                            }
+                            label: function(context) { return `Volatility: ${context.raw.toFixed(2)}%`; }
                         }
                     },
-                    legend: {
-                        display: false
-                    }
+                    legend: { display: false }
                 },
-                animation: false // Disable animation for better performance
+                animation: false
             }
         });
-        
         console.log('Volatility chart created successfully');
         return volatilityChart;
     } catch (error) {
@@ -424,88 +406,55 @@ function createVolatilityChart(symbol, timeframe, data) {
  * Transform API OHLCV data into the format required by Chart.js candlestick
  */
 function prepareOHLCVData(data) {
-    if (!data || !Array.isArray(data) || data.length === 0) {
-        return [];
-    }
-    
-    // Sort data by timestamp in ascending order
+    if (!data || !Array.isArray(data) || data.length === 0) return [];
     const sortedData = [...data].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-    
-    // Transform for Chart.js
     return sortedData.map(item => {
-        const timestamp = new Date(item.timestamp);
-        const open = parseFloat(item.open);
-        const high = parseFloat(item.high);
-        const low = parseFloat(item.low);
-        const close = parseFloat(item.close);
-        const volume = parseFloat(item.volume);
-        
-        // Return format compatible with candlestick drawing
+        let timestamp;
+        try {
+            const date = new Date(item.timestamp);
+            timestamp = date.getTime();
+        } catch (e) {
+            console.error('Invalid timestamp:', item.timestamp);
+            timestamp = Date.now();
+        }
         return {
             x: timestamp,
-            o: open,
-            h: high,
-            l: low,
-            c: close,
-            volume: volume
+            o: parseFloat(item.open),
+            h: parseFloat(item.high),
+            l: parseFloat(item.low),
+            c: parseFloat(item.close),
+            volume: parseFloat(item.volume)
         };
     });
 }
 
 /**
  * Calculate Heikin-Ashi candle data from regular OHLCV data
- * Heikin-Ashi formula:
- * - HA-Close = (Open + High + Low + Close) / 4
- * - HA-Open = (Previous HA-Open + Previous HA-Close) / 2
- * - HA-High = Max(High, HA-Open, HA-Close)
- * - HA-Low = Min(Low, HA-Open, HA-Close)
  */
 function calculateHeikinAshi(data) {
-    if (!data || !Array.isArray(data) || data.length === 0) {
-        return [];
-    }
-    
+    if (!data || !Array.isArray(data) || data.length === 0) return [];
     const result = [];
-    
-    // Process each candle
     for (let i = 0; i < data.length; i++) {
         const current = data[i];
-        
-        // Calculate Heikin-Ashi values
         let haOpen, haClose, haHigh, haLow;
-        
-        // Calculate HA Close (always the same formula)
         haClose = (current.o + current.h + current.l + current.c) / 4;
-        
         if (i === 0) {
-            // For the first candle, use regular values
             haOpen = current.o;
             haHigh = current.h;
             haLow = current.l;
         } else {
-            // For subsequent candles, use the HA formula
             const prev = result[i - 1];
             haOpen = (prev.o + prev.c) / 2;
             haHigh = Math.max(current.h, haOpen, haClose);
             haLow = Math.min(current.l, haOpen, haClose);
         }
-        
-        // Add to result array
         result.push({
-            x: current.x,
-            o: haOpen,
-            h: haHigh,
-            l: haLow,
-            c: haClose,
+            x: current.x, o: haOpen, h: haHigh, l: haLow, c: haClose,
             volume: current.volume,
-            // Keep original values for reference if needed
-            originalOpen: current.o,
-            originalHigh: current.h,
-            originalLow: current.l,
-            originalClose: current.c
+            originalOpen: current.o, originalHigh: current.h,
+            originalLow: current.l, originalClose: current.c
         });
     }
-    
     return result;
 }
 
@@ -515,52 +464,28 @@ function calculateHeikinAshi(data) {
 function renderPatternVisualization(symbol, timeframe, patterns) {
     try {
         console.log('Rendering pattern visualization for', symbol);
-        
         const container = document.getElementById('pattern-visualization');
         const infoContainer = document.getElementById('pattern-info');
-        
-        // Safety checks
         if (!container || !infoContainer) {
             console.error('Pattern container elements not found');
             return;
         }
-        
-        // Clear previous content
         container.innerHTML = '';
-        
-        // If no patterns available
         if (!patterns || Object.keys(patterns).length === 0) {
             console.log('No pattern data available');
             infoContainer.innerHTML = '<p>No pattern data available for this cryptocurrency.</p>';
             return;
         }
-        
-        // Update info text
         const patternCount = Object.keys(patterns).length;
-        infoContainer.innerHTML = `
-            <p>Found ${patternCount} unique patterns for ${symbol} in ${timeframe} timeframe.</p>
-            <p>Each pattern represents a sequence of price movements (up/down).</p>
-        `;
-        
+        infoContainer.innerHTML = `<p>Found ${patternCount} unique patterns for ${symbol} in ${timeframe} timeframe.</p><p>Each pattern represents a sequence of price movements (up/down).</p>`;
         console.log(`Found ${patternCount} patterns for ${symbol}`);
-        
-        // Sort patterns by number of occurrences (most frequent first)
-        const sortedPatterns = Object.entries(patterns)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 10); // Show top 10 patterns
-        
-        // Create pattern cards
+        const sortedPatterns = Object.entries(patterns).sort((a, b) => b[1] - a[1]).slice(0, 10);
         sortedPatterns.forEach(([pattern, count]) => {
             const card = document.createElement('div');
             card.className = 'pattern-card';
-            
-            // Create visualization
             const visualization = document.createElement('div');
             visualization.className = 'pattern-visualization';
-            
-            // Safety check for pattern string
             if (typeof pattern === 'string' && pattern.length > 0) {
-                // Add bits to visualization
                 for (let i = 0; i < pattern.length; i++) {
                     const bit = document.createElement('div');
                     bit.className = `pattern-bit ${pattern[i] === '1' ? 'up' : 'down'}`;
@@ -568,26 +493,18 @@ function renderPatternVisualization(symbol, timeframe, patterns) {
                     visualization.appendChild(bit);
                 }
             } else {
-                // Handle invalid pattern
                 const errorBit = document.createElement('div');
                 errorBit.textContent = 'Invalid pattern';
                 errorBit.style.color = 'red';
                 visualization.appendChild(errorBit);
             }
-            
-            // Add info about occurrences
             const info = document.createElement('div');
             info.className = 'pattern-info';
             info.textContent = `Occurrences: ${count}`;
-            
-            // Add components to card
             card.appendChild(visualization);
             card.appendChild(info);
-            
-            // Add card to container
             container.appendChild(card);
         });
-        
         console.log('Pattern visualization rendered successfully');
     } catch (error) {
         console.error('Error rendering pattern visualization:', error);
@@ -599,11 +516,8 @@ function renderPatternVisualization(symbol, timeframe, patterns) {
  */
 function resizePriceChart() {
     if (priceChart) {
-        // Force chart resize to fix display issues
         setTimeout(() => {
             priceChart.resize();
-            
-            // If volume chart exists, resize it too
             if (volumeChart) {
                 volumeChart.resize();
             }
@@ -616,7 +530,6 @@ function resizePriceChart() {
  */
 function resizeVolatilityChart() {
     if (volatilityChart) {
-        // Force chart resize to fix display issues
         setTimeout(() => {
             volatilityChart.resize();
         }, 10);
@@ -630,4 +543,113 @@ window.ChartHandler = {
     renderPatternVisualization,
     resizePriceChart,
     resizeVolatilityChart
+};
+
+// Helper function to create the custom HTML tooltip
+const getOrCreateTooltip = (chart) => {
+    let tooltipEl = chart.canvas.parentNode.querySelector('div.chartjs-tooltip');
+    if (!tooltipEl) {
+        tooltipEl = document.createElement('div');
+        tooltipEl.classList.add('chartjs-tooltip');
+        tooltipEl.style.opacity = 1;
+        tooltipEl.style.pointerEvents = 'none';
+        tooltipEl.style.position = 'absolute';
+        tooltipEl.style.transform = 'translate(-50%, 0)';
+        tooltipEl.style.transition = 'all .1s ease';
+        tooltipEl.style.padding = '12px';
+        tooltipEl.style.borderRadius = '8px';
+        tooltipEl.style.boxShadow = '0 4px 6px rgba(0,0,0,0.3)';
+        tooltipEl.style.fontFamily = '"Inter", sans-serif';
+        tooltipEl.style.zIndex = '1000';
+        const table = document.createElement('table');
+        table.style.margin = '0px';
+        tooltipEl.appendChild(table);
+        chart.canvas.parentNode.appendChild(tooltipEl);
+    }
+    return tooltipEl;
+};
+
+const externalTooltipHandler = (context) => {
+    const {chart, tooltip} = context;
+    const tooltipEl = getOrCreateTooltip(chart);
+
+    const isDarkTheme = !document.body.classList.contains('light-theme');
+    tooltipEl.style.background = isDarkTheme ? 'rgba(20, 22, 30, 0.95)' : 'rgba(255, 255, 255, 0.95)';
+    tooltipEl.style.color = isDarkTheme ? '#d1d4dc' : '#333333';
+    tooltipEl.style.border = `1px solid ${isDarkTheme ? '#363c4e' : '#d1d5db'}`;
+
+    if (tooltip.opacity === 0) {
+        tooltipEl.style.opacity = 0;
+        return;
+    }
+
+    if (tooltip.body) {
+        const titleLines = tooltip.title || [];
+        const tableHead = document.createElement('thead');
+        tableHead.style.fontWeight = 'bold';
+        tableHead.style.fontSize = '14px';
+        titleLines.forEach(title => {
+            const tr = document.createElement('tr');
+            tr.style.borderWidth = 0;
+            const th = document.createElement('th');
+            th.style.borderWidth = 0;
+            th.style.textAlign = 'left';
+            th.style.paddingBottom = '5px';
+            const text = document.createTextNode(title);
+            th.appendChild(text);
+            tr.appendChild(th);
+            tableHead.appendChild(tr);
+        });
+
+        const tableBody = document.createElement('tbody');
+        tableBody.style.fontSize = '13px';
+        tableBody.style.fontWeight = 'bold';
+        const dataPoint = tooltip.dataPoints && tooltip.dataPoints.length > 0 ? tooltip.dataPoints[0].raw : null;
+
+        if (dataPoint) {
+            const precision = getPrecision(dataPoint.c);
+            const upColor = '#26a69a'; 
+            const downColor = '#ef5350';
+            const haColorStyle = dataPoint.c >= dataPoint.o ? `color: ${upColor}; font-weight: bold;` : `color: ${downColor}; font-weight: bold;`;
+            const originalColorStyle = dataPoint.originalClose >= dataPoint.originalOpen ? `color: ${upColor}; font-weight: bold;` : `color: ${downColor}; font-weight: bold;`;
+
+            const tooltipRows = [
+                `<div style="font-weight:bold;font-size:16px;margin-bottom:5px;">📊 Values:</div>`,
+                `<div style="${originalColorStyle}">Open: ${dataPoint.originalOpen ? dataPoint.originalOpen.toFixed(precision) : 'N/A'}</div>`,
+                `<div style="${originalColorStyle}">High: ${dataPoint.originalHigh ? dataPoint.originalHigh.toFixed(precision) : 'N/A'}</div>`,
+                `<div style="${originalColorStyle}">Low: ${dataPoint.originalLow ? dataPoint.originalLow.toFixed(precision) : 'N/A'}</div>`,
+                `<div style="${originalColorStyle}">Close: ${dataPoint.originalClose ? dataPoint.originalClose.toFixed(precision) : 'N/A'}</div>`
+            ];
+            
+            tooltipRows.forEach(htmlContent => {
+                const tr = document.createElement('tr');
+                tr.style.borderWidth = 0;
+                const td = document.createElement('td');
+                td.style.borderWidth = 0;
+                td.innerHTML = htmlContent;
+                tr.appendChild(td);
+                tableBody.appendChild(tr);
+            });
+        }
+
+        const tableRoot = tooltipEl.querySelector('table');
+        while (tableRoot.firstChild) {
+            tableRoot.firstChild.remove();
+        }
+        tableRoot.appendChild(tableHead);
+        tableRoot.appendChild(tableBody);
+    }
+
+    const {offsetLeft: positionX, offsetTop: positionY} = chart.canvas;
+    tooltipEl.style.opacity = 1;
+    let tooltipX = positionX + tooltip.caretX - tooltipEl.offsetWidth - 10;
+    let tooltipY = positionY + tooltip.caretY - (tooltipEl.offsetHeight / 2);
+
+    if (tooltipX < 0) tooltipX = positionX + tooltip.caretX + 10;
+    if (tooltipX + tooltipEl.offsetWidth > chart.canvas.width) tooltipX = chart.canvas.width - tooltipEl.offsetWidth - 5;
+    if (tooltipY < 0) tooltipY = 5;
+    if (tooltipY + tooltipEl.offsetHeight > chart.canvas.height) tooltipY = chart.canvas.height - tooltipEl.offsetHeight - 5;
+
+    tooltipEl.style.left = tooltipX + 'px';
+    tooltipEl.style.top = tooltipY + 'px';
 };
