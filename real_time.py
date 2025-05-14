@@ -26,7 +26,7 @@ from modules.core.exchange import create_exchange, fetch_markets, get_top_symbol
 from modules.core.download_orchestrator import process_timeframe
 from modules.data.db_manager import init_data_tables
 from modules.data.volatility_processor import process_and_save_volatility
-from modules.data.dataset_generator import export_supervised_training_data
+from modules.data.dataset_generator import export_supervised_training_data, generate_ml_dataset
 
 # Inizializza colorama
 init(autoreset=True)
@@ -129,35 +129,57 @@ async def real_time_update(args):
                 grand_total_symbols["saltati"] += res["saltati"]
                 grand_total_symbols["falliti"] += res["falliti"]
                 total_records_saved += res["record_totali"]
-                
-                # Elabora la volatilità per i simboli completati
-                if res["completati"] > 0:
-                    for sym in top_symbols:
-                        # Calcola e salva la volatilità per ogni simbolo
-                        process_and_save_volatility(sym, tf)
+        
+        # Elabora la volatilità per i simboli completati in tutti i timeframe
+        for tf, res in all_timeframe_results.items():
+            if res["completati"] > 0:
+                for sym in top_symbols:
+                    # Calcola e salva la volatilità per ogni simbolo
+                    process_and_save_volatility(sym, tf)
+                    
+                    # Genera dataset per il machine learning supervisionato
+                    logging.info(f"Generazione dataset di ML per {Fore.YELLOW}{sym}{Style.RESET_ALL} ({tf})")
+                    try:
+                        output_dir = "datasets"
+                        pattern_counts = export_supervised_training_data(
+                            symbol=sym,
+                            timeframe=tf,
+                            output_dir=output_dir,
+                            window_size=7,  # default: finestra di 7 valori
+                            threshold=0.0   # default: soglia a 0.0
+                        )
                         
-                        # Genera dataset per il machine learning supervisionato
-                        logging.info(f"Generazione dataset di ML per {Fore.YELLOW}{sym}{Style.RESET_ALL} ({tf})")
-                        try:
-                            output_dir = "datasets"
-                            pattern_counts = export_supervised_training_data(
-                                symbol=sym,
-                                timeframe=tf,
-                                output_dir=output_dir,
-                                window_size=7,  # default: finestra di 7 valori
-                                threshold=0.0   # default: soglia a 0.0
-                            )
-                            
-                            # Log dei risultati
-                            if pattern_counts:
-                                total_patterns = len(pattern_counts)
-                                total_records = sum(pattern_counts.values())
-                                logging.info(f"Dataset generato: {Fore.GREEN}{total_records}{Style.RESET_ALL} record in "
-                                           f"{Fore.CYAN}{total_patterns}{Style.RESET_ALL} categorie per {Fore.YELLOW}{sym}{Style.RESET_ALL}")
-                            else:
-                                logging.warning(f"Nessun dataset generato per {sym} ({tf})")
-                        except Exception as e:
-                            logging.error(f"Errore nella generazione del dataset per {sym} ({tf}): {e}")
+                        # Log dei risultati
+                        if pattern_counts:
+                            total_patterns = len(pattern_counts)
+                            total_records = sum(pattern_counts.values())
+                            logging.info(f"Dataset generato: {Fore.GREEN}{total_records}{Style.RESET_ALL} record in "
+                                       f"{Fore.CYAN}{total_patterns}{Style.RESET_ALL} categorie per {Fore.YELLOW}{sym}{Style.RESET_ALL}")
+                        else:
+                            logging.warning(f"Nessun dataset generato per {sym} ({tf})")
+                    except Exception as e:
+                        logging.error(f"Errore nella generazione del dataset per {sym} ({tf}): {e}")
+        
+        # Generate ML dataset (enabled by default)
+        # Check if any new volatility data was saved or if force regeneration is requested
+        has_new_data = any(res["completati"] > 0 for _, res in all_timeframe_results.items())
+        if args.ml and (has_new_data or args.force_ml):
+            if has_new_data:
+                logging.info(f"{Fore.YELLOW}Generating ML dataset with new volatility data{Style.RESET_ALL}")
+            elif args.force_ml:
+                logging.info(f"{Fore.YELLOW}Forcing ML dataset regeneration as requested with --force-ml{Style.RESET_ALL}")
+            
+            output_dir = "datasets"
+            generate_ml_dataset(
+                db_path=DB_FILE,
+                output_dir=output_dir,
+                symbols=top_symbols,
+                timeframes=args.timeframes,
+                segment_len=7,
+                force_regeneration=args.force_ml
+            )
+        elif args.ml:
+            logging.info(f"{Fore.YELLOW}No new volatility data found, skipping ML dataset generation. Use --force-ml to regenerate.{Style.RESET_ALL}")
 
         # Calcola il tempo totale di esecuzione
         end_time = datetime.now()
@@ -253,6 +275,7 @@ async def main():
         print(f"  • Concorrenza: {Fore.YELLOW}{args.concurrency}{Style.RESET_ALL} download paralleli per batch")
     print(f"  • Finestra ML: {Fore.MAGENTA}7{Style.RESET_ALL} valori (pattern a 7 bit)")
     print(f"  • Output dataset: {Fore.BLUE}{os.path.abspath('datasets')}{Style.RESET_ALL}")
+    print(f"  • ML dataset: {'Attivato' if args.ml else 'Disattivato'} {Fore.GREEN}(abilitato di default){Style.RESET_ALL}")
     print(f"  • Data e ora inizio: {Fore.CYAN}{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
     print("="*80 + "\n")
 

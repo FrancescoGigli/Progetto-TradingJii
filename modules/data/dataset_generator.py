@@ -21,7 +21,8 @@ def export_supervised_training_data(
     timeframe: str,
     output_dir: str,
     window_size: int = 7,
-    threshold: float = 0.0
+    threshold: float = 0.0,
+    force_regeneration: bool = False
 ) -> Dict[str, int]:
     """
     Generate and export supervised training data from volatility time series.
@@ -71,6 +72,28 @@ def export_supervised_training_data(
     symbol_safe = symbol_safe.replace('?', '').replace('"', '').replace('<', '').replace('>', '')
     symbol_safe = symbol_safe.replace('|', '')
     dataset_path = os.path.join(output_dir, symbol_safe, timeframe)
+    
+    # Check if datasets already exist for this symbol/timeframe
+    if not force_regeneration and os.path.exists(dataset_path):
+        # Look for at least one CSV file
+        csv_files = [f for f in os.listdir(dataset_path) if f.endswith('.csv')]
+        if csv_files:
+            logging.info(f"{Fore.BLUE}Datasets already exist for {symbol} ({timeframe}). Use --force-ml to regenerate.{Style.RESET_ALL}")
+            # Read one of the files to get pattern counts
+            pattern_record_counts = {}
+            for csv_file in csv_files:
+                pattern = csv_file[4:-4]  # Extract pattern from "cat_PATTERN.csv"
+                df = pd.read_csv(os.path.join(dataset_path, csv_file))
+                pattern_record_counts[pattern] = len(df)
+            
+            # Log summary of existing data
+            total_records = sum(pattern_record_counts.values())
+            num_categories = len(pattern_record_counts)
+            logging.info(f"Found existing data: {Fore.GREEN}{total_records}{Style.RESET_ALL} records in "
+                       f"{Fore.CYAN}{num_categories}{Style.RESET_ALL} categories")
+            return pattern_record_counts
+    
+    # Create the directory if it doesn't exist or we're regenerating
     os.makedirs(dataset_path, exist_ok=True)
     
     # Export each category to a separate CSV file
@@ -120,7 +143,8 @@ def export_all_supervised_data(
     timeframes: List[str],
     output_dir: str,
     window_size: int = 7,
-    threshold: float = 0.0
+    threshold: float = 0.0,
+    force_regeneration: bool = False
 ) -> List[Dict]:
     """
     Export supervised datasets for multiple symbols and timeframes.
@@ -151,7 +175,8 @@ def export_all_supervised_data(
                     timeframe,
                     output_dir,
                     window_size,
-                    threshold
+                    threshold,
+                    force_regeneration
                 )
                 
                 if pattern_counts:
@@ -183,6 +208,91 @@ def export_all_supervised_data(
         logging.info(f"All datasets saved to: {Fore.MAGENTA}{output_dir}{Style.RESET_ALL}")
     
     return results
+
+def generate_ml_dataset(
+    db_path: str,
+    output_dir: str,
+    symbols: List[str],
+    timeframes: List[str],
+    segment_len: int = 7,
+    force_regeneration: bool = False
+) -> Dict[str, int]:
+    """
+    Generate ML dataset from database data for all provided symbols and timeframes.
+    
+    Args:
+        db_path: Path to the SQLite database file
+        output_dir: Directory where the dataset will be saved
+        symbols: List of cryptocurrency symbols
+        timeframes: List of timeframes to include
+        segment_len: Length of segments for pattern generation (default: 7)
+        force_regeneration: Whether to force regeneration of datasets even if they exist
+    
+    Returns:
+        Dictionary with statistics about the generation process
+    """
+    logging.info(f"{Fore.GREEN}=== GENERATING ML DATASET ==={Style.RESET_ALL}")
+    logging.info(f"Database: {Fore.BLUE}{db_path}{Style.RESET_ALL}")
+    logging.info(f"Output directory: {Fore.BLUE}{output_dir}{Style.RESET_ALL}")
+    logging.info(f"Symbols: {Fore.YELLOW}{', '.join(symbols)}{Style.RESET_ALL}")
+    logging.info(f"Timeframes: {Fore.CYAN}{', '.join(timeframes)}{Style.RESET_ALL}")
+    logging.info(f"Segment length: {Fore.MAGENTA}{segment_len}{Style.RESET_ALL}")
+    logging.info(f"Force regeneration: {Fore.YELLOW}{force_regeneration}{Style.RESET_ALL}\n")
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Stats collection
+    stats = {
+        "total_symbols": len(symbols),
+        "total_timeframes": len(timeframes),
+        "symbols_processed": 0,
+        "empty_data_series": 0,
+        "patterns_generated": 0,
+        "csv_files_written": 0,
+        "total_records": 0,
+    }
+    
+    # Generate datasets for all combinations of symbols and timeframes
+    results = export_all_supervised_data(
+        symbols=symbols,
+        timeframes=timeframes,
+        output_dir=output_dir,
+        window_size=segment_len,
+        threshold=0.0,  # Default threshold
+        force_regeneration=force_regeneration
+    )
+    
+    # Process results for detailed statistics
+    if results:
+        stats["symbols_processed"] = len(set(r["symbol"] for r in results))
+        stats["total_records"] = sum(r["total_records"] for r in results)
+        stats["patterns_generated"] = sum(len(r["pattern_counts"]) for r in results if "pattern_counts" in r)
+        stats["csv_files_written"] = sum(len(r["pattern_counts"]) for r in results if "pattern_counts" in r)
+        stats["empty_data_series"] = len(symbols) * len(timeframes) - len(results)
+    
+    # Log detailed statistics
+    logging.info(f"\n{Fore.GREEN}=== ML DATASET GENERATION COMPLETE ==={Style.RESET_ALL}")
+    
+    if stats["empty_data_series"] > 0:
+        logging.warning(f"{Fore.YELLOW}Empty data series: {stats['empty_data_series']}{Style.RESET_ALL}")
+    
+    if stats["patterns_generated"] > 0:
+        logging.info(f"{Fore.GREEN}Patterns generated: {stats['patterns_generated']}{Style.RESET_ALL}")
+    else:
+        logging.warning(f"{Fore.YELLOW}No patterns were generated. Check if there is enough data.{Style.RESET_ALL}")
+    
+    if stats["csv_files_written"] > 0:
+        logging.info(f"{Fore.GREEN}CSV files written: {stats['csv_files_written']}{Style.RESET_ALL}")
+    else:
+        logging.warning(f"{Fore.YELLOW}No CSV files were written. Check output directory permissions.{Style.RESET_ALL}")
+    
+    logging.info(f"Processed {Fore.YELLOW}{stats['symbols_processed']}{Style.RESET_ALL} symbols × "
+               f"{Fore.CYAN}{len(timeframes)}{Style.RESET_ALL} timeframes")
+    logging.info(f"Total records: {Fore.GREEN}{stats['total_records']}{Style.RESET_ALL}")
+    logging.info(f"Datasets saved to: {Fore.BLUE}{os.path.abspath(output_dir)}{Style.RESET_ALL}")
+    
+    return stats
 
 if __name__ == "__main__":
     from modules.utils.logging_setup import setup_logging

@@ -67,4 +67,17 @@ def parse_arguments():
         help='Esegui in modalità sequenziale invece che parallela'
     )
     
+    optimization_group.add_argument(
+        '--ml', 
+        action='store_true',
+        default=True,
+        help='Generate ML dataset after download (enabled by default)'
+    )
+    
+    optimization_group.add_argument(
+        '--force-ml',
+        action='store_true',
+        help='Force regeneration of ML datasets even if they already exist'
+    )
+    
     return parser.parse_args()
