@@ -18,26 +18,59 @@ def init_data_tables(timeframes):
     Args:
         timeframes: List of timeframes to create tables for
     """
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        for timeframe in timeframes:
-            cursor.execute(f"""
-                CREATE TABLE IF NOT EXISTS data_{timeframe} (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    symbol TEXT NOT NULL,
-                    timestamp TEXT NOT NULL,
-                    open REAL NOT NULL,
-                    high REAL NOT NULL,
-                    low REAL NOT NULL,
-                    close REAL NOT NULL,
-                    volume REAL NOT NULL,
-                    UNIQUE(symbol, timestamp)
-                )
-            """)
-            cursor.execute(f"""
-                CREATE INDEX IF NOT EXISTS idx_{timeframe}_symbol_timestamp
-                ON data_{timeframe} (symbol, timestamp)
-            """)
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            tables_created = []
+            
+            for timeframe in timeframes:
+                table_name = f"data_{timeframe}"
+                # Ensure the table name is valid - remove any problematic characters
+                table_name = table_name.replace('-', '_')
+                
+                try:
+                    logging.info(f"Creating table {table_name} if it doesn't exist...")
+                    cursor.execute(f"""
+                        CREATE TABLE IF NOT EXISTS {table_name} (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            symbol TEXT NOT NULL,
+                            timestamp TEXT NOT NULL,
+                            open REAL NOT NULL,
+                            high REAL NOT NULL,
+                            low REAL NOT NULL,
+                            close REAL NOT NULL,
+                            volume REAL NOT NULL,
+                            UNIQUE(symbol, timestamp)
+                        )
+                    """)
+                    cursor.execute(f"""
+                        CREATE INDEX IF NOT EXISTS idx_{timeframe}_symbol_timestamp
+                        ON {table_name} (symbol, timestamp)
+                    """)
+                    tables_created.append(table_name)
+                    
+                    # Verify table was created successfully
+                    cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+                    if cursor.fetchone():
+                        logging.info(f"{Fore.GREEN}Table {table_name} created or already exists{Style.RESET_ALL}")
+                    else:
+                        logging.error(f"{Fore.RED}Failed to verify table {table_name} after creation{Style.RESET_ALL}")
+                except Exception as e:
+                    logging.error(f"{Fore.RED}Error creating table {table_name}: {e}{Style.RESET_ALL}")
+                    raise
+            
+            conn.commit()
+            
+            # Verify all tables were created
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            all_tables = [row[0] for row in cursor.fetchall()]
+            logging.info(f"{Fore.GREEN}Database initialization complete. Tables in database: {', '.join(all_tables)}{Style.RESET_ALL}")
+            
+    except Exception as e:
+        logging.error(f"{Fore.RED}Database initialization error: {e}{Style.RESET_ALL}")
+        import traceback
+        logging.error(traceback.format_exc())
+        raise
 
 def get_timestamp_range(symbol, timeframe):
     """
@@ -79,18 +112,33 @@ def check_data_freshness(symbol, timeframe):
     Returns:
         Tuple of (is_fresh, last_timestamp)
     """
-    now = datetime.now()
-    first_date, last_date = get_timestamp_range(symbol, timeframe)
+    try:
+        now = datetime.now()
+        table_name = f"data_{timeframe}"
+        
+        # First, verify the table exists
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+            if not cursor.fetchone():
+                logging.warning(f"{Fore.YELLOW}Table {table_name} does not exist. Will create it in the download process.{Style.RESET_ALL}")
+                return False, None
+        
+        # If the table exists, check for data freshness
+        first_date, last_date = get_timestamp_range(symbol, timeframe)
 
-    if last_date:
-        time_diff = now - last_date
-        if time_diff < TIMEFRAME_CONFIG[timeframe]['max_age']:
-            logging.info(f"Saltato {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe}): Dati recenti già esistenti")
-            logging.info(f"  • Prima data: {Fore.CYAN}{first_date.strftime('%Y-%m-%d %H:%M')}{Style.RESET_ALL}")
-            logging.info(f"  • Ultima data: {Fore.CYAN}{last_date.strftime('%Y-%m-%d %H:%M')}{Style.RESET_ALL}")
-            return True, last_date
-            
-    return False, last_date
+        if last_date:
+            time_diff = now - last_date
+            if time_diff < TIMEFRAME_CONFIG[timeframe]['max_age']:
+                logging.info(f"Saltato {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe}): Dati recenti già esistenti")
+                logging.info(f"  • Prima data: {Fore.CYAN}{first_date.strftime('%Y-%m-%d %H:%M')}{Style.RESET_ALL}")
+                logging.info(f"  • Ultima data: {Fore.CYAN}{last_date.strftime('%Y-%m-%d %H:%M')}{Style.RESET_ALL}")
+                return True, last_date
+                
+        return False, last_date
+    except Exception as e:
+        logging.error(f"{Fore.RED}Error checking data freshness for {symbol} ({timeframe}): {e}{Style.RESET_ALL}")
+        return False, None
 
 def save_ohlcv_data(symbol, timeframe, ohlcv_data):
     """
@@ -112,6 +160,30 @@ def save_ohlcv_data(symbol, timeframe, ohlcv_data):
     try:
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
+            
+            # First, ensure the table exists
+            cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+            if not cursor.fetchone():
+                logging.warning(f"{Fore.YELLOW}Table {table_name} does not exist. Creating it now...{Style.RESET_ALL}")
+                cursor.execute(f"""
+                    CREATE TABLE IF NOT EXISTS {table_name} (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        symbol TEXT NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        open REAL NOT NULL,
+                        high REAL NOT NULL,
+                        low REAL NOT NULL,
+                        close REAL NOT NULL,
+                        volume REAL NOT NULL,
+                        UNIQUE(symbol, timestamp)
+                    )
+                """)
+                cursor.execute(f"""
+                    CREATE INDEX IF NOT EXISTS idx_{timeframe.replace('-', '_')}_symbol_timestamp
+                    ON {table_name} (symbol, timestamp)
+                """)
+                conn.commit()
+                logging.info(f"{Fore.GREEN}Table {table_name} created successfully{Style.RESET_ALL}")
             
             # Convert OHLCV data to records format
             records = [
@@ -137,5 +209,7 @@ def save_ohlcv_data(symbol, timeframe, ohlcv_data):
             
             return True, len(records)
     except Exception as e:
-        logging.error(f"Errore nel salvataggio dei dati per {symbol} ({timeframe}): {e}")
+        logging.error(f"{Fore.RED}Errore nel salvataggio dei dati per {symbol} ({timeframe}): {e}{Style.RESET_ALL}")
+        import traceback
+        logging.error(traceback.format_exc())
         return False, 0

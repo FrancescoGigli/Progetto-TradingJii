@@ -65,7 +65,7 @@ from modules.utils.logging_setup import setup_logging
 def train_all_tft_models(
     dataset_base_dir: str = "datasets",
     model_base_dir: str = "models",
-    min_samples: int = 30,
+    min_samples: int = 15,
     input_size: int = 7,
     num_epochs: int = 100,
     hidden_size: int = 64,

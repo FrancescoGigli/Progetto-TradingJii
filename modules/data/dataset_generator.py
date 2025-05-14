@@ -22,7 +22,9 @@ def export_supervised_training_data(
     output_dir: str,
     window_size: int = 7,
     threshold: float = 0.0,
-    force_regeneration: bool = False
+    force_regeneration: bool = False,
+    min_samples_per_pattern: int = 40,  # Minimum samples needed for proper train/validation split
+    oversample_factor: int = 3  # How many times to oversample small datasets
 ) -> Dict[str, int]:
     """
     Generate and export supervised training data from volatility time series.
@@ -112,6 +114,42 @@ def export_supervised_training_data(
         # Convert to DataFrame
         cat_df = pd.DataFrame(rows)
         
+        # Check if we need to augment data to ensure enough samples for training and validation
+        original_size = len(cat_df)
+        if original_size < min_samples_per_pattern:
+            logging.info(f"{Fore.YELLOW}Pattern {pattern} has only {original_size} samples, which is below the minimum of {min_samples_per_pattern}. Augmenting data...{Style.RESET_ALL}")
+            
+            # Calculate how many additional samples we need to reach the minimum
+            augmented_df = cat_df.copy()
+            
+            # Add small random noise to feature columns to create additional samples
+            import numpy as np
+            
+            # Determine how many times to duplicate and augment
+            times_to_duplicate = min(oversample_factor, max(1, min_samples_per_pattern // original_size + 1))
+            
+            for _ in range(times_to_duplicate):
+                # Copy the original data
+                new_samples = cat_df.copy()
+                
+                # Add small random noise to features (x_1 to x_n)
+                for col in [f'x_{i+1}' for i in range(window_size)]:
+                    # Add random noise (0.5-1.5% of the original value)
+                    noise_factor = 0.01 * np.random.uniform(0.5, 1.5, size=len(new_samples))
+                    # Apply noise while preserving sign
+                    new_samples[col] = new_samples[col] * (1 + noise_factor * np.sign(new_samples[col]))
+                
+                # Also add small noise to target (y)
+                noise_factor = 0.005 * np.random.uniform(0.5, 1.5, size=len(new_samples))
+                new_samples['y'] = new_samples['y'] * (1 + noise_factor * np.sign(new_samples['y']))
+                
+                # Append the augmented samples
+                augmented_df = pd.concat([augmented_df, new_samples], ignore_index=True)
+            
+            # Use the augmented dataframe
+            cat_df = augmented_df
+            logging.info(f"{Fore.GREEN}Augmented dataset size: {len(cat_df)} samples (original: {original_size}){Style.RESET_ALL}")
+        
         # Set filename
         filename = os.path.join(dataset_path, f"cat_{pattern}.csv")
         
@@ -176,7 +214,9 @@ def export_all_supervised_data(
                     output_dir,
                     window_size,
                     threshold,
-                    force_regeneration
+                    force_regeneration,
+                    min_samples_per_pattern=40,  # Ensure enough samples for training and validation
+                    oversample_factor=3  # Augment small datasets by up to 3x
                 )
                 
                 if pattern_counts:
