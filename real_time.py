@@ -6,7 +6,8 @@ Cryptocurrency Real-Time Data Fetcher
 Questo script esegue continuamente il download di dati OHLCV delle criptovalute da Bybit
 in modalità tempo reale, eseguendo un'iterazione ogni 5 minuti.
 
-Mantiene il database costantemente aggiornato con i dati più recenti.
+Mantiene il database costantemente aggiornato con i dati più recenti e genera
+dataset per il machine learning supervisionato a partire dalla volatilità calcolata.
 """
 
 import sys
@@ -25,6 +26,7 @@ from modules.core.exchange import create_exchange, fetch_markets, get_top_symbol
 from modules.core.download_orchestrator import process_timeframe
 from modules.data.db_manager import init_data_tables
 from modules.data.volatility_processor import process_and_save_volatility
+from modules.data.dataset_generator import export_supervised_training_data
 
 # Inizializza colorama
 init(autoreset=True)
@@ -88,6 +90,29 @@ async def real_time_update(args):
                     for sym in top_symbols:
                         # Calcola e salva la volatilità per ogni simbolo
                         process_and_save_volatility(sym, timeframe)
+                        
+                        # Genera dataset per il machine learning supervisionato
+                        logging.info(f"Generazione dataset di ML per {Fore.YELLOW}{sym}{Style.RESET_ALL} ({timeframe})")
+                        try:
+                            output_dir = "datasets"
+                            pattern_counts = export_supervised_training_data(
+                                symbol=sym,
+                                timeframe=timeframe,
+                                output_dir=output_dir,
+                                window_size=7,  # default: finestra di 7 valori
+                                threshold=0.0   # default: soglia a 0.0
+                            )
+                            
+                            # Log dei risultati
+                            if pattern_counts:
+                                total_patterns = len(pattern_counts)
+                                total_records = sum(pattern_counts.values())
+                                logging.info(f"Dataset generato: {Fore.GREEN}{total_records}{Style.RESET_ALL} record in "
+                                           f"{Fore.CYAN}{total_patterns}{Style.RESET_ALL} categorie per {Fore.YELLOW}{sym}{Style.RESET_ALL}")
+                            else:
+                                logging.warning(f"Nessun dataset generato per {sym} ({timeframe})")
+                        except Exception as e:
+                            logging.error(f"Errore nella generazione del dataset per {sym} ({timeframe}): {e}")
         else:
             logging.info(f"{Fore.YELLOW}Modalità parallela attivata. Concorrenza massima per simbolo: {args.concurrency}{Style.RESET_ALL}")
             timeframe_tasks = []
@@ -110,6 +135,29 @@ async def real_time_update(args):
                     for sym in top_symbols:
                         # Calcola e salva la volatilità per ogni simbolo
                         process_and_save_volatility(sym, tf)
+                        
+                        # Genera dataset per il machine learning supervisionato
+                        logging.info(f"Generazione dataset di ML per {Fore.YELLOW}{sym}{Style.RESET_ALL} ({tf})")
+                        try:
+                            output_dir = "datasets"
+                            pattern_counts = export_supervised_training_data(
+                                symbol=sym,
+                                timeframe=tf,
+                                output_dir=output_dir,
+                                window_size=7,  # default: finestra di 7 valori
+                                threshold=0.0   # default: soglia a 0.0
+                            )
+                            
+                            # Log dei risultati
+                            if pattern_counts:
+                                total_patterns = len(pattern_counts)
+                                total_records = sum(pattern_counts.values())
+                                logging.info(f"Dataset generato: {Fore.GREEN}{total_records}{Style.RESET_ALL} record in "
+                                           f"{Fore.CYAN}{total_patterns}{Style.RESET_ALL} categorie per {Fore.YELLOW}{sym}{Style.RESET_ALL}")
+                            else:
+                                logging.warning(f"Nessun dataset generato per {sym} ({tf})")
+                        except Exception as e:
+                            logging.error(f"Errore nella generazione del dataset per {sym} ({tf}): {e}")
 
         # Calcola il tempo totale di esecuzione
         end_time = datetime.now()
@@ -155,6 +203,7 @@ def display_update_results(results):
     print(f"{Back.GREEN}{Fore.BLACK}  RESOCONTO AGGIORNAMENTO COMPLETATO  {Style.RESET_ALL}")
     print("="*80)
     print(f"  • Database: {Fore.BLUE}{os.path.abspath(DB_FILE)}{Style.RESET_ALL}")
+    print(f"  • Dataset ML: {Fore.BLUE}{os.path.abspath('datasets')}{Style.RESET_ALL}")
     print(f"  • Tempo esecuzione: {Fore.CYAN}{time_str}{Style.RESET_ALL}")
     print()
     
@@ -194,7 +243,7 @@ async def main():
     
     # Header generale
     print("\n" + "="*80)
-    print(f"{Back.BLUE}{Fore.WHITE}  MONITOR DATI OHLCV CRIPTOVALUTE IN TEMPO REALE (MODALITÀ {mode})  {Style.RESET_ALL}")
+    print(f"{Back.BLUE}{Fore.WHITE}  MONITOR DATI E GENERATORE DATASET ML (MODALITÀ {mode})  {Style.RESET_ALL}")
     print("="*80)
     print(f"  • Criptovalute da monitorare: {Fore.YELLOW}{args.num_symbols}{Style.RESET_ALL}")
     print(f"  • Timeframes monitorati: {Fore.GREEN}{', '.join(args.timeframes)}{Style.RESET_ALL}")
@@ -202,6 +251,8 @@ async def main():
     print(f"  • Batch size: {Fore.YELLOW}{args.batch_size}{Style.RESET_ALL}")
     if not args.sequential:
         print(f"  • Concorrenza: {Fore.YELLOW}{args.concurrency}{Style.RESET_ALL} download paralleli per batch")
+    print(f"  • Finestra ML: {Fore.MAGENTA}7{Style.RESET_ALL} valori (pattern a 7 bit)")
+    print(f"  • Output dataset: {Fore.BLUE}{os.path.abspath('datasets')}{Style.RESET_ALL}")
     print(f"  • Data e ora inizio: {Fore.CYAN}{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
     print("="*80 + "\n")
 

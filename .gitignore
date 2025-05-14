@@ -45,6 +45,7 @@ ENV/
 # Output files and temporary files
 plots/
 output/
+datasets/
 validation_reports/
 ohlcv_validation_reports/
 fetch_progress.json
