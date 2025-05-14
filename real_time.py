@@ -160,7 +160,7 @@ async def real_time_update(args):
                     except Exception as e:
                         logging.error(f"Errore nella generazione del dataset per {sym} ({tf}): {e}")
         
-        # Generate ML dataset (enabled by default)
+        # Generate ML dataset if request with --ml flag
         # Check if any new volatility data was saved or if force regeneration is requested
         has_new_data = any(res["completati"] > 0 for _, res in all_timeframe_results.items())
         if args.ml and (has_new_data or args.force_ml):
@@ -169,10 +169,15 @@ async def real_time_update(args):
             elif args.force_ml:
                 logging.info(f"{Fore.YELLOW}Forcing ML dataset regeneration as requested with --force-ml{Style.RESET_ALL}")
             
-            output_dir = "datasets"
+            # Define output directory
+            your_output_dir = "datasets"
+            
+            # Generate ML dataset
+            from modules.data.dataset_generator import generate_ml_dataset
+
             generate_ml_dataset(
                 db_path=DB_FILE,
-                output_dir=output_dir,
+                output_dir=your_output_dir,
                 symbols=top_symbols,
                 timeframes=args.timeframes,
                 segment_len=7,
@@ -275,7 +280,7 @@ async def main():
         print(f"  • Concorrenza: {Fore.YELLOW}{args.concurrency}{Style.RESET_ALL} download paralleli per batch")
     print(f"  • Finestra ML: {Fore.MAGENTA}7{Style.RESET_ALL} valori (pattern a 7 bit)")
     print(f"  • Output dataset: {Fore.BLUE}{os.path.abspath('datasets')}{Style.RESET_ALL}")
-    print(f"  • ML dataset: {'Attivato' if args.ml else 'Disattivato'} {Fore.GREEN}(abilitato di default){Style.RESET_ALL}")
+    print(f"  • ML dataset: {'Attivato' if args.ml else 'Disattivato'} {Fore.YELLOW}(usa --ml per attivare){Style.RESET_ALL}")
     print(f"  • Data e ora inizio: {Fore.CYAN}{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
     print("="*80 + "\n")
 

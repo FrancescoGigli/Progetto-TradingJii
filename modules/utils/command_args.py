@@ -70,8 +70,7 @@ def parse_arguments():
     optimization_group.add_argument(
         '--ml', 
         action='store_true',
-        default=True,
-        help='Generate ML dataset after download (enabled by default)'
+        help='Generate ML dataset after download'
     )
     
     optimization_group.add_argument(

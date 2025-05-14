@@ -46,6 +46,7 @@ ENV/
 plots/
 output/
 datasets/
+models/
 validation_reports/
 ohlcv_validation_reports/
 fetch_progress.json
