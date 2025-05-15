@@ -542,12 +542,20 @@ body:not(.light-theme) .theme-toggle .fa-sun {
 
 /* This specific style for price-chart-wrapper might be redundant now or need adjustment */
 .price-chart-wrapper {
-    height: 100%; /* Default height, will be adjusted by .with-indicator if needed */
+    /* height: 100%; */ /* REMOVED - Let top/bottom from .chart-wrapper and .with-indicator control this */
     width: 100%;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color); /* This border might be an issue if indicator is shown */
     padding-bottom: 5px;
     margin-bottom: 5px;
 }
+
+.chart-wrapper.with-indicator.price-chart-wrapper,
+.chart-wrapper.with-indicator#volatility-chart-wrapper {
+    border-bottom: none; /* Remove bottom border when indicator chart is shown below it */
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
 
 /* Enhanced styling for better Heikin-Ashi candles visualization */
 .price-chart-wrapper canvas {
