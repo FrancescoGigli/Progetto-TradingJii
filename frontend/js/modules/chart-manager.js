@@ -911,12 +911,14 @@ function findPatternInChartData(chartData, patternString) {
     
     try {
         if (!chartData || chartData.length < patternString.length + 1) {
+            console.log(`Chart data insufficient for pattern: ${patternString}`);
             return occurrences;
         }
         
+        console.log(`Searching for pattern: ${patternString} in chart data of length: ${chartData.length}`);
+        
         // Analyze price movements to find binary pattern matches
         for (let i = 0; i < chartData.length - patternString.length; i++) {
-            let matchFound = true;
             let binaryPattern = '';
             
             // Generate binary pattern from data point sequence
@@ -925,36 +927,50 @@ function findPatternInChartData(chartData, patternString) {
                 const next = chartData[i + j + 1];
                 
                 if (!current || !next) {
-                    matchFound = false;
+                    console.log(`Missing data points at index: ${i+j}`);
                     break;
                 }
                 
-                // Determine if price went up (1) or down (0)
+                // Get closing prices based on data format
+                let currentClose, nextClose;
+                
                 // For candlestick / Heikin Ashi data
                 if (current.hasOwnProperty('c') && next.hasOwnProperty('c')) {
-                    binaryPattern += (next.c > current.c) ? '1' : '0';
+                    currentClose = current.c;
+                    nextClose = next.c;
                 } 
                 // For line chart data
                 else if (current.hasOwnProperty('y') && next.hasOwnProperty('y')) {
-                    binaryPattern += (next.y > current.y) ? '1' : '0';
+                    currentClose = current.y;
+                    nextClose = next.y;
                 } else {
-                    matchFound = false;
+                    console.log(`Unknown data format at index: ${i+j}`);
                     break;
+                }
+                
+                // Determine pattern bit (1 for up, 0 for down or equal)
+                if (nextClose > currentClose) {
+                    binaryPattern += '1';
+                } else {
+                    binaryPattern += '0';
                 }
             }
             
-            // Check if we found a matching pattern
-            if (matchFound && binaryPattern === patternString) {
-                occurrences.push({
-                    startIndex: i,
-                    endIndex: i + patternString.length,
-                    pattern: binaryPattern
-                });
-                
-                console.log(`Pattern ${patternString} found at index ${i} to ${i + patternString.length}`);
+            // Check if we found a matching pattern (only if we have a complete pattern)
+            if (binaryPattern.length === patternString.length) {
+                if (binaryPattern === patternString) {
+                    occurrences.push({
+                        startIndex: i,
+                        endIndex: i + patternString.length,
+                        pattern: binaryPattern
+                    });
+                    
+                    console.log(`Pattern ${patternString} found at index ${i} to ${i + patternString.length}`);
+                }
             }
         }
         
+        console.log(`Found ${occurrences.length} occurrences of pattern ${patternString}`);
         return occurrences;
         
     } catch (error) {
