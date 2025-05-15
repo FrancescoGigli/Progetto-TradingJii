@@ -21,6 +21,8 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.0/dist/chartjs-plugin-zoom.min.js"></script>
     <!-- Financial chart for candlestick -->
     <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial/dist/chartjs-chart-financial.min.js"></script>
+    <!-- Chart.js Crosshair plugin -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-crosshair@2.0.0/dist/chartjs-plugin-crosshair.min.js"></script>
 </head>
 <body>
     <header>
@@ -88,12 +90,44 @@
                                 <button class="chart-toggle active" data-chart="price">Price</button>
                                 <button class="chart-toggle" data-chart="volatility">Volatility</button>
                             </div>
+                            <div class="price-chart-style-toggle">
+                                <label>Price Style:</label>
+                                <button class="price-style-toggle active" data-style="heikin-ashi">Heikin-Ashi</button>
+                                <button class="price-style-toggle" data-style="candlestick">Candlestick</button>
+                                <button class="price-style-toggle" data-style="line">Line</button>
+                            </div>
+                            <div class="indicator-selector">
+                                <label for="indicator-select">Indicatore:</label>
+                                <select id="indicator-select">
+                                    <option value="none">Nessun indicatore</option>
+                                    <optgroup label="Momentum">
+                                        <option value="rsi">RSI</option>
+                                        <option value="macd">MACD</option>
+                                        <option value="stoch">Stocastico</option>
+                                    </optgroup>
+                                    <optgroup label="Trend">
+                                        <option value="adx">ADX</option>
+                                    </optgroup>
+                                    <optgroup label="Volatilità">
+                                        <option value="atr">ATR</option>
+                                        <option value="bbands">Bande di Bollinger</option>
+                                    </optgroup>
+                                    <optgroup label="Volume">
+                                        <option value="volume">Volume</option>
+                                        <option value="obv">OBV</option>
+                                        <option value="vwap">VWAP</option>
+                                    </optgroup>
+                                </select>
+                            </div>
                         </div>
                         <div class="chart-wrapper" id="price-chart-wrapper">
                             <canvas id="price-chart"></canvas>
                         </div>
                         <div class="chart-wrapper hidden" id="volatility-chart-wrapper">
                             <canvas id="volatility-chart"></canvas>
+                        </div>
+                        <div class="chart-wrapper hidden" id="indicator-chart-wrapper">
+                            <canvas id="indicator-chart"></canvas>
                         </div>
                     </div>
 

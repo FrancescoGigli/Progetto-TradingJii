@@ -353,6 +353,45 @@ body:not(.light-theme) .theme-toggle .fa-sun {
     color: white;
 }
 
+.price-chart-style-toggle {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-left: 1rem; /* Or adjust as needed */
+}
+
+.price-chart-style-toggle label {
+    padding: 0 0.5rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.price-style-toggle {
+    padding: 0.5rem 0.8rem; /* Slightly less padding than main chart toggles */
+    border: none;
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 0.85rem;
+}
+
+.price-style-toggle:not(:last-child) {
+    border-right: 1px solid var(--border-color);
+}
+
+.price-style-toggle.active {
+    background-color: var(--accent-color);
+    color: white;
+}
+
+.price-style-toggle:hover:not(.active) {
+    background-color: var(--hover-color);
+}
+
+
 /* Reset zoom button */
 .reset-zoom-btn {
     padding: 0.5rem 1rem;
@@ -367,6 +406,28 @@ body:not(.light-theme) .theme-toggle .fa-sun {
     align-items: center;
     gap: 6px;
     margin-left: 10px;
+}
+
+/* Indicator selector */
+.indicator-selector {
+    display: flex;
+    align-items: center;
+    margin-left: 1rem;
+}
+
+.indicator-selector label {
+    margin-right: 0.5rem;
+    color: var(--text-secondary);
+}
+
+.indicator-selector select {
+    padding: 0.3rem 0.5rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    transition: all 0.3s ease;
+    min-width: 150px;
 }
 
 .reset-zoom-btn:hover {
@@ -452,8 +513,36 @@ body:not(.light-theme) .theme-toggle .fa-sun {
     padding: 0 10px; /* Add some padding for better visibility */
 }
 
+/* Make room for indicator chart */
+#indicator-chart-wrapper {
+    height: 35%; /* Fixed height for indicator chart */
+    top: 65%;    /* Start after the main chart (100% - 35% = 65%) */
+    bottom: 0;   /* Anchor to the bottom of .chart-container */
+    border-top: 1px solid var(--border-color);
+    padding-top: 5px;
+    background-color: var(--bg-secondary);
+    /* Ensure it's not hidden by default if it's meant to be part of the layout when active */
+    /* The 'hidden' class will control its actual visibility via opacity */
+}
+
+/* Adjust other charts when indicator is visible */
+.chart-wrapper.with-indicator {
+    height: auto; /* Let top and bottom define height */
+    top: 3.5rem;  /* From top of .chart-container */
+    bottom: 35%;  /* End above the indicator chart */
+}
+
+/* Default state for price/volatility chart wrappers (when no indicator chart is shown) */
+.price-chart-wrapper,
+#volatility-chart-wrapper { /* Apply to volatility too */
+    top: 3.5rem;
+    bottom: 0; /* Fill full available space */
+    height: auto; /* Let top/bottom define height */
+}
+
+/* This specific style for price-chart-wrapper might be redundant now or need adjustment */
 .price-chart-wrapper {
-    height: 75%; /* Reduced from 100% to make space for volume chart */
+    height: 100%; /* Default height, will be adjusted by .with-indicator if needed */
     width: 100%;
     border-bottom: 1px solid var(--border-color);
     padding-bottom: 5px;

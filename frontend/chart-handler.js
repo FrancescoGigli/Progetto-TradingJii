@@ -16,16 +16,18 @@ if (typeof Chart === 'undefined') {
 let priceChart = null;
 let volumeChart = null;
 let volatilityChart = null;
+let indicatorChart = null;
 
 /**
  * Create a price candlestick chart using Chart.js with TradingView style
  * @param {string} symbol - Cryptocurrency symbol
  * @param {string} timeframe - Timeframe like '5m', '15m'
  * @param {Array} data - OHLCV data from the API
+ * @param {string} priceChartStyle - Style of the price chart ('heikin-ashi', 'candlestick', 'line')
  */
-function createPriceChart(symbol, timeframe, data) {
+function createPriceChart(symbol, timeframe, data, priceChartStyle = 'heikin-ashi') {
     try {
-        console.log('Creating price chart for', symbol);
+        console.log(`Creating price chart for ${symbol} with style: ${priceChartStyle}`);
         
         // Get the canvas element
         const ctx = document.getElementById('price-chart').getContext('2d');
@@ -47,13 +49,43 @@ function createPriceChart(symbol, timeframe, data) {
             return null;
         }
         
-        // Calculate Heikin-Ashi data
-        const haData = calculateHeikinAshi(chartData);
-        
         // Extract indicators from the data if they exist
-        const indicators = extractIndicators(data);
+        const indicators = extractIndicators(data); // Assuming 'data' is the raw API data for indicators
         
-        console.log(`Chart data prepared, ${haData.length} points available`);
+        let displayData;
+        let chartType = 'candlestick'; // Default for heikin-ashi and candlestick
+        let datasetLabel = `${symbol} (${timeframe})`;
+
+        switch (priceChartStyle) {
+            case 'line':
+                chartType = 'line';
+                displayData = chartData.map(d => ({ x: d.x, y: d.c }));
+                datasetLabel += ' - Line';
+                break;
+            case 'candlestick':
+                displayData = chartData.map(d => ({
+                    x: d.x, o: d.o, h: d.h, l: d.l, c: d.c,
+                    originalOpen: d.o, originalHigh: d.h, originalLow: d.l, originalClose: d.c, volume: d.volume
+                }));
+                datasetLabel += ' - Candlestick';
+                break;
+            case 'heikin-ashi':
+            default: // Default to Heikin-Ashi
+                const haData = calculateHeikinAshi(chartData);
+                displayData = haData.map(d => ({
+                    x: d.x, o: d.o, h: d.h, l: d.l, c: d.c,
+                    originalOpen: d.originalOpen, originalHigh: d.originalHigh,
+                    originalLow: d.originalLow, originalClose: d.originalClose, volume: d.volume // Ensure volume is passed for HA too
+                }));
+                datasetLabel += ' - Heikin-Ashi';
+                break;
+        }
+        
+        if (!displayData || displayData.length === 0) {
+            console.error('No display data available for price chart');
+            return null;
+        }
+        console.log(`Chart data prepared for ${priceChartStyle}, ${displayData.length} points available`);
         
         // Define colors based on theme
         const isDarkTheme = !document.body.classList.contains('light-theme');
@@ -66,45 +98,49 @@ function createPriceChart(symbol, timeframe, data) {
         const upColorFill = 'rgba(38, 166, 154, 0.85)'; // More opaque fill for up candles
         const downColorFill = 'rgba(239, 83, 80, 0.85)'; // More opaque fill for down candles
         
-        console.log('Creating Heikin-Ashi chart for', symbol);
+        console.log(`Creating ${priceChartStyle} chart for ${symbol}`);
         
-        // Prepare the datasets array starting with candlestick data
-        const datasets = [
-            {
-                label: `${symbol} (${timeframe}) - Heikin-Ashi`,
-                data: haData.map(d => ({
-                    x: d.x,
-                    o: d.o,
-                    h: d.h,
-                    l: d.l,
-                    c: d.c,
-                    // Store original values for tooltip
-                    originalOpen: d.originalOpen,
-                    originalHigh: d.originalHigh,
-                    originalLow: d.originalLow,
-                    originalClose: d.originalClose
-                })),
-                color: {
+        // Prepare the datasets array
+        const datasets = [];
+        
+        if (priceChartStyle === 'line') {
+            datasets.push({
+                label: datasetLabel,
+                data: displayData,
+                borderColor: upColor, // Or a neutral color like accent-color
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHoverRadius: 5,
+                fill: false,
+                tension: 0.1
+            });
+        } else { // Candlestick or Heikin-Ashi
+            datasets.push({
+                label: datasetLabel,
+                data: displayData, // This now contains original O,H,L,C for tooltip if not HA
+                color: { // For chartjs-chart-financial
                     up: upColor,
                     down: downColor,
                     unchanged: '#888888',
                 },
                 borderColor: function(context) {
-                    return context.dataset.data[context.dataIndex].o > context.dataset.data[context.dataIndex].c ? 
-                        downColor : upColor;
+                    // For candlestick/HA, color border based on open vs close
+                    const currentData = context.dataset.data[context.dataIndex];
+                    return currentData.o > currentData.c ? downColor : upColor;
                 },
-                borderWidth: 2.5, // Thicker border for better visibility
-                wickWidth: 2, // Thicker wicks
+                borderWidth: 2.5,
+                wickWidth: 2,
                 barPercentage: 0.92,
-                barThickness: 14, // Wider candles for better visibility
+                barThickness: 14,
                 backgroundColor: function(context) {
-                    return context.dataset.data[context.dataIndex].o > context.dataset.data[context.dataIndex].c ? 
-                        downColorFill : upColorFill;
+                    // For candlestick/HA, color fill based on open vs close
+                    const currentData = context.dataset.data[context.dataIndex];
+                    return currentData.o > currentData.c ? downColorFill : upColorFill;
                 },
-                pointHoverRadius: 5,  // Makes hover area larger
+                pointHoverRadius: 5,
                 pointHoverBorderWidth: 2
-            }
-        ];
+            });
+        }
         
         // Add indicator datasets if they exist
         // Add SMA indicators
@@ -165,9 +201,9 @@ function createPriceChart(symbol, timeframe, data) {
             });
         }
         
-        // Create Heikin-Ashi candlestick chart with indicators
+        // Create the price chart
         priceChart = new Chart(ctx, {
-            type: 'candlestick',
+            type: chartType, // This will be 'line' or 'candlestick'
             data: { datasets },
             options: {
                 responsive: true,
@@ -269,6 +305,23 @@ function createPriceChart(symbol, timeframe, data) {
                     annotation: { 
                         annotations: {} 
                     },
+                    crosshair: {
+                        line: {
+                            color: isDarkTheme ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)', // Crosshair line color
+                            width: 1 // Crosshair line width
+                        },
+                        sync: {
+                            enabled: true, // Enable synchronization for all charts
+                            group: 1, // Group name for synchronization
+                            suppressTooltips: false // Show tooltips when synchronized
+                        },
+                        zoom: {
+                            enabled: false // Disable the plugin's own zoom, use chartjs-plugin-zoom
+                        },
+                        snap: {
+                            enabled: true // Snap to the nearest data point
+                        }
+                    },
                     zoom: {
                         zoom: {
                             wheel: {
@@ -298,49 +351,72 @@ function createPriceChart(symbol, timeframe, data) {
         });
 
         // Add annotation for the last closing price if data is available
-        if (haData.length > 0) {
-            const lastCandle = haData[haData.length - 1];
-            const lastOriginalClosePrice = lastCandle.originalClose;
-            const precision = getPrecision(lastOriginalClosePrice);
-            const lastCandleColor = lastCandle.originalClose >= lastCandle.originalOpen ? upColor : downColor;
-
-            priceChart.options.plugins.annotation.annotations.lastPriceLine = {
-                type: 'line',
-                yMin: lastOriginalClosePrice,
-                yMax: lastOriginalClosePrice,
-                borderColor: lastCandleColor,
-                borderWidth: 1.5,
-                borderDash: [6, 6],
-                label: {
-                    enabled: true,
-                    content: lastOriginalClosePrice.toFixed(precision),
-                    position: 'end',
-                    backgroundColor: lastCandleColor,
-                    color: '#ffffff', 
-                    font: {
-                        weight: 'bold',
-                        size: 10
-                    },
-                    padding: {
-                        x: 6,
-                        y: 3
-                    },
-                    yAdjust: 0,
-                    xAdjust: 0 
+        if (displayData.length > 0) {
+            const lastDataPoint = displayData[displayData.length - 1];
+            // Use originalClose if available (from candlestick/HA), otherwise use 'y' (from line)
+            const lastClosePrice = lastDataPoint.originalClose !== undefined ? lastDataPoint.originalClose : lastDataPoint.y;
+            
+            if (lastClosePrice !== undefined) {
+                const precision = getPrecision(lastClosePrice);
+                let lastCandleColor = upColor; // Default for line or if open is not available
+                if (lastDataPoint.originalOpen !== undefined && lastDataPoint.originalClose !== undefined) {
+                    lastCandleColor = lastDataPoint.originalClose >= lastDataPoint.originalOpen ? upColor : downColor;
+                } else if (priceChartStyle === 'line' && displayData.length > 1) {
+                    const prevDataPoint = displayData[displayData.length - 2];
+                    lastCandleColor = lastClosePrice >= prevDataPoint.y ? upColor : downColor;
                 }
-            };
-            priceChart.update(); 
+
+
+                priceChart.options.plugins.annotation.annotations.lastPriceLine = {
+                    type: 'line',
+                    yMin: lastClosePrice,
+                    yMax: lastClosePrice,
+                    borderColor: lastCandleColor,
+                    borderWidth: 1.5,
+                    borderDash: [6, 6],
+                    label: {
+                        enabled: true,
+                        content: lastClosePrice.toFixed(precision),
+                        position: 'end',
+                        backgroundColor: lastCandleColor,
+                        color: '#ffffff',
+                        font: {
+                            weight: 'bold',
+                            size: 10
+                        },
+                        padding: {
+                            x: 6,
+                            y: 3
+                        },
+                        yAdjust: 0,
+                        xAdjust: 0
+                    }
+                };
+                priceChart.update();
+            }
         }
         
-        console.log('Candlestick chart created successfully');
+        console.log(`${priceChartStyle} chart created successfully`);
         
         try {
-            createColoredVolumeChart(symbol, timeframe, haData);
+            // Volume chart should use data that has o, c, and volume properties.
+            // If current style is 'line', chartData (original OHLCV) is suitable.
+            // If 'candlestick' or 'heikin-ashi', displayData has these.
+            const volumeChartDataSource = (priceChartStyle === 'line') ? chartData : displayData;
+            if (volumeChartDataSource && volumeChartDataSource.every(d => d.hasOwnProperty('volume') && d.hasOwnProperty('o') && d.hasOwnProperty('c'))) {
+                 createColoredVolumeChart(symbol, timeframe, volumeChartDataSource, priceChartStyle);
+            } else {
+                console.warn('Volume data source is not suitable for colored volume chart. Skipping volume chart.');
+                 if (volumeChart) { // Destroy if exists and cannot be updated
+                    volumeChart.destroy();
+                    volumeChart = null;
+                    const volumeWrapper = document.querySelector('.volume-chart-wrapper');
+                    if (volumeWrapper) volumeWrapper.remove();
+                }
+            }
         } catch (volumeError) {
             console.error('Error creating volume chart:', volumeError);
         }
-        
-        console.log('Heikin-Ashi chart created successfully');
         
         return priceChart;
     } catch (error) {
@@ -351,31 +427,70 @@ function createPriceChart(symbol, timeframe, data) {
 
 /**
  * Create a volume bar chart with colors matching candlesticks
+ * @param {string} symbol - Cryptocurrency symbol
+ * @param {string} timeframe - Timeframe
+ * @param {Array} ohlcOrHaData - Data array (either raw OHLC or Heikin-Ashi), must contain x, o, c, volume
+ * @param {string} priceChartStyle - The style of the main price chart
  */
-function createColoredVolumeChart(symbol, timeframe, chartData) {
+function createColoredVolumeChart(symbol, timeframe, ohlcOrHaData, priceChartStyle) {
     const volumeCanvas = document.getElementById('volume-chart');
-    if (!volumeCanvas) {
+    let volumeWrapper = document.querySelector('.volume-chart-wrapper');
+
+    if (!ohlcOrHaData || ohlcOrHaData.length === 0 || !ohlcOrHaData[0].hasOwnProperty('volume')) {
+        console.warn('Volume data not available or not in correct format. Hiding volume chart.');
+        if (volumeChart) {
+            volumeChart.destroy();
+            volumeChart = null;
+        }
+        if (volumeWrapper) {
+            volumeWrapper.style.display = 'none';
+        }
+        return;
+    }
+
+    if (!volumeCanvas && !volumeWrapper) {
         const priceChartWrapper = document.getElementById('price-chart-wrapper');
+        volumeWrapper = document.createElement('div');
         const volumeWrapper = document.createElement('div');
         volumeWrapper.className = 'volume-chart-wrapper';
-        volumeWrapper.style.height = '20%';
+        volumeWrapper.style.height = '20%'; // Adjust as needed
         volumeWrapper.style.marginTop = '10px';
-        const canvas = document.createElement('canvas');
-        canvas.id = 'volume-chart';
-        volumeWrapper.appendChild(canvas);
+        const newCanvas = document.createElement('canvas');
+        newCanvas.id = 'volume-chart';
+        volumeWrapper.appendChild(newCanvas);
         if (priceChartWrapper && priceChartWrapper.parentNode) {
             priceChartWrapper.parentNode.insertBefore(volumeWrapper, priceChartWrapper.nextSibling);
         }
+    } else if (volumeWrapper) {
+        volumeWrapper.style.display = 'block'; // Ensure it's visible if previously hidden
     }
-    const volumeCtx = document.getElementById('volume-chart').getContext('2d');
+    
+    const currentVolumeCanvas = document.getElementById('volume-chart');
+    if (!currentVolumeCanvas) {
+        console.error("Volume canvas element not found after attempting to create it.");
+        return;
+    }
+    const volumeCtx = currentVolumeCanvas.getContext('2d');
+
     if (volumeChart) {
         volumeChart.destroy();
     }
+
     const upColorVol = 'rgba(38, 166, 154, 0.6)';
     const downColorVol = 'rgba(239, 83, 80, 0.6)';
-    const timestamps = chartData.map(d => d.x);
-    const volumes = chartData.map(d => d.volume);
-    const colors = chartData.map(d => d.c >= d.o ? upColorVol : downColorVol);
+
+    const timestamps = ohlcOrHaData.map(d => d.x);
+    const volumes = ohlcOrHaData.map(d => d.volume);
+    
+    // Determine colors based on close vs open. For Heikin-Ashi, d.c and d.o are HA values.
+    // For regular candlestick, d.c and d.o are original close/open.
+    // For line chart, ohlcOrHaData is original OHLC, so d.c and d.o are original.
+    const colors = ohlcOrHaData.map(d => {
+        // If priceChartStyle is 'heikin-ashi', d.o and d.c are Heikin-Ashi o/c.
+        // Otherwise, they are original o/c.
+        return d.c >= d.o ? upColorVol : downColorVol;
+    });
+    
     volumeChart = new Chart(volumeCtx, {
         type: 'bar',
         data: {
@@ -432,7 +547,7 @@ function createColoredVolumeChart(symbol, timeframe, chartData) {
  */
 function extractIndicators(data) {
     if (!data || !Array.isArray(data) || data.length === 0) return {};
-    
+
     // Initialize indicators object
     const indicators = {
         sma: {
@@ -449,57 +564,80 @@ function extractIndicators(data) {
             upper: { data: [], color: 'rgba(128, 128, 128, 0.5)', label: 'BB Upper' },
             middle: { data: [], color: 'rgba(128, 128, 128, 1)', label: 'BB Middle' },
             lower: { data: [], color: 'rgba(128, 128, 128, 0.5)', label: 'BB Lower' }
+        },
+        rsi: { data: [], color: '#8E24AA', label: 'RSI (14)' },
+        macd: {
+            macd: { data: [], color: '#2962FF', label: 'MACD Line' },
+            signal: { data: [], color: '#FF6D00', label: 'Signal Line' },
+            hist: { data: [], colorPositive: 'rgba(38, 166, 154, 0.6)', colorNegative: 'rgba(239, 83, 80, 0.6)', label: 'MACD Histogram' }
+        },
+        stoch: {
+            k: { data: [], color: '#2962FF', label: '%K' },
+            d: { data: [], color: '#FF6D00', label: '%D' }
+        },
+        adx: { data: [], color: '#673AB7', label: 'ADX (14)' },
+        atr: { data: [], color: '#9C27B0', label: 'ATR (14)' },
+        obv: { data: [], color: '#3F51B5', label: 'OBV' },
+        vwap: { data: [], color: '#009688', label: 'VWAP' },
+        volume: {
+            volume: { data: [], colorPositive: 'rgba(38, 166, 154, 0.6)', colorNegative: 'rgba(239, 83, 80, 0.6)', label: 'Volume' },
+            sma20: { data: [], color: '#FF9800', label: 'Volume SMA (20)' }
         }
     };
-    
+
     try {
         // Extract timestamps as Date objects for Chart.js
         const timestamps = data.map(item => new Date(item.timestamp));
-        
+
         // Extract indicators if they exist in the data
         data.forEach((item, index) => {
             const timestamp = timestamps[index];
-            
+
             // Extract Simple Moving Averages
-            if (item.sma9 !== undefined) {
-                indicators.sma.sma9.data.push({ x: timestamp, y: parseFloat(item.sma9) });
-            }
-            if (item.sma20 !== undefined) {
-                indicators.sma.sma20.data.push({ x: timestamp, y: parseFloat(item.sma20) });
-            }
-            if (item.sma50 !== undefined) {
-                indicators.sma.sma50.data.push({ x: timestamp, y: parseFloat(item.sma50) });
-            }
-            
+            if (item.sma9 !== undefined) indicators.sma.sma9.data.push({ x: timestamp, y: parseFloat(item.sma9) });
+            if (item.sma20 !== undefined) indicators.sma.sma20.data.push({ x: timestamp, y: parseFloat(item.sma20) });
+            if (item.sma50 !== undefined) indicators.sma.sma50.data.push({ x: timestamp, y: parseFloat(item.sma50) });
+
             // Extract Exponential Moving Averages
-            if (item.ema20 !== undefined) {
-                indicators.ema.ema20.data.push({ x: timestamp, y: parseFloat(item.ema20) });
-            }
-            if (item.ema50 !== undefined) {
-                indicators.ema.ema50.data.push({ x: timestamp, y: parseFloat(item.ema50) });
-            }
-            if (item.ema200 !== undefined) {
-                indicators.ema.ema200.data.push({ x: timestamp, y: parseFloat(item.ema200) });
-            }
-            
+            if (item.ema20 !== undefined) indicators.ema.ema20.data.push({ x: timestamp, y: parseFloat(item.ema20) });
+            if (item.ema50 !== undefined) indicators.ema.ema50.data.push({ x: timestamp, y: parseFloat(item.ema50) });
+            if (item.ema200 !== undefined) indicators.ema.ema200.data.push({ x: timestamp, y: parseFloat(item.ema200) });
+
             // Extract Bollinger Bands
-            if (item.bbands_upper !== undefined) {
-                indicators.bbands.upper.data.push({ x: timestamp, y: parseFloat(item.bbands_upper) });
-            }
-            if (item.bbands_middle !== undefined) {
-                indicators.bbands.middle.data.push({ x: timestamp, y: parseFloat(item.bbands_middle) });
-            }
-            if (item.bbands_lower !== undefined) {
-                indicators.bbands.lower.data.push({ x: timestamp, y: parseFloat(item.bbands_lower) });
-            }
+            if (item.bbands_upper !== undefined) indicators.bbands.upper.data.push({ x: timestamp, y: parseFloat(item.bbands_upper) });
+            if (item.bbands_middle !== undefined) indicators.bbands.middle.data.push({ x: timestamp, y: parseFloat(item.bbands_middle) });
+            if (item.bbands_lower !== undefined) indicators.bbands.lower.data.push({ x: timestamp, y: parseFloat(item.bbands_lower) });
+
+            // Extract RSI
+            if (item.rsi14 !== undefined) indicators.rsi.data.push({ x: timestamp, y: parseFloat(item.rsi14) });
+            
+            // Extract MACD
+            if (item.macd !== undefined) indicators.macd.macd.data.push({ x: timestamp, y: parseFloat(item.macd) });
+            if (item.macd_signal !== undefined) indicators.macd.signal.data.push({ x: timestamp, y: parseFloat(item.macd_signal) });
+            if (item.macd_hist !== undefined) indicators.macd.hist.data.push({ x: timestamp, y: parseFloat(item.macd_hist) });
+
+            // Extract Stochastic
+            if (item.stoch_k !== undefined) indicators.stoch.k.data.push({ x: timestamp, y: parseFloat(item.stoch_k) });
+            if (item.stoch_d !== undefined) indicators.stoch.d.data.push({ x: timestamp, y: parseFloat(item.stoch_d) });
+
+            // Extract ADX
+            if (item.adx14 !== undefined) indicators.adx.data.push({ x: timestamp, y: parseFloat(item.adx14) });
+            
+            // Extract ATR
+            if (item.atr14 !== undefined) indicators.atr.data.push({ x: timestamp, y: parseFloat(item.atr14) });
+
+            // Extract OBV
+            if (item.obv !== undefined) indicators.obv.data.push({ x: timestamp, y: parseFloat(item.obv) });
+            
+            // Extract VWAP
+            if (item.vwap !== undefined) indicators.vwap.data.push({ x: timestamp, y: parseFloat(item.vwap) });
+
+            // Extract Volume and Volume SMA
+            if (item.volume !== undefined) indicators.volume.volume.data.push({ x: timestamp, y: parseFloat(item.volume), close: parseFloat(item.close) }); // Add close for coloring
+            if (item.volume_sma20 !== undefined) indicators.volume.sma20.data.push({ x: timestamp, y: parseFloat(item.volume_sma20) });
         });
-        
-        console.log('Extracted indicator data:', {
-            sma9Points: indicators.sma.sma9.data.length,
-            sma20Points: indicators.sma.sma20.data.length,
-            ema20Points: indicators.ema.ema20.data.length
-        });
-        
+
+        console.log('Extracted indicator data:', indicators);
         return indicators;
     } catch (error) {
         console.error('Error extracting indicators:', error);
@@ -632,6 +770,23 @@ function createVolatilityChart(symbol, timeframe, data) {
                         }
                     },
                     legend: { display: false },
+                    crosshair: {
+                        line: {
+                            color: isDarkTheme ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
+                            width: 1
+                        },
+                        sync: {
+                            enabled: true,
+                            group: 1,
+                            suppressTooltips: false
+                        },
+                        zoom: {
+                            enabled: false
+                        },
+                        snap: {
+                            enabled: true
+                        }
+                    },
                     zoom: {
                         zoom: {
                             wheel: {
@@ -801,23 +956,561 @@ function resizeVolatilityChart() {
     }
 }
 
+/**
+ * Create a technical indicator chart
+ * @param {string} symbol - Cryptocurrency symbol
+ * @param {string} timeframe - Timeframe
+ * @param {Array} data - Technical indicator data
+ * @param {string} indicatorType - Type of indicator to display
+ */
+function createIndicatorChart(symbol, timeframe, data, indicatorType) {
+    try {
+        console.log(`Creating ${indicatorType} chart for ${symbol}`);
+        
+        // Get the canvas element
+        const ctx = document.getElementById('indicator-chart').getContext('2d');
+        
+        // If chart already exists, destroy it
+        if (indicatorChart) {
+            indicatorChart.destroy();
+        }
+        
+        if (!data || data.length === 0) {
+            console.error('No indicator data available');
+            return null;
+        }
+        
+        const sortedData = [...data].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        const labels = sortedData.map(item => new Date(item.timestamp));
+        
+        // Define colors based on theme
+        const isDarkTheme = !document.body.classList.contains('light-theme');
+        const gridColor = isDarkTheme ? '#2a2e39' : '#e5e7eb';
+        const textColor = isDarkTheme ? '#9ca3af' : '#666666';
+        
+        // Configure datasets and options based on the indicator type
+        let chartConfig = {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: []
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: timeframe === '5m' ? 'minute' : 'hour',
+                            displayFormats: { minute: 'HH:mm', hour: 'DD HH:mm' }
+                        },
+                        grid: { color: gridColor },
+                        ticks: { color: textColor },
+                        position: 'bottom',
+                        display: true
+                    },
+                    y: {
+                        position: 'right',
+                        grid: { color: gridColor },
+                        ticks: { color: textColor }
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    legend: { display: true },
+                    crosshair: {
+                        line: {
+                            color: isDarkTheme ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
+                            width: 1
+                        },
+                        sync: {
+                            enabled: true,
+                            group: 1, // Sync with price and volatility charts
+                            suppressTooltips: false
+                        },
+                        zoom: {
+                            enabled: false // Use chartjs-plugin-zoom
+                        },
+                        snap: {
+                            enabled: true
+                        }
+                    },
+                    zoom: {
+                        zoom: {
+                            wheel: {
+                                enabled: true,
+                                modifierKey: 'ctrl'
+                            },
+                            pinch: { enabled: true },
+                            mode: 'xy'
+                        },
+                        pan: {
+                            enabled: true,
+                            mode: 'xy',
+                            modifierKey: 'shift'
+                        },
+                        limits: {
+                            x: {min: 'original', max: 'original'},
+                            y: {min: 'original', max: 'original'}
+                        }
+                    }
+                },
+                animation: false
+            }
+        };
+        
+        // Configure chart based on indicator type
+        switch (indicatorType) {
+            case 'rsi':
+                // RSI (Relative Strength Index)
+                chartConfig.data.datasets = [{
+                    label: 'RSI (14)',
+                    data: sortedData.map(item => ({ x: new Date(item.timestamp), y: item.rsi14 })),
+                    borderColor: '#8E24AA',
+                    backgroundColor: 'rgba(142, 36, 170, 0.1)',
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    pointHoverRadius: 5,
+                    fill: true
+                }];
+                
+                // Add horizontal lines for overbought/oversold levels
+                chartConfig.options.scales.y.min = 0;
+                chartConfig.options.scales.y.max = 100;
+                
+                // Add annotations for overbought/oversold levels
+                chartConfig.options.plugins.annotation = {
+                    annotations: {
+                        overbought: {
+                            type: 'line',
+                            yMin: 70,
+                            yMax: 70,
+                            borderColor: 'rgba(255, 99, 132, 0.8)',
+                            borderWidth: 1,
+                            borderDash: [5, 5],
+                            label: {
+                                content: 'Ipercomprato (70)',
+                                position: 'start',
+                                backgroundColor: 'rgba(255, 99, 132, 0.8)',
+                                color: '#ffffff',
+                                font: { weight: 'bold', size: 11 }
+                            }
+                        },
+                        oversold: {
+                            type: 'line',
+                            yMin: 30,
+                            yMax: 30,
+                            borderColor: 'rgba(54, 162, 235, 0.8)',
+                            borderWidth: 1,
+                            borderDash: [5, 5],
+                            label: {
+                                content: 'Ipervenduto (30)',
+                                position: 'start',
+                                backgroundColor: 'rgba(54, 162, 235, 0.8)',
+                                color: '#ffffff',
+                                font: { weight: 'bold', size: 11 }
+                            }
+                        }
+                    }
+                };
+                
+                // Custom tooltip format for RSI
+                chartConfig.options.plugins.tooltip.callbacks = {
+                    label: function(context) {
+                        let value = context.raw.y;
+                        if (value === null || value === undefined) return '';
+                        return `RSI: ${value.toFixed(2)}`;
+                    }
+                };
+                break;
+                
+            case 'macd':
+                // MACD (Moving Average Convergence Divergence)
+                chartConfig = {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'MACD Histogram',
+                                data: sortedData.map(item => ({ 
+                                    x: new Date(item.timestamp), 
+                                    y: item.macd_hist
+                                })),
+                                backgroundColor: function(context) {
+                                    const value = context.dataset.data[context.dataIndex].y;
+                                    return value >= 0 ? 'rgba(38, 166, 154, 0.6)' : 'rgba(239, 83, 80, 0.6)';
+                                },
+                                order: 1
+                            },
+                            {
+                                label: 'MACD Line',
+                                data: sortedData.map(item => ({ 
+                                    x: new Date(item.timestamp), 
+                                    y: item.macd 
+                                })),
+                                borderColor: '#2962FF',
+                                borderWidth: 2,
+                                pointRadius: 0,
+                                pointHoverRadius: 5,
+                                type: 'line',
+                                order: 0
+                            },
+                            {
+                                label: 'Signal Line',
+                                data: sortedData.map(item => ({ 
+                                    x: new Date(item.timestamp), 
+                                    y: item.macd_signal
+                                })),
+                                borderColor: '#FF6D00',
+                                borderWidth: 2,
+                                pointRadius: 0,
+                                pointHoverRadius: 5,
+                                type: 'line',
+                                order: 0
+                            }
+                        ]
+                    },
+                    options: chartConfig.options
+                };
+                break;
+                
+            case 'stoch':
+                // Stochastic Oscillator
+                chartConfig.data.datasets = [
+                    {
+                        label: '%K',
+                        data: sortedData.map(item => ({ 
+                            x: new Date(item.timestamp), 
+                            y: item.stoch_k 
+                        })),
+                        borderColor: '#2962FF',
+                        backgroundColor: 'rgba(41, 98, 255, 0.1)',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        pointHoverRadius: 5,
+                        fill: false
+                    },
+                    {
+                        label: '%D',
+                        data: sortedData.map(item => ({ 
+                            x: new Date(item.timestamp), 
+                            y: item.stoch_d 
+                        })),
+                        borderColor: '#FF6D00',
+                        backgroundColor: 'rgba(255, 109, 0, 0.1)',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        pointHoverRadius: 5,
+                        fill: false
+                    }
+                ];
+                
+                // Add horizontal threshold lines
+                chartConfig.options.scales.y.min = 0;
+                chartConfig.options.scales.y.max = 100;
+                
+                // Add annotations
+                chartConfig.options.plugins.annotation = {
+                    annotations: {
+                        overbought: {
+                            type: 'line',
+                            yMin: 80,
+                            yMax: 80,
+                            borderColor: 'rgba(255, 99, 132, 0.8)',
+                            borderWidth: 1,
+                            borderDash: [5, 5],
+                            label: {
+                                content: 'Ipercomprato (80)',
+                                position: 'start',
+                                backgroundColor: 'rgba(255, 99, 132, 0.8)',
+                                color: '#ffffff',
+                                font: { weight: 'bold', size: 11 }
+                            }
+                        },
+                        oversold: {
+                            type: 'line',
+                            yMin: 20,
+                            yMax: 20,
+                            borderColor: 'rgba(54, 162, 235, 0.8)',
+                            borderWidth: 1,
+                            borderDash: [5, 5],
+                            label: {
+                                content: 'Ipervenduto (20)',
+                                position: 'start',
+                                backgroundColor: 'rgba(54, 162, 235, 0.8)',
+                                color: '#ffffff',
+                                font: { weight: 'bold', size: 11 }
+                            }
+                        }
+                    }
+                };
+                break;
+                
+            case 'bbands':
+                // Bollinger Bands
+                chartConfig.data.datasets = [
+                    {
+                        label: 'Upper Band',
+                        data: sortedData.map(item => ({ 
+                            x: new Date(item.timestamp), 
+                            y: item.bbands_upper
+                        })),
+                        borderColor: 'rgba(255, 99, 132, 0.8)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        pointHoverRadius: 5,
+                        fill: false
+                    },
+                    {
+                        label: 'Middle Band',
+                        data: sortedData.map(item => ({ 
+                            x: new Date(item.timestamp), 
+                            y: item.bbands_middle
+                        })),
+                        borderColor: 'rgba(54, 162, 235, 0.8)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        pointHoverRadius: 5,
+                        fill: false
+                    },
+                    {
+                        label: 'Lower Band',
+                        data: sortedData.map(item => ({ 
+                            x: new Date(item.timestamp), 
+                            y: item.bbands_lower
+                        })),
+                        borderColor: 'rgba(75, 192, 192, 0.8)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        pointHoverRadius: 5,
+                        fill: false
+                    }
+                ];
+                break;
+                
+            case 'adx':
+                // ADX (Average Directional Index)
+                chartConfig.data.datasets = [{
+                    label: 'ADX (14)',
+                    data: sortedData.map(item => ({ 
+                        x: new Date(item.timestamp), 
+                        y: item.adx14 
+                    })),
+                    borderColor: '#673AB7',
+                    backgroundColor: 'rgba(103, 58, 183, 0.1)',
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    pointHoverRadius: 5,
+                    fill: true
+                }];
+                
+                // ADX threshold lines
+                chartConfig.options.plugins.annotation = {
+                    annotations: {
+                        strongTrend: {
+                            type: 'line',
+                            yMin: 25,
+                            yMax: 25,
+                            borderColor: 'rgba(54, 162, 235, 0.8)',
+                            borderWidth: 1,
+                            borderDash: [5, 5],
+                            label: {
+                                content: 'Trend forte (25)',
+                                position: 'start',
+                                backgroundColor: 'rgba(54, 162, 235, 0.8)',
+                                color: '#ffffff',
+                                font: { weight: 'bold', size: 11 }
+                            }
+                        }
+                    }
+                };
+                break;
+                
+            case 'atr':
+                // ATR (Average True Range)
+                chartConfig.data.datasets = [{
+                    label: 'ATR (14)',
+                    data: sortedData.map(item => ({ 
+                        x: new Date(item.timestamp), 
+                        y: item.atr14
+                    })),
+                    borderColor: '#9C27B0',
+                    backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    pointHoverRadius: 5,
+                    fill: true
+                }];
+                break;
+                
+            case 'obv':
+                // OBV (On-Balance Volume)
+                chartConfig.data.datasets = [{
+                    label: 'OBV',
+                    data: sortedData.map(item => ({ 
+                        x: new Date(item.timestamp), 
+                        y: item.obv
+                    })),
+                    borderColor: '#3F51B5',
+                    backgroundColor: 'rgba(63, 81, 181, 0.1)',
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    pointHoverRadius: 5,
+                    fill: true
+                }];
+                break;
+                
+            case 'vwap':
+                // VWAP (Volume-Weighted Average Price)
+                chartConfig.data.datasets = [{
+                    label: 'VWAP',
+                    data: sortedData.map(item => ({ 
+                        x: new Date(item.timestamp), 
+                        y: item.vwap
+                    })).filter(item => item.y !== null && item.y !== undefined),
+                    borderColor: '#009688',
+                    backgroundColor: 'rgba(0, 150, 136, 0.1)',
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    pointHoverRadius: 5,
+                    fill: true
+                }];
+                break;
+                
+            case 'volume':
+                // Volume chart
+                chartConfig = {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Volume',
+                            data: sortedData.map(item => ({ 
+                                x: new Date(item.timestamp), 
+                                y: item.volume
+                            })),
+                            backgroundColor: sortedData.map((item, i) => {
+                                if (i > 0 && sortedData[i].close > sortedData[i-1].close) {
+                                    return 'rgba(38, 166, 154, 0.6)'; // Up volume
+                                } else {
+                                    return 'rgba(239, 83, 80, 0.6)'; // Down volume
+                                }
+                            }),
+                            borderColor: 'transparent',
+                            borderWidth: 0
+                        }, {
+                            label: 'Volume SMA (20)',
+                            data: sortedData.map(item => ({ 
+                                x: new Date(item.timestamp), 
+                                y: item.volume_sma20
+                            })),
+                            borderColor: '#FF9800',
+                            borderWidth: 1.5,
+                            pointRadius: 0,
+                            pointHoverRadius: 0,
+                            type: 'line',
+                            fill: false
+                        }]
+                    },
+                    options: {
+                        ...chartConfig.options,
+                        scales: {
+                            ...chartConfig.options.scales,
+                            y: {
+                                ...chartConfig.options.scales.y,
+                                ticks: {
+                                    callback: function(value) {
+                                        if (value === 0) return '';
+                                        if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M';
+                                        if (value >= 1000) return (value / 1000).toFixed(1) + 'K';
+                                        return value;
+                                    }
+                                }
+                            }
+                        },
+                        plugins: {
+                            ...chartConfig.options.plugins,
+                            tooltip: {
+                                ...chartConfig.options.plugins.tooltip,
+                                callbacks: {
+                                    label: function(context) {
+                                        const volume = context.raw.y;
+                                        if (context.dataset.label === "Volume") {
+                                            if (volume >= 1000000) return `Volume: ${(volume / 1000000).toFixed(2)}M`;
+                                            if (volume >= 1000) return `Volume: ${(volume / 1000).toFixed(2)}K`;
+                                            return `Volume: ${volume.toFixed(2)}`;
+                                        } else {
+                                            return `${context.dataset.label}: ${volume}`;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                };
+                break;
+                
+            default:
+                console.warn(`No configuration for indicator type: ${indicatorType}`);
+                return null;
+        }
+        
+        // Create the chart
+        indicatorChart = new Chart(ctx, chartConfig);
+        window.indicatorChart = indicatorChart;
+        
+        console.log(`${indicatorType} chart created successfully`);
+        return indicatorChart;
+    } catch (error) {
+        console.error(`Error creating ${indicatorType} chart:`, error);
+        return null;
+    }
+}
+
+/**
+ * Resize and redraw the indicator chart to fix display issues
+ */
+function resizeIndicatorChart() {
+    if (indicatorChart) {
+        setTimeout(() => {
+            indicatorChart.resize();
+        }, 10);
+    }
+}
+
 // Make functions available globally
 window.ChartHandler = {
     createPriceChart,
     createVolatilityChart,
+    createIndicatorChart,
     renderPatternVisualization,
     resizePriceChart,
-    resizeVolatilityChart
+    resizeVolatilityChart,
+    resizeIndicatorChart
 };
 
 // Expose chart instances globally for reset zoom functionality
 window.priceChart = priceChart;
 window.volumeChart = volumeChart;
 window.volatilityChart = volatilityChart;
+window.indicatorChart = indicatorChart;
 
 // Update window chart references when creating new charts
 const originalCreatePriceChart = createPriceChart;
 const originalCreateVolatilityChart = createVolatilityChart;
+const originalCreateIndicatorChart = createIndicatorChart;
 
 window.ChartHandler.createPriceChart = function(...args) {
     const chart = originalCreatePriceChart.apply(this, args);
@@ -828,6 +1521,12 @@ window.ChartHandler.createPriceChart = function(...args) {
 window.ChartHandler.createVolatilityChart = function(...args) {
     const chart = originalCreateVolatilityChart.apply(this, args);
     window.volatilityChart = volatilityChart;
+    return chart;
+};
+
+window.ChartHandler.createIndicatorChart = function(...args) {
+    const chart = originalCreateIndicatorChart.apply(this, args);
+    window.indicatorChart = indicatorChart;
     return chart;
 };
 
@@ -893,21 +1592,38 @@ const externalTooltipHandler = (context) => {
         const dataPoint = tooltip.dataPoints && tooltip.dataPoints.length > 0 ? tooltip.dataPoints[0].raw : null;
 
         if (dataPoint) {
-            const precision = getPrecision(dataPoint.c);
+            const isLineChart = chart.config.type === 'line';
+            const precision = getPrecision(isLineChart ? dataPoint.y : dataPoint.c);
             const upColor = '#26a69a'; 
             const downColor = '#ef5350';
-            const haColorStyle = dataPoint.c >= dataPoint.o ? `color: ${upColor}; font-weight: bold;` : `color: ${downColor}; font-weight: bold;`;
-            const originalColorStyle = dataPoint.originalClose >= dataPoint.originalOpen ? `color: ${upColor}; font-weight: bold;` : `color: ${downColor}; font-weight: bold;`;
-
-            let tooltipRows = [
-                `<div style="font-weight:bold;font-size:16px;margin-bottom:5px;">📊 Values:</div>`,
-                `<div style="${originalColorStyle}">Open: ${dataPoint.originalOpen ? dataPoint.originalOpen.toFixed(precision) : 'N/A'}</div>`,
-                `<div style="${originalColorStyle}">High: ${dataPoint.originalHigh ? dataPoint.originalHigh.toFixed(precision) : 'N/A'}</div>`,
-                `<div style="${originalColorStyle}">Low: ${dataPoint.originalLow ? dataPoint.originalLow.toFixed(precision) : 'N/A'}</div>`,
-                `<div style="${originalColorStyle}">Close: ${dataPoint.originalClose ? dataPoint.originalClose.toFixed(precision) : 'N/A'}</div>`
-            ];
             
-            // Add indicator values if available
+            let tooltipRows = [];
+
+            if (isLineChart) {
+                tooltipRows.push(`<div style="font-weight:bold;font-size:16px;margin-bottom:5px;">Value:</div>`);
+                tooltipRows.push(`<div>Close: ${dataPoint.y ? dataPoint.y.toFixed(precision) : 'N/A'}</div>`);
+            } else {
+                 // Candlestick or Heikin-Ashi
+                const ohlcStyle = dataPoint.originalClose >= dataPoint.originalOpen ? `color: ${upColor}; font-weight: bold;` : `color: ${downColor}; font-weight: bold;`;
+                tooltipRows = [
+                    `<div style="font-weight:bold;font-size:16px;margin-bottom:5px;">📊 Values (Original):</div>`,
+                    `<div style="${ohlcStyle}">Open: ${dataPoint.originalOpen ? dataPoint.originalOpen.toFixed(precision) : 'N/A'}</div>`,
+                    `<div style="${ohlcStyle}">High: ${dataPoint.originalHigh ? dataPoint.originalHigh.toFixed(precision) : 'N/A'}</div>`,
+                    `<div style="${ohlcStyle}">Low: ${dataPoint.originalLow ? dataPoint.originalLow.toFixed(precision) : 'N/A'}</div>`,
+                    `<div style="${ohlcStyle}">Close: ${dataPoint.originalClose ? dataPoint.originalClose.toFixed(precision) : 'N/A'}</div>`
+                ];
+                // If Heikin-Ashi, show HA values too
+                if (dataPoint.o !== dataPoint.originalOpen || dataPoint.c !== dataPoint.originalClose) {
+                    const haStyle = dataPoint.c >= dataPoint.o ? `color: ${upColor}; font-weight: bold;` : `color: ${downColor}; font-weight: bold;`;
+                    tooltipRows.push(`<div style="font-weight:bold;font-size:14px;margin-top:8px;margin-bottom:3px;">Heikin-Ashi:</div>`);
+                    tooltipRows.push(`<div style="${haStyle}">HA Open: ${dataPoint.o ? dataPoint.o.toFixed(precision) : 'N/A'}</div>`);
+                    tooltipRows.push(`<div style="${haStyle}">HA High: ${dataPoint.h ? dataPoint.h.toFixed(precision) : 'N/A'}</div>`);
+                    tooltipRows.push(`<div style="${haStyle}">HA Low: ${dataPoint.l ? dataPoint.l.toFixed(precision) : 'N/A'}</div>`);
+                    tooltipRows.push(`<div style="${haStyle}">HA Close: ${dataPoint.c ? dataPoint.c.toFixed(precision) : 'N/A'}</div>`);
+                }
+            }
+            
+            // Add indicator values if available (common for all chart types)
             if (tooltip.dataPoints && tooltip.dataPoints.length > 1) {
                 // Start indicators section
                 tooltipRows.push(`<div style="font-weight:bold;font-size:16px;margin-top:10px;margin-bottom:5px;">📈 Indicators:</div>`);

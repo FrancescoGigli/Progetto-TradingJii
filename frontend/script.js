@@ -17,8 +17,11 @@ const state = {
     currentData: {
         ohlcv: null,
         volatility: null,
-        patterns: null
+        patterns: null,
+        indicators: null
     },
+    currentIndicator: 'none',
+    currentPriceChartStyle: 'heikin-ashi', // Added for price chart style
     theme: 'dark' // Store the current theme
 };
 
@@ -33,15 +36,18 @@ const elements = {
     // Charts and visualization
     priceChartWrapper: document.getElementById('price-chart-wrapper'),
     volatilityChartWrapper: document.getElementById('volatility-chart-wrapper'),
+    indicatorChartWrapper: document.getElementById('indicator-chart-wrapper'),
     patternInfo: document.getElementById('pattern-info'),
     patternVisualization: document.getElementById('pattern-visualization'),
     
     // Controls
     timeframeSelect: document.getElementById('timeframe-select'),
+    indicatorSelect: document.getElementById('indicator-select'),
     themeToggle: document.getElementById('theme-toggle'),
     refreshButton: document.getElementById('refresh-btn'),
     searchInput: document.getElementById('search-crypto'),
     chartToggles: document.querySelectorAll('.chart-toggle'),
+    priceStyleToggles: document.querySelectorAll('.price-style-toggle'), // Added for price style toggles
     
     // Dynamic elements
     cryptoName: document.getElementById('crypto-name'),
@@ -60,7 +66,8 @@ const API = {
     symbols: `${API_BASE_URL}/symbols`,
     ohlcv: (symbol, timeframe) => `${API_BASE_URL}/ohlcv/${symbol}/${timeframe}`,
     volatility: (symbol, timeframe) => `${API_BASE_URL}/volatility/${symbol}/${timeframe}`,
-    patterns: (symbol, timeframe) => `${API_BASE_URL}/patterns/${symbol}/${timeframe}`
+    patterns: (symbol, timeframe) => `${API_BASE_URL}/patterns/${symbol}/${timeframe}`,
+    indicators: (symbol, timeframe) => `${API_BASE_URL}/indicators/${symbol}/${timeframe}`
 };
 
 /**
@@ -85,6 +92,9 @@ function setupEventListeners() {
     // Timeframe selection
     elements.timeframeSelect.addEventListener('change', handleTimeframeChange);
     
+    // Indicator selection
+    elements.indicatorSelect.addEventListener('change', handleIndicatorChange);
+    
     // Theme toggle
     if (elements.themeToggle) {
         elements.themeToggle.addEventListener('click', handleThemeToggle);
@@ -96,12 +106,17 @@ function setupEventListeners() {
     // Refresh button
     elements.refreshButton.addEventListener('click', handleRefresh);
     
-        // Chart toggle buttons
-        elements.chartToggles.forEach(toggle => {
-            toggle.addEventListener('click', handleChartToggle);
-        });
-        
-        // Create chart controls container with zoom controls
+    // Chart toggle buttons
+    elements.chartToggles.forEach(toggle => {
+        toggle.addEventListener('click', handleChartToggle);
+    });
+
+    // Price style toggle buttons
+    elements.priceStyleToggles.forEach(toggle => {
+        toggle.addEventListener('click', handlePriceStyleToggle);
+    });
+    
+    // Create chart controls container with zoom controls
         const chartControls = document.querySelector('.chart-controls');
         const chartControlsRight = document.createElement('div');
         chartControlsRight.className = 'chart-controls-right';
@@ -301,6 +316,28 @@ async function fetchPatternData(symbol, timeframe) {
 }
 
 /**
+ * Fetch technical indicator data for a specific cryptocurrency and timeframe
+ * @param {string} symbol - Cryptocurrency symbol
+ * @param {string} timeframe - Timeframe ('5m', '15m')
+ */
+async function fetchIndicatorData(symbol, timeframe) {
+    try {
+        const response = await fetch(API.indicators(symbol, timeframe));
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            state.currentData.indicators = result.data;
+            return result.data;
+        } else {
+            throw new Error(result.message || 'Failed to fetch indicator data');
+        }
+    } catch (error) {
+        showError(`Error fetching indicator data: ${error.message}`);
+        return null;
+    }
+}
+
+/**
  * Load all data for a specific cryptocurrency and timeframe
  * @param {string} symbol - Cryptocurrency symbol
  * @param {string} timeframe - Timeframe ('5m', '15m')
@@ -326,25 +363,30 @@ async function loadCryptoData(symbol, timeframe) {
     elements.priceChartWrapper.setAttribute('style', 'display: block !important; height: 100% !important;');
     document.querySelector('.content').setAttribute('style', 'display: block !important; width: 100% !important;');
     document.querySelector('.app-container').setAttribute('style', 'display: flex !important; width: 100% !important;');
+
+    // Hide indicator chart initially
+    elements.indicatorChartWrapper.classList.add('hidden');
     
     try {
         // Fetch all data in parallel
-        const [ohlcvData, volatilityData, patternData] = await Promise.all([
+        const [ohlcvData, volatilityData, patternData, indicatorData] = await Promise.all([
             fetchOHLCVData(symbol, timeframe),
             fetchVolatilityData(symbol, timeframe),
-            fetchPatternData(symbol, timeframe)
+            fetchPatternData(symbol, timeframe),
+            fetchIndicatorData(symbol, timeframe)
         ]);
         
         console.log('Data fetched successfully:', {
             ohlcvLength: ohlcvData?.length || 0,
             volatilityLength: volatilityData?.length || 0,
-            patternCount: patternData ? Object.keys(patternData).length : 0
+            patternCount: patternData ? Object.keys(patternData).length : 0,
+            indicatorDataLength: indicatorData?.length || 0
         });
         
         // Create charts and visualizations
         if (ohlcvData && ohlcvData.length > 0) {
-            console.log('Creating price chart');
-            ChartHandler.createPriceChart(symbol, timeframe, ohlcvData);
+            console.log('Creating price chart with style:', state.currentPriceChartStyle);
+            ChartHandler.createPriceChart(symbol, timeframe, ohlcvData, state.currentPriceChartStyle);
         }
         
         if (volatilityData && volatilityData.length > 0) {
@@ -356,6 +398,12 @@ async function loadCryptoData(symbol, timeframe) {
             console.log('Rendering pattern visualization');
             ChartHandler.renderPatternVisualization(symbol, timeframe, patternData);
         }
+
+    // If we have a selected indicator that's not "none", display it
+    // Ensure indicatorData is passed correctly
+    if (state.currentIndicator !== 'none' && state.currentData.indicators && state.currentData.indicators.length > 0) {
+        showIndicatorChart(symbol, timeframe, state.currentData.indicators, state.currentIndicator);
+    }
         
         // Update state
         state.currentSymbol = symbol;
@@ -367,6 +415,71 @@ async function loadCryptoData(symbol, timeframe) {
     } catch (error) {
         console.error('Error loading data:', error);
         showError(`Error loading cryptocurrency data: ${error.message}`);
+    }
+}
+
+/**
+ * Handle indicator selection change
+ * @param {Event} event - The change event
+ */
+function handleIndicatorChange(event) {
+    const indicatorType = event.target.value;
+    state.currentIndicator = indicatorType;
+    
+    // If we don't have a selected symbol, nothing to do
+    if (!state.currentSymbol) return;
+    
+    if (indicatorType === 'none') {
+        // Hide indicator chart
+        elements.indicatorChartWrapper.classList.add('hidden');
+        
+        // Remove the 'with-indicator' class from price and volatility charts
+        elements.priceChartWrapper.classList.remove('with-indicator');
+        elements.volatilityChartWrapper.classList.remove('with-indicator');
+        
+        // Force redraw the active chart
+        if (!elements.priceChartWrapper.classList.contains('hidden')) {
+            ChartHandler.resizePriceChart();
+        } else if (!elements.volatilityChartWrapper.classList.contains('hidden')) {
+            ChartHandler.resizeVolatilityChart();
+        }
+        
+        return;
+    }
+    
+    showIndicatorChart(state.currentSymbol, state.currentTimeframe, state.currentData.indicators, indicatorType);
+}
+
+/**
+ * Show the indicator chart based on selected indicator type
+ * @param {string} symbol - Cryptocurrency symbol
+ * @param {string} timeframe - Timeframe
+ * @param {Array} data - Indicator data
+ * @param {string} indicatorType - Type of indicator to display
+ */
+function showIndicatorChart(symbol, timeframe, data, indicatorType) {
+    if (!data || data.length === 0) {
+        console.warn('No indicator data available');
+        return;
+    }
+    
+    console.log(`Showing ${indicatorType} chart for ${symbol}`);
+    
+    // Show indicator chart
+    elements.indicatorChartWrapper.classList.remove('hidden');
+    
+    // Add the 'with-indicator' class to price and volatility charts
+    elements.priceChartWrapper.classList.add('with-indicator');
+    elements.volatilityChartWrapper.classList.add('with-indicator');
+    
+    // Create the indicator chart
+    ChartHandler.createIndicatorChart(symbol, timeframe, data, indicatorType);
+    
+    // Force redraw the active chart
+    if (!elements.priceChartWrapper.classList.contains('hidden')) {
+        ChartHandler.resizePriceChart();
+    } else if (!elements.volatilityChartWrapper.classList.contains('hidden')) {
+        ChartHandler.resizeVolatilityChart();
     }
 }
 
@@ -567,3 +680,41 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize the app
     initApp();
 });
+
+/**
+ * Handle price style toggle button clicks
+ * @param {Event} event - The click event
+ */
+function handlePriceStyleToggle(event) {
+    const target = event.target;
+    const newStyle = target.dataset.style;
+
+    if (newStyle === state.currentPriceChartStyle) {
+        return; // No change
+    }
+
+    state.currentPriceChartStyle = newStyle;
+
+    // Update active state of toggle buttons
+    elements.priceStyleToggles.forEach(toggle => {
+        toggle.classList.remove('active');
+    });
+    target.classList.add('active');
+
+    // If a cryptocurrency is selected, reload its price chart with the new style
+    if (state.currentSymbol && state.currentData.ohlcv) {
+        // Ensure the main price chart is visible before attempting to recreate
+        if (!elements.priceChartWrapper.classList.contains('hidden')) {
+            console.log(`Recreating price chart with style: ${newStyle}`);
+            ChartHandler.createPriceChart(
+                state.currentSymbol,
+                state.currentTimeframe,
+                state.currentData.ohlcv, // Use existing ohlcv data
+                newStyle
+            );
+        } else {
+            // If price chart is not active, just store the style. It will be applied when price chart is shown.
+            console.log(`Price chart style set to ${newStyle}, will apply when price chart is active.`);
+        }
+    }
+}

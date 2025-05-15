@@ -79,6 +79,28 @@ def get_volatility_data(symbol, timeframe, limit=100):
     data = df.to_dict(orient='records')
     return data
 
+def get_indicator_data(symbol, timeframe, limit=100):
+    """Get technical indicator data for a specific cryptocurrency and timeframe"""
+    conn = get_db_connection()
+    
+    query = f"""
+    SELECT timestamp, sma9, sma20, sma50, ema20, ema50, ema200, 
+           rsi14, stoch_k, stoch_d, macd, macd_signal, macd_hist,
+           atr14, bbands_upper, bbands_middle, bbands_lower,
+           obv, vwap, volume_sma20, adx14
+    FROM ta_{timeframe}
+    WHERE symbol = ?
+    ORDER BY timestamp DESC
+    LIMIT ?
+    """
+    
+    df = pd.read_sql_query(query, conn, params=(symbol, limit))
+    conn.close()
+    
+    # Convert to list of dictionaries for JSON serialization
+    data = df.to_dict(orient='records')
+    return data
+
 def get_pattern_data(symbol, timeframe, window_size=7):
     """Get pattern data for a specific cryptocurrency and timeframe"""
     try:
@@ -132,6 +154,16 @@ def api_patterns(symbol, timeframe):
     try:
         window_size = request.args.get('window_size', default=7, type=int)
         data = get_pattern_data(symbol, timeframe, window_size)
+        return jsonify({"status": "success", "data": data})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/indicators/<path:symbol>/<timeframe>')
+def api_indicators(symbol, timeframe):
+    """API endpoint to get technical indicator data for a specific cryptocurrency and timeframe"""
+    try:
+        limit = request.args.get('limit', default=100, type=int)
+        data = get_indicator_data(symbol, timeframe, limit)
         return jsonify({"status": "success", "data": data})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
