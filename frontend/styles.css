@@ -652,7 +652,63 @@ body:not(.light-theme) .theme-toggle .fa-sun {
     margin-bottom: 1rem;
 }
 
+/* Pattern Tabs */
+.pattern-tabs {
+    display: flex;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.pattern-tab-button {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    padding: 0.6rem 1rem;
+    margin-right: 0.5rem;
+    color: var(--text-primary);
+    cursor: pointer;
+    position: relative;
+    bottom: -1px;
+    transition: background-color 0.2s ease;
+}
+
+.pattern-tab-button.active {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+}
+
+.pattern-tab-button:hover:not(.active) {
+    background: var(--hover-color);
+}
+
+.pattern-tab-content {
+    display: none;
+    margin-top: 1rem;
+}
+
+.pattern-tab-content.active {
+    display: block;
+}
+
+.pattern-tab-description {
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+    font-style: italic;
+    font-size: 0.9rem;
+}
+
+.pattern-display-container {
+    width: 100%;
+}
+
 #pattern-visualization {
+    display: block; /* Changed from grid to block as each tab content has its own layout */
+}
+
+.pattern-tab-content {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     grid-gap: 1rem;
@@ -664,7 +720,14 @@ body:not(.light-theme) .theme-toggle .fa-sun {
     border-radius: 6px;
     padding: 1rem;
     text-align: center;
-    transition: background-color 0.3s ease, border-color 0.3s ease;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.pattern-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    border-color: var(--accent-color);
 }
 
 .pattern-visualization {

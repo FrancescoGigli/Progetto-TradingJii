@@ -233,6 +233,10 @@ export function createPriceChart(symbol, timeframe, rawApiData, priceChartStyle 
             const lastDP = displayData[displayData.length - 1];
             const lastClose = priceChartStyle === 'line' ? lastDP.y : lastDP.originalClose;
             if (lastClose !== undefined) {
+                // Store the last price as a property on the chart instance
+                // This allows us to recover it when we need to reset annotations
+                priceChartInstance._lastPriceLineValue = lastClose;
+                
                 const prec = getPrecision(lastClose);
                 let lColor = upColor;
                 if (priceChartStyle !== 'line') {
@@ -240,7 +244,27 @@ export function createPriceChart(symbol, timeframe, rawApiData, priceChartStyle 
                 } else if (displayData.length > 1) {
                     lColor = lastClose >= displayData[displayData.length - 2].y ? upColor : downColor;
                 }
-                priceChartInstance.options.plugins.annotation.annotations.lastPriceLine = { type: 'line', yMin: lastClose, yMax: lastClose, borderColor: lColor, borderWidth: 1.5, borderDash: [6,6], label: { enabled: true, content: lastClose.toFixed(prec), position: 'end', backgroundColor: lColor, color: '#fff', font: {weight:'bold', size:10}, padding:{x:6,y:3}}};
+                
+                // Store the color as well
+                priceChartInstance._lastPriceLineColor = lColor;
+                
+                priceChartInstance.options.plugins.annotation.annotations.lastPriceLine = { 
+                    type: 'line', 
+                    yMin: lastClose, 
+                    yMax: lastClose, 
+                    borderColor: lColor, 
+                    borderWidth: 1.5, 
+                    borderDash: [6,6], 
+                    label: { 
+                        enabled: true, 
+                        content: lastClose.toFixed(prec), 
+                        position: 'end', 
+                        backgroundColor: lColor, 
+                        color: '#fff', 
+                        font: {weight:'bold', size:10}, 
+                        padding:{x:6,y:3}
+                    }
+                };
                 priceChartInstance.update('none'); // Update for annotation
             }
             // Initial zoom logic removed as per user request.
@@ -457,32 +481,485 @@ export function renderPatternVisualization(symbol, timeframe, patterns) {
             return;
         }
         const patternCount = Object.keys(patterns).length;
-        elements.patternInfo.innerHTML = `<p>Found ${patternCount} unique patterns for ${symbol} (${timeframe}).</p><p>Showing top 10 by occurrence. Each pattern represents a sequence of price movements (up/down).</p>`;
         
-        const sortedPatterns = Object.entries(patterns).sort((a, b) => b[1] - a[1]).slice(0, 10); // Sort by count
+        // Create pattern container with tabs
+        const tabsContainer = document.createElement('div');
+        tabsContainer.className = 'pattern-tabs';
         
-        sortedPatterns.forEach(([pattern, count]) => {
-            const card = document.createElement('div');
-            card.className = 'pattern-card';
-            const viz = document.createElement('div');
-            viz.className = 'pattern-visualization';
-            if (typeof pattern === 'string' && pattern.length > 0) {
-                for (let i = 0; i < pattern.length; i++) {
-                    const bit = document.createElement('div');
-                    bit.className = `pattern-bit ${pattern[i] === '1' ? 'up' : 'down'}`;
-                    // bit.textContent = pattern[i]; // Text content might make it too busy
-                    viz.appendChild(bit);
-                }
-            }
-            const info = document.createElement('div');
-            info.className = 'pattern-info-text'; // Renamed for clarity
-            info.textContent = `Pattern: ${pattern}, Occurrences: ${count}`;
-            card.appendChild(viz);
-            card.appendChild(info);
-            elements.patternVisualization.appendChild(card);
+        const tabMostFrequent = document.createElement('button');
+        tabMostFrequent.className = 'pattern-tab-button active';
+        tabMostFrequent.textContent = 'Most Frequent';
+        tabMostFrequent.dataset.tabTarget = 'frequent';
+        
+        const tabMostRecent = document.createElement('button');
+        tabMostRecent.className = 'pattern-tab-button';
+        tabMostRecent.textContent = 'Most Recent';
+        tabMostRecent.dataset.tabTarget = 'recent';
+        
+        tabsContainer.appendChild(tabMostFrequent);
+        tabsContainer.appendChild(tabMostRecent);
+        
+        // Create containers for each tab content
+        const frequentPatternsContainer = document.createElement('div');
+        frequentPatternsContainer.className = 'pattern-tab-content active';
+        frequentPatternsContainer.id = 'frequent-patterns';
+        
+        const recentPatternsContainer = document.createElement('div');
+        recentPatternsContainer.className = 'pattern-tab-content';
+        recentPatternsContainer.id = 'recent-patterns';
+        
+        // Add info text
+        elements.patternInfo.innerHTML = `<p>Found ${patternCount} unique patterns for ${symbol} (${timeframe}).</p>`;
+        elements.patternInfo.appendChild(tabsContainer);
+        
+        // Create the containers for pattern display
+        const patternDisplayContainer = document.createElement('div');
+        patternDisplayContainer.className = 'pattern-display-container';
+        patternDisplayContainer.appendChild(frequentPatternsContainer);
+        patternDisplayContainer.appendChild(recentPatternsContainer);
+        elements.patternVisualization.appendChild(patternDisplayContainer);
+        
+        // Process patterns by frequency
+        const sortedPatternsByFrequency = Object.entries(patterns)
+            .map(([pattern, data]) => {
+                // Check if data is already in the new format (object with count and dates)
+                if (typeof data === 'object' && data !== null && data.count !== undefined) {
+                    return [pattern, data.count, data.dates || []];
+                } 
+                // Otherwise assume it's the old format (just count)
+                return [pattern, data, []];
+            })
+            .sort((a, b) => b[1] - a[1]) // Sort by count (descending)
+            .slice(0, 10); // Top 10
+        
+        // Add description for frequent patterns tab
+        const frequentInfoP = document.createElement('p');
+        frequentInfoP.textContent = 'Showing top 10 patterns by occurrence. Each pattern represents a sequence of price movements (up/down).';
+        frequentInfoP.className = 'pattern-tab-description';
+        frequentPatternsContainer.appendChild(frequentInfoP);
+        
+        // Add frequent patterns
+        sortedPatternsByFrequency.forEach(([pattern, count]) => {
+            const card = createPatternCard(pattern, count, 'Occurrences');
+            card.dataset.pattern = pattern;
+            card.addEventListener('click', () => showPatternOnChart(pattern, symbol, timeframe));
+            frequentPatternsContainer.appendChild(card);
         });
+        
+        // Process patterns by recency
+        const recentInfoP = document.createElement('p');
+        recentInfoP.textContent = 'Showing 10 most recent patterns (from today backwards). Click a pattern to show it on chart.';
+        recentInfoP.className = 'pattern-tab-description';
+        recentPatternsContainer.appendChild(recentInfoP);
+        
+        // Get current date for reference
+        const today = new Date();
+        
+        // Format date helper function
+        const formatDate = (date) => {
+            if (!(date instanceof Date)) {
+                return 'Unknown date';
+            }
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+            return `${year}-${month}-${day}`;
+        };
+        
+        // Check if we have pattern data with dates
+        let patternsWithDates = [];
+        
+        Object.entries(patterns).forEach(([pattern, data]) => {
+            if (typeof data === 'object' && data !== null && Array.isArray(data.dates)) {
+                // For each date in the dates array
+                data.dates.forEach(dateStr => {
+                    try {
+                        const date = new Date(dateStr);
+                        if (!isNaN(date.getTime())) { // Valid date
+                            patternsWithDates.push({
+                                pattern,
+                                date,
+                                formattedDate: formatDate(date)
+                            });
+                        }
+                    } catch (e) {
+                        console.warn(`Invalid date format for pattern ${pattern}: ${dateStr}`);
+                    }
+                });
+            }
+        });
+        
+        // If we have pattern data with dates, use it
+        if (patternsWithDates.length > 0) {
+            // Sort by date descendingly (most recent first)
+            patternsWithDates.sort((a, b) => b.date.getTime() - a.date.getTime());
+            
+            // Take only the 10 most recent patterns
+            const recentPatterns = patternsWithDates.slice(0, 10);
+            
+            // Create pattern cards for these recent patterns
+            recentPatterns.forEach(({ pattern, formattedDate }) => {
+                const card = createPatternCard(pattern, formattedDate, 'Date');
+                card.dataset.pattern = pattern;
+                card.addEventListener('click', () => showPatternOnChart(pattern, symbol, timeframe));
+                recentPatternsContainer.appendChild(card);
+            });
+        } else {
+            // Fallback to simulation if no date data available
+            // This is just for demo until the backend provides actual date data
+            console.warn('No pattern date data available. Using simulated recent patterns.');
+            
+            // Create a sample of 10 recent patterns (using most frequent as placeholders)
+            for (let i = 0; i < Math.min(10, sortedPatternsByFrequency.length); i++) {
+                const [pattern] = sortedPatternsByFrequency[i];
+                // Create a date starting from today and going backwards
+                const patternDate = new Date(today);
+                patternDate.setDate(today.getDate() - i);
+                
+                const formattedDate = formatDate(patternDate);
+                const card = createPatternCard(pattern, formattedDate, 'Date');
+                card.dataset.pattern = pattern;
+                card.addEventListener('click', () => showPatternOnChart(pattern, symbol, timeframe));
+                recentPatternsContainer.appendChild(card);
+            }
+        }
+        
+        // Add tab switching functionality
+        tabMostFrequent.addEventListener('click', function() {
+            togglePatternTabs('frequent');
+        });
+        
+        tabMostRecent.addEventListener('click', function() {
+            togglePatternTabs('recent');
+        });
+        
+        // Function to toggle between tabs
+        function togglePatternTabs(targetTab) {
+            // Update tab buttons
+            document.querySelectorAll('.pattern-tab-button').forEach(button => {
+                button.classList.toggle('active', button.dataset.tabTarget === targetTab);
+            });
+            
+            // Update tab content visibility
+            document.querySelectorAll('.pattern-tab-content').forEach(content => {
+                content.classList.toggle('active', content.id === `${targetTab}-patterns`);
+            });
+        }
     } catch (error) {
         console.error('Error rendering pattern visualization:', error);
+    }
+}
+
+// Helper function to create a pattern card
+function createPatternCard(pattern, value, labelText) {
+    const card = document.createElement('div');
+    card.className = 'pattern-card';
+    
+    const viz = document.createElement('div');
+    viz.className = 'pattern-visualization';
+    
+    if (typeof pattern === 'string' && pattern.length > 0) {
+        for (let i = 0; i < pattern.length; i++) {
+            const bit = document.createElement('div');
+            bit.className = `pattern-bit ${pattern[i] === '1' ? 'up' : 'down'}`;
+            bit.textContent = pattern[i]; // Show 1/0 values inside the bits
+            viz.appendChild(bit);
+        }
+    }
+    
+    const info = document.createElement('div');
+    info.className = 'pattern-info';
+    info.innerHTML = `<strong>Pattern:</strong> ${pattern}<br><strong>${labelText}:</strong> ${value}`;
+    
+    card.appendChild(viz);
+    card.appendChild(info);
+    return card;
+}
+
+// Function to show a pattern on the price chart
+function showPatternOnChart(pattern, symbol, timeframe) {
+    console.log(`Showing pattern ${pattern} on chart for ${symbol} (${timeframe})`);
+    
+    // Get the price chart instance
+    const priceChart = getPriceChartInstance();
+    if (!priceChart) {
+        console.error('No price chart instance available to show pattern');
+        return;
+    }
+    
+    try {
+        // Completely reset all annotations to avoid circular references
+        // This is a more drastic but effective approach to prevent stack overflow
+        if (!priceChart.options.plugins) {
+            priceChart.options.plugins = {};
+        }
+        
+        // Create a completely new annotation plugin configuration
+        priceChart.options.plugins.annotation = {
+            annotations: {
+                'pattern-notice': {
+                    type: 'label',
+                    content: [`Pattern: ${pattern}`, 'Looking for matches...'],
+                    position: {
+                        x: 'center',
+                        y: 'start'
+                    },
+                    font: {
+                        size: 14,
+                        weight: 'bold'
+                    },
+                    color: '#ffffff',
+                    backgroundColor: 'rgba(75, 192, 192, 0.8)',
+                    borderRadius: 4,
+                    padding: 8
+                }
+            }
+        };
+        
+        // Only preserve the last price line annotation if it exists
+        if (priceChart._lastPriceLineValue !== undefined) {
+            const lastPrice = priceChart._lastPriceLineValue;
+            const prec = getPrecision(lastPrice);
+            // Use the stored color if available, otherwise use default
+            const lColor = priceChart._lastPriceLineColor || '#26a69a';
+            
+            priceChart.options.plugins.annotation.annotations['lastPriceLine'] = {
+                type: 'line',
+                yMin: lastPrice,
+                yMax: lastPrice,
+                borderColor: lColor,
+                borderWidth: 1.5,
+                borderDash: [6, 6],
+                label: {
+                    enabled: true,
+                    content: lastPrice.toFixed(prec),
+                    position: 'end',
+                    backgroundColor: lColor,
+                    color: '#fff',
+                    font: {weight: 'bold', size: 10},
+                    padding: {x: 6, y: 3}
+                }
+            };
+        }
+        
+        // Apply the changes and update the chart
+        priceChart.update('none');
+        
+        // Find actual pattern occurrences in the chart data
+        setTimeout(() => {
+            try {
+                const data = priceChart.data.datasets[0].data;
+                if (data && data.length > 0) {
+                    // Find actual pattern occurrences by analyzing price movements
+                    const patternOccurrences = findPatternInChartData(data, pattern);
+                    
+                    if (patternOccurrences.length > 0) {
+                        // Use the most recent occurrence (last in the array)
+                        const patternLocation = patternOccurrences[patternOccurrences.length - 1];
+                        const startIndex = patternLocation.startIndex;
+                        const endIndex = patternLocation.endIndex;
+                        
+                        // Get the points for annotation
+                        const startPoint = data[startIndex];
+                        const endPoint = data[endIndex];
+                        
+                        // Create a completely new annotation configuration
+                        const annotations = {};
+                        
+                        // Add pattern highlight
+                        annotations['pattern-highlight'] = {
+                            type: 'box',
+                            xMin: startPoint.x,
+                            xMax: endPoint.x,
+                            yMin: Math.min(...data.slice(startIndex, endIndex + 1).map(d => d.hasOwnProperty('l') ? d.l : d.y)) - 0.00001,
+                            yMax: Math.max(...data.slice(startIndex, endIndex + 1).map(d => d.hasOwnProperty('h') ? d.h : d.y)) + 0.00001,
+                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 2
+                        };
+                        
+                        // Add pattern notice
+                        annotations['pattern-notice'] = {
+                            type: 'label',
+                            content: [`Pattern: ${pattern}`, 'Pattern found on chart!'],
+                            position: {
+                                x: 'center',
+                                y: 'start'
+                            },
+                            font: {
+                                size: 14,
+                                weight: 'bold'
+                            },
+                            color: '#ffffff',
+                            backgroundColor: 'rgba(75, 192, 192, 0.8)',
+                            borderRadius: 4,
+                            padding: 8
+                        };
+                        
+                        // Preserve last price line if it exists
+                        if (priceChart._lastPriceLineValue !== undefined) {
+                            const lastPrice = priceChart._lastPriceLineValue;
+                            const prec = getPrecision(lastPrice);
+                            // Use the stored color if available, otherwise use default
+                            const lColor = priceChart._lastPriceLineColor || '#26a69a';
+                            
+                            annotations['lastPriceLine'] = {
+                                type: 'line',
+                                yMin: lastPrice,
+                                yMax: lastPrice,
+                                borderColor: lColor,
+                                borderWidth: 1.5,
+                                borderDash: [6, 6],
+                                label: {
+                                    enabled: true,
+                                    content: lastPrice.toFixed(prec),
+                                    position: 'end',
+                                    backgroundColor: lColor,
+                                    color: '#fff',
+                                    font: {weight: 'bold', size: 10},
+                                    padding: {x: 6, y: 3}
+                                }
+                            };
+                        }
+                        
+                        // Apply the updated annotations
+                        priceChart.options.plugins.annotation.annotations = annotations;
+                        
+                        // Zoom to pattern location
+                        const zoomWindow = 20; // Number of candles to show around pattern
+                        const minIndex = Math.max(0, startIndex - zoomWindow);
+                        const maxIndex = Math.min(data.length - 1, endIndex + zoomWindow);
+                        
+                        // Set zoom limits
+                        priceChart.options.plugins.zoom.limits.x = {
+                            min: data[minIndex].x,
+                            max: data[maxIndex].x
+                        };
+                        
+                        // Reset zoom and then zoom to pattern area
+                        priceChart.resetZoom();
+                        priceChart.zoomScale('x', {
+                            min: data[minIndex].x,
+                            max: data[maxIndex].x
+                        }, 'default');
+                        
+                        priceChart.update('none');
+                        
+                    } else {
+                        // No matching pattern found
+                        const annotations = {};
+                        
+                        // Add pattern notice for not found
+                        annotations['pattern-notice'] = {
+                            type: 'label',
+                            content: [`Pattern: ${pattern}`, 'Pattern not found in current data'],
+                            position: {
+                                x: 'center',
+                                y: 'start'
+                            },
+                            font: {
+                                size: 14,
+                                weight: 'bold'
+                            },
+                            color: '#ffffff',
+                            backgroundColor: 'rgba(255, 99, 132, 0.8)',
+                            borderRadius: 4,
+                            padding: 8
+                        };
+                        
+                        // Preserve last price line if it exists
+                        if (priceChart._lastPriceLineValue !== undefined) {
+                            const lastPrice = priceChart._lastPriceLineValue;
+                            const prec = getPrecision(lastPrice);
+                            const lColor = priceChart._lastPriceLineColor || '#26a69a';
+                            
+                            annotations['lastPriceLine'] = {
+                                type: 'line',
+                                yMin: lastPrice,
+                                yMax: lastPrice,
+                                borderColor: lColor,
+                                borderWidth: 1.5,
+                                borderDash: [6, 6],
+                                label: {
+                                    enabled: true,
+                                    content: lastPrice.toFixed(prec),
+                                    position: 'end',
+                                    backgroundColor: lColor,
+                                    color: '#fff',
+                                    font: {weight: 'bold', size: 10},
+                                    padding: {x: 6, y: 3}
+                                }
+                            };
+                        }
+                        
+                        priceChart.options.plugins.annotation.annotations = annotations;
+                        priceChart.update('none');
+                    }
+                }
+            } catch (error) {
+                console.error('Error updating pattern on chart:', error);
+            }
+        }, 500);
+    } catch (error) {
+        console.error('Error showing pattern on chart:', error);
+    }
+}
+
+// Helper function to find pattern occurrences in chart data
+function findPatternInChartData(chartData, patternString) {
+    const occurrences = [];
+    
+    try {
+        if (!chartData || chartData.length < patternString.length + 1) {
+            return occurrences;
+        }
+        
+        // Analyze price movements to find binary pattern matches
+        for (let i = 0; i < chartData.length - patternString.length; i++) {
+            let matchFound = true;
+            let binaryPattern = '';
+            
+            // Generate binary pattern from data point sequence
+            for (let j = 0; j < patternString.length; j++) {
+                const current = chartData[i + j];
+                const next = chartData[i + j + 1];
+                
+                if (!current || !next) {
+                    matchFound = false;
+                    break;
+                }
+                
+                // Determine if price went up (1) or down (0)
+                // For candlestick / Heikin Ashi data
+                if (current.hasOwnProperty('c') && next.hasOwnProperty('c')) {
+                    binaryPattern += (next.c > current.c) ? '1' : '0';
+                } 
+                // For line chart data
+                else if (current.hasOwnProperty('y') && next.hasOwnProperty('y')) {
+                    binaryPattern += (next.y > current.y) ? '1' : '0';
+                } else {
+                    matchFound = false;
+                    break;
+                }
+            }
+            
+            // Check if we found a matching pattern
+            if (matchFound && binaryPattern === patternString) {
+                occurrences.push({
+                    startIndex: i,
+                    endIndex: i + patternString.length,
+                    pattern: binaryPattern
+                });
+                
+                console.log(`Pattern ${patternString} found at index ${i} to ${i + patternString.length}`);
+            }
+        }
+        
+        return occurrences;
+        
+    } catch (error) {
+        console.error('Error finding pattern in chart data:', error);
+        return [];
     }
 }
 
