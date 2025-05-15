@@ -79,4 +79,13 @@ def parse_arguments():
         help='Force regeneration of ML datasets even if they already exist'
     )
     
+    # Technical Analysis options
+    ta_group = parser.add_argument_group('Analisi Tecnica')
+    
+    ta_group.add_argument(
+        '--no-ta',
+        action='store_true',
+        help='Disabilita il calcolo degli indicatori di analisi tecnica'
+    )
+    
     return parser.parse_args()

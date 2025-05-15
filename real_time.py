@@ -26,6 +26,7 @@ from modules.core.exchange import create_exchange, fetch_markets, get_top_symbol
 from modules.core.download_orchestrator import process_timeframe
 from modules.data.db_manager import init_data_tables
 from modules.data.volatility_processor import process_and_save_volatility
+from modules.data.indicator_processor import init_indicator_tables, compute_and_save_indicators
 from modules.data.dataset_generator import export_supervised_training_data, generate_ml_dataset
 
 # Inizializza colorama
@@ -91,6 +92,10 @@ async def real_time_update(args):
                         # Calcola e salva la volatilità per ogni simbolo
                         process_and_save_volatility(sym, timeframe)
                         
+                        # Calcola e salva gli indicatori tecnici se non è specificato --no-ta
+                        if not args.no_ta:
+                            await compute_and_save_indicators(sym, timeframe)
+                        
                         # Genera dataset per il machine learning supervisionato
                         logging.info(f"Generazione dataset di ML per {Fore.YELLOW}{sym}{Style.RESET_ALL} ({timeframe})")
                         try:
@@ -136,6 +141,10 @@ async def real_time_update(args):
                 for sym in top_symbols:
                     # Calcola e salva la volatilità per ogni simbolo
                     process_and_save_volatility(sym, tf)
+                    
+                    # Calcola e salva gli indicatori tecnici se non è specificato --no-ta
+                    if not args.no_ta:
+                        await compute_and_save_indicators(sym, tf)
                     
                     # Genera dataset per il machine learning supervisionato
                     logging.info(f"Generazione dataset di ML per {Fore.YELLOW}{sym}{Style.RESET_ALL} ({tf})")
@@ -287,6 +296,13 @@ async def main():
     # Inizializza il database
     init_data_tables(args.timeframes)
     logging.info(f"Database inizializzato con tabelle per i timeframe: {Fore.GREEN}{', '.join(args.timeframes)}{Style.RESET_ALL}")
+    
+    # Inizializza le tabelle degli indicatori tecnici se non è specificato --no-ta
+    if not args.no_ta:
+        init_indicator_tables(args.timeframes)
+        logging.info(f"Tabelle degli indicatori tecnici inizializzate per i timeframe: {Fore.GREEN}{', '.join(args.timeframes)}{Style.RESET_ALL}")
+    else:
+        logging.info(f"{Fore.YELLOW}Calcolo degli indicatori tecnici disabilitato (--no-ta){Style.RESET_ALL}")
 
     # Loop infinito per aggiornamenti continui
     iteration = 1

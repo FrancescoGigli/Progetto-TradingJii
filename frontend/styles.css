@@ -316,7 +316,7 @@ body:not(.light-theme) .theme-toggle .fa-sun {
     border: 1px solid var(--border-color);
     padding: 1rem;
     margin-bottom: 2rem;
-    height: 65vh;
+    height: 75vh; /* Increased from 65vh to 75vh for larger chart display */
     position: relative;
     overflow: hidden;
     transition: background-color 0.3s ease, border-color 0.3s ease;
@@ -351,6 +351,93 @@ body:not(.light-theme) .theme-toggle .fa-sun {
 .chart-toggle.active {
     background-color: var(--accent-color);
     color: white;
+}
+
+/* Reset zoom button */
+.reset-zoom-btn {
+    padding: 0.5rem 1rem;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 10px;
+}
+
+.reset-zoom-btn:hover {
+    background-color: var(--hover-color);
+    transform: translateY(-1px);
+}
+
+.chart-controls {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+    align-items: center;
+}
+
+.chart-controls-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.zoom-info-btn {
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: all 0.3s ease;
+}
+
+.zoom-info-btn:hover {
+    background-color: var(--hover-color);
+    color: var(--accent-color);
+    transform: translateY(-1px);
+}
+
+.zoom-instructions {
+    position: absolute;
+    right: 1rem;
+    top: 3.5rem;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 1rem;
+    font-size: 0.9rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+    max-width: 300px;
+}
+
+.zoom-instructions h4 {
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+    color: var(--accent-color);
+}
+
+.zoom-instructions ul {
+    margin: 0;
+    padding-left: 1.2rem;
+}
+
+.zoom-instructions li {
+    margin-bottom: 0.5rem;
+}
+
+.zoom-instructions strong {
+    color: var(--text-primary);
 }
 
 .chart-wrapper {

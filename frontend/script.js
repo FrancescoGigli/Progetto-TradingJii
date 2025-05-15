@@ -96,10 +96,79 @@ function setupEventListeners() {
     // Refresh button
     elements.refreshButton.addEventListener('click', handleRefresh);
     
-    // Chart toggle buttons
-    elements.chartToggles.forEach(toggle => {
-        toggle.addEventListener('click', handleChartToggle);
-    });
+        // Chart toggle buttons
+        elements.chartToggles.forEach(toggle => {
+            toggle.addEventListener('click', handleChartToggle);
+        });
+        
+        // Create chart controls container with zoom controls
+        const chartControls = document.querySelector('.chart-controls');
+        const chartControlsRight = document.createElement('div');
+        chartControlsRight.className = 'chart-controls-right';
+        
+        // Create zoom info button
+        const zoomInfoBtn = document.createElement('button');
+        zoomInfoBtn.className = 'zoom-info-btn';
+        zoomInfoBtn.innerHTML = '<i class="fas fa-info-circle"></i>';
+        zoomInfoBtn.title = 'Zoom instructions';
+        
+        // Create reset zoom button
+        const resetZoomBtn = document.createElement('button');
+        resetZoomBtn.id = 'reset-zoom-btn';
+        resetZoomBtn.innerHTML = '<i class="fas fa-search-minus"></i> Reset Zoom';
+        resetZoomBtn.className = 'reset-zoom-btn';
+        resetZoomBtn.title = 'Reset chart zoom';
+        resetZoomBtn.style.display = 'none'; // Hidden by default
+        
+        // Add buttons to container
+        chartControlsRight.appendChild(zoomInfoBtn);
+        chartControlsRight.appendChild(resetZoomBtn);
+        chartControls.appendChild(chartControlsRight);
+        
+        // Create zoom instructions tooltip
+        const zoomInstructions = document.createElement('div');
+        zoomInstructions.className = 'zoom-instructions';
+        zoomInstructions.innerHTML = `
+            <h4>Chart Zoom Controls</h4>
+            <ul>
+                <li><strong>Zoom In/Out:</strong> Hold Ctrl + Mouse Wheel</li>
+                <li><strong>Pan Chart:</strong> Hold Shift + Mouse Drag</li>
+                <li><strong>Reset Zoom:</strong> Click the Reset Zoom button</li>
+            </ul>
+        `;
+        zoomInstructions.style.display = 'none';
+        document.querySelector('.chart-container').appendChild(zoomInstructions);
+        
+        // Toggle zoom instructions when info button is clicked
+        zoomInfoBtn.addEventListener('click', function() {
+            const instructions = document.querySelector('.zoom-instructions');
+            instructions.style.display = instructions.style.display === 'none' ? 'block' : 'none';
+        });
+        
+        // Add event listener to reset zoom button
+        resetZoomBtn.addEventListener('click', function() {
+            if (window.ChartHandler) {
+                // Reset zoom for either active chart
+                if (!document.getElementById('price-chart-wrapper').classList.contains('hidden')) {
+                    if (window.priceChart && window.priceChart.resetZoom) {
+                        window.priceChart.resetZoom();
+                    }
+                } else if (!document.getElementById('volatility-chart-wrapper').classList.contains('hidden')) {
+                    if (window.volatilityChart && window.volatilityChart.resetZoom) {
+                        window.volatilityChart.resetZoom();
+                    }
+                }
+                this.style.display = 'none'; // Hide button after reset
+            }
+        });
+        
+        // Add window event listener for zoom events
+        window.addEventListener('wheel', function(e) {
+            if (e.ctrlKey) {
+                // Show reset zoom button when user zooms with Ctrl+wheel
+                document.getElementById('reset-zoom-btn').style.display = 'block';
+            }
+        }, { passive: true });
     
     // Search input
     elements.searchInput.addEventListener('input', handleSearch);

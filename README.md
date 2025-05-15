@@ -101,6 +101,7 @@ TradingJii is a sophisticated application designed to help cryptocurrency trader
 - Advanced candlestick visualization with Heikin-Ashi transformation
 - Volume visualization with color-coded bars
 - Volatility calculation, cleaning, and visualization
+- Comprehensive technical indicators (SMA, EMA, RSI, MACD, Bollinger Bands, etc.)
 - Binary pattern recognition for time series analysis
 - Responsive web interface with dark/light mode and search capabilities
 - Multi-timeframe support (5-minute and 15-minute intervals)

@@ -48,3 +48,32 @@ TIMEFRAME_CONFIG = {
     '4h': {'max_age': timedelta(hours=12), 'ms': 4 * 60 * 60 * 1000},
     '1d': {'max_age': timedelta(days=2), 'ms': 24 * 60 * 60 * 1000}
 }
+
+# Technical Analysis Parameters
+# These parameters can be overridden by user configuration
+TA_PARAMS = {
+    # Simple Moving Averages
+    'sma9': {'timeperiod': 9},
+    'sma20': {'timeperiod': 20},
+    'sma50': {'timeperiod': 50},
+    
+    # Exponential Moving Averages
+    'ema20': {'timeperiod': 20},
+    'ema50': {'timeperiod': 50},
+    'ema200': {'timeperiod': 200},
+    
+    # Momentum Indicators
+    'rsi14': {'timeperiod': 14},
+    'stoch': {'fastk_period': 14, 'slowk_period': 3, 'slowd_period': 3},
+    'macd': {'fastperiod': 12, 'slowperiod': 26, 'signalperiod': 9},
+    
+    # Volatility Indicators
+    'atr14': {'timeperiod': 14},
+    'bbands': {'timeperiod': 20, 'nbdevup': 2, 'nbdevdn': 2},
+    
+    # Volume-based Indicators
+    'volume_sma20': {'timeperiod': 20},
+    
+    # Trend Strength
+    'adx14': {'timeperiod': 14}
+}
