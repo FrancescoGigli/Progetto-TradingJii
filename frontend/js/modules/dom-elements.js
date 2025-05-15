@@ -14,7 +14,8 @@ export const elements = {
     // Charts and visualization
     priceChartWrapper: document.getElementById('price-chart-wrapper'),
     priceChartCanvas: document.getElementById('price-chart'), // Added canvas ref
-    volumeChartCanvas: document.getElementById('volume-chart'), // May need to be created dynamically still
+    volumeChartWrapper: document.getElementById('volume-chart-wrapper'), // Added volume wrapper reference
+    volumeChartCanvas: document.getElementById('volume-chart'), // Now using separate wrapper + canvas
     volatilityChartWrapper: document.getElementById('volatility-chart-wrapper'),
     volatilityChartCanvas: document.getElementById('volatility-chart'), // Added canvas ref
     indicatorChartWrapper: document.getElementById('indicator-chart-wrapper'),

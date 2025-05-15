@@ -53,10 +53,11 @@ def get_ohlcv_data(symbol, timeframe, limit=100):
     LIMIT ?
     """
     
-    df = pd.read_sql_query(query, conn, params=(symbol, limit))
+    df = pd.read_sql_query(query, conn, params=(symbol, limit if limit else 100)) # Ensure default if None
     conn.close()
     
-    # Convert to list of dictionaries for JSON serialization
+    # Replace NaN with None for proper JSON serialization
+    df = df.where(pd.notnull(df), None)
     data = df.to_dict(orient='records')
     return data
 
@@ -72,10 +73,11 @@ def get_volatility_data(symbol, timeframe, limit=100):
     LIMIT ?
     """
     
-    df = pd.read_sql_query(query, conn, params=(symbol, limit))
+    df = pd.read_sql_query(query, conn, params=(symbol, limit if limit else 100)) # Ensure default if None
     conn.close()
     
-    # Convert to list of dictionaries for JSON serialization
+    # Replace NaN with None for proper JSON serialization
+    df = df.where(pd.notnull(df), None)
     data = df.to_dict(orient='records')
     return data
 
@@ -94,10 +96,11 @@ def get_indicator_data(symbol, timeframe, limit=100):
     LIMIT ?
     """
     
-    df = pd.read_sql_query(query, conn, params=(symbol, limit))
+    df = pd.read_sql_query(query, conn, params=(symbol, limit if limit else 100)) # Ensure default if None
     conn.close()
     
-    # Convert to list of dictionaries for JSON serialization
+    # Replace NaN with None for proper JSON serialization
+    df = df.where(pd.notnull(df), None)
     data = df.to_dict(orient='records')
     return data
 
@@ -128,13 +131,22 @@ def api_symbols():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+# NaN handling utility function
+def nan_to_null(obj):
+    if isinstance(obj, float) and (pd.isna(obj) or obj == float('inf') or obj == float('-inf')):
+        return None
+    return obj
+
 @app.route('/api/ohlcv/<path:symbol>/<timeframe>')
 def api_ohlcv(symbol, timeframe):
     """API endpoint to get OHLCV data for a specific cryptocurrency and timeframe"""
     try:
-        limit = request.args.get('limit', default=100, type=int)
+        limit = request.args.get('limit', default=1000, type=int) # Increased default limit
         data = get_ohlcv_data(symbol, timeframe, limit)
-        return jsonify({"status": "success", "data": data})
+        
+        # Manual JSON serialization with custom NaN handling
+        clean_json = json.dumps({"status": "success", "data": data}, default=nan_to_null)
+        return app.response_class(clean_json, mimetype='application/json')
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -142,9 +154,12 @@ def api_ohlcv(symbol, timeframe):
 def api_volatility(symbol, timeframe):
     """API endpoint to get volatility data for a specific cryptocurrency and timeframe"""
     try:
-        limit = request.args.get('limit', default=100, type=int)
+        limit = request.args.get('limit', default=1000, type=int) # Increased default limit
         data = get_volatility_data(symbol, timeframe, limit)
-        return jsonify({"status": "success", "data": data})
+        
+        # Manual JSON serialization with custom NaN handling
+        clean_json = json.dumps({"status": "success", "data": data}, default=nan_to_null)
+        return app.response_class(clean_json, mimetype='application/json')
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -154,7 +169,10 @@ def api_patterns(symbol, timeframe):
     try:
         window_size = request.args.get('window_size', default=7, type=int)
         data = get_pattern_data(symbol, timeframe, window_size)
-        return jsonify({"status": "success", "data": data})
+        
+        # Manual JSON serialization with custom NaN handling
+        clean_json = json.dumps({"status": "success", "data": data}, default=nan_to_null)
+        return app.response_class(clean_json, mimetype='application/json')
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -162,9 +180,12 @@ def api_patterns(symbol, timeframe):
 def api_indicators(symbol, timeframe):
     """API endpoint to get technical indicator data for a specific cryptocurrency and timeframe"""
     try:
-        limit = request.args.get('limit', default=100, type=int)
+        limit = request.args.get('limit', default=1000, type=int)
         data = get_indicator_data(symbol, timeframe, limit)
-        return jsonify({"status": "success", "data": data})
+        
+        # Manual JSON serialization with custom NaN handling
+        clean_json = json.dumps({"status": "success", "data": data}, default=nan_to_null)
+        return app.response_class(clean_json, mimetype='application/json')
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 

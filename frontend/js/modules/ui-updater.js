@@ -158,28 +158,38 @@ export function loadThemePreference() {
 export function togglePriceVolatilityCharts(chartToShow) {
     const priceWrapper = elements.priceChartWrapper;
     const volatilityWrapper = elements.volatilityChartWrapper;
+    const volumeWrapper = elements.volumeChartWrapper; // Added volume wrapper
 
-    // Update active state of toggle buttons (assuming this is handled by an event listener module)
+    // Update active state of toggle buttons (this is handled by an event listener module)
 
     if (chartToShow === 'price') {
         volatilityWrapper.classList.add('hidden');
-        volatilityWrapper.style.opacity = '0'; // Ensure hidden visually
+        volatilityWrapper.style.opacity = '0'; 
         
-        setTimeout(() => {
-            priceWrapper.classList.remove('hidden');
-            priceWrapper.style.opacity = '1';
-            // ChartHandler.resizePriceChart(); // This will be called from chart-manager
-        }, 50); // Small delay for transition
+        // Show price and volume charts
+        priceWrapper.classList.remove('hidden');
+        priceWrapper.style.opacity = '1';
+        if (volumeWrapper) { // Check if volumeWrapper exists
+            volumeWrapper.classList.remove('hidden');
+            volumeWrapper.style.opacity = '1';
+        }
+        // Resizing will be handled by main.js or event-listeners.js after data load / toggle
+        
     } else if (chartToShow === 'volatility') {
         priceWrapper.classList.add('hidden');
         priceWrapper.style.opacity = '0';
+        if (volumeWrapper) { // Check if volumeWrapper exists
+            volumeWrapper.classList.add('hidden');
+            volumeWrapper.style.opacity = '0';
+        }
         
-        setTimeout(() => {
-            volatilityWrapper.classList.remove('hidden');
-            volatilityWrapper.style.opacity = '1';
-            // ChartHandler.resizeVolatilityChart(); // This will be called from chart-manager
-        }, 50);
+        volatilityWrapper.classList.remove('hidden');
+        volatilityWrapper.style.opacity = '1';
+        // Resizing will be handled by main.js or event-listeners.js
     }
+    // Note: The actual chart resizing (e.g., chartManager.resizePriceChart()) 
+    // should be called after these UI changes, typically in the event handler in event-listeners.js
+    // or after data loading in main.js, to ensure charts resize to their new container dimensions.
 }
 
 /**
@@ -190,17 +200,20 @@ export function toggleIndicatorChartVisibility(show) {
     const indicatorWrapper = elements.indicatorChartWrapper;
     const priceWrapper = elements.priceChartWrapper;
     const volatilityWrapper = elements.volatilityChartWrapper;
+    const volumeWrapper = elements.volumeChartWrapper; // Added volume wrapper
 
     if (show) {
         indicatorWrapper.classList.remove('hidden');
         indicatorWrapper.style.opacity = '1';
         priceWrapper.classList.add('with-indicator');
         volatilityWrapper.classList.add('with-indicator');
+        if (volumeWrapper) volumeWrapper.classList.add('with-indicator'); // Add to volume too
     } else {
         indicatorWrapper.classList.add('hidden');
         indicatorWrapper.style.opacity = '0';
         priceWrapper.classList.remove('with-indicator');
         volatilityWrapper.classList.remove('with-indicator');
+        if (volumeWrapper) volumeWrapper.classList.remove('with-indicator'); // Remove from volume too
     }
     // Resizing of charts will be handled by chart-manager after this UI update
 }

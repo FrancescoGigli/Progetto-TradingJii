@@ -533,46 +533,97 @@ body:not(.light-theme) .theme-toggle .fa-sun {
 }
 
 /* Default state for price/volatility chart wrappers (when no indicator chart is shown) */
-.price-chart-wrapper,
-#volatility-chart-wrapper { /* Apply to volatility too */
+/* #price-chart-wrapper, */ /* Will be handled by specific rules below */
+/* #volatility-chart-wrapper { */ /* Apply to volatility too */
+    /* top: 3.5rem; */
+    /* bottom: 0; */ /* Fill full available space */
+    /* height: auto; */ /* Let top/bottom define height */
+/* } */
+
+/* Remove flex from .price-chart-wrapper as volume is now a separate panel */
+.price-chart-wrapper {
+    width: 100%; /* Ensure it spans width if not set by .chart-wrapper */
+}
+#price-chart { /* Canvas itself */
+    width: 100%;
+    height: 100%;
+}
+
+
+/* Layout for stacked charts: Price, Volume, Indicator */
+
+/* Scenario 1: Only Price + Volume (Volatility and Indicator hidden) */
+#price-chart-wrapper:not(.with-indicator) {
     top: 3.5rem;
-    bottom: 0; /* Fill full available space */
+    bottom: 25%; /* Price takes 75% of the chart area */
     height: auto; /* Let top/bottom define height */
 }
-
-/* This specific style for price-chart-wrapper might be redundant now or need adjustment */
-.price-chart-wrapper {
-    /* height: 100%; */ /* REMOVED - Let top/bottom from .chart-wrapper and .with-indicator control this */
-    width: 100%;
-    border-bottom: 1px solid var(--border-color); /* This border might be an issue if indicator is shown */
-    padding-bottom: 5px;
-    margin-bottom: 5px;
+#volume-chart-wrapper:not(.with-indicator) {
+    top: 75%; /* Starts where price chart ends */
+    bottom: 0;   /* Fills the remaining 25% */
+    height: auto;
+    border-top: 1px solid var(--border-color);
 }
 
-.chart-wrapper.with-indicator.price-chart-wrapper,
-.chart-wrapper.with-indicator#volatility-chart-wrapper {
-    border-bottom: none; /* Remove bottom border when indicator chart is shown below it */
+/* Scenario 2: Only Volatility (Price, Volume, Indicator hidden) */
+#volatility-chart-wrapper:not(.with-indicator) {
+    top: 3.5rem;
+    bottom: 0; /* Volatility takes full chart area */
+    height: auto;
+}
+/* Ensure volume is hidden when volatility is active (JS should handle this by adding .hidden to volume-chart-wrapper) */
+
+
+/* Scenario 3: Price + Volume + Indicator visible */
+#price-chart-wrapper.with-indicator {
+    top: 3.5rem;
+    bottom: 45%; /* Price: e.g. 55% of chart area */
+    height: auto;
+}
+#volume-chart-wrapper.with-indicator { /* Volume also needs .with-indicator class if its height changes */
+    top: 55%;    /* Starts after Price */
+    bottom: 25%; /* Volume: e.g. 20% of chart area */
+    height: auto;
+    border-top: 1px solid var(--border-color);
+}
+#indicator-chart-wrapper { /* Shown by JS removing .hidden, position is fixed */
+    top: 75%;    /* Starts after Price + Volume */
+    bottom: 0;   /* Indicator: e.g. 25% of chart area */
+    height: auto;
+    border-top: 1px solid var(--border-color);
+}
+
+
+.chart-wrapper.with-indicator.price-chart-wrapper, /* This rule might be too general now */
+.chart-wrapper.with-indicator#volatility-chart-wrapper { /* And this one */
+    border-bottom: none; /* Remove bottom border when something is shown below it */
     margin-bottom: 0;
     padding-bottom: 0;
 }
 
 
 /* Enhanced styling for better Heikin-Ashi candles visualization */
-.price-chart-wrapper canvas {
+.price-chart-wrapper canvas#price-chart { /* Be more specific for the main price canvas */
     filter: drop-shadow(0px 2px 3px rgba(0, 0, 0, 0.2));
 }
 
 .volume-chart-wrapper {
-    height: 20%;
-    width: 100%;
-    margin-top: 10px;
-    padding-top: 5px;
+    /* flex-basis, max-height, margin-top removed as it's now a separate panel */
+    width: 100%; /* Ensure full width if not covered by .chart-wrapper */
+    padding-top: 5px; /* Keep padding */
+    /* border-top is now conditional based on stacking */
+    box-sizing: border-box;
 }
-
-/* This ensures volatility chart takes full height without interference */
-#volatility-chart-wrapper {
+#volume-chart { /* Canvas for volume */
+    width: 100%;
     height: 100%;
 }
+
+
+/* This ensures volatility chart takes full height IF it's the only one visible */
+/* #volatility-chart-wrapper { */
+    /* height: 100%; */ /* This is too general, use top/bottom instead */
+/* } */
 
 .hidden {
     opacity: 0;

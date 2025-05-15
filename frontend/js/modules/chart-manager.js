@@ -126,12 +126,15 @@ export function createPriceChart(symbol, timeframe, rawApiData, priceChartStyle 
         const ctx = elements.priceChartCanvas.getContext('2d');
         
         if (priceChartInstance) priceChartInstance.destroy();
-        if (volumeChartInstance) { // Volume chart is tied to price chart
+        if (volumeChartInstance) { 
             volumeChartInstance.destroy();
             volumeChartInstance = null;
-            // Consider hiding or removing the volume wrapper if it exists
-            const volumeWrapper = document.querySelector('.volume-chart-wrapper');
-            if (volumeWrapper) volumeWrapper.style.display = 'none';
+            // Ensure elements.volumeChartWrapper is used if available, otherwise query.
+            const volumeWrapper = elements.volumeChartWrapper || document.querySelector('.volume-chart-wrapper');
+            if (volumeWrapper) {
+                volumeWrapper.classList.add('hidden'); 
+                volumeWrapper.style.opacity = '0'; 
+            }
         }
         
         const ohlcvData = prepareOHLCVData(rawApiData);
@@ -238,8 +241,9 @@ export function createPriceChart(symbol, timeframe, rawApiData, priceChartStyle 
                     lColor = lastClose >= displayData[displayData.length - 2].y ? upColor : downColor;
                 }
                 priceChartInstance.options.plugins.annotation.annotations.lastPriceLine = { type: 'line', yMin: lastClose, yMax: lastClose, borderColor: lColor, borderWidth: 1.5, borderDash: [6,6], label: { enabled: true, content: lastClose.toFixed(prec), position: 'end', backgroundColor: lColor, color: '#fff', font: {weight:'bold', size:10}, padding:{x:6,y:3}}};
-                priceChartInstance.update('none'); // 'none' to prevent animation
+                priceChartInstance.update('none'); // Update for annotation
             }
+            // Initial zoom logic removed as per user request.
         }
         
         // Create volume chart if data is suitable
@@ -258,29 +262,28 @@ export function createPriceChart(symbol, timeframe, rawApiData, priceChartStyle 
 
 export function createColoredVolumeChart(chartSourceData, mainChartStyle) {
     try {
-        let volumeWrapper = document.querySelector('.volume-chart-wrapper');
-        let canvas = elements.volumeChartCanvas;
+        // The volume-chart-wrapper and volume-chart canvas are now expected to be in index.html
+        const volumeWrapper = elements.volumeChartWrapper; // from dom-elements.js
+        const canvas = elements.volumeChartCanvas; // from dom-elements.js
 
         if (!chartSourceData || chartSourceData.length === 0 || !chartSourceData[0].hasOwnProperty('volume')) {
             if (volumeChartInstance) volumeChartInstance.destroy();
             volumeChartInstance = null;
-            if (volumeWrapper) volumeWrapper.style.display = 'none';
+            if (volumeWrapper) volumeWrapper.classList.add('hidden'); // Use hidden class
             return null;
         }
 
-        if (!canvas) { // If canvas doesn't exist, create it and wrapper
-            if (!volumeWrapper) {
-                volumeWrapper = document.createElement('div');
-                volumeWrapper.className = 'volume-chart-wrapper';
-                elements.priceChartWrapper.parentNode.insertBefore(volumeWrapper, elements.priceChartWrapper.nextSibling);
-            }
-            canvas = document.createElement('canvas');
-            canvas.id = 'volume-chart'; // Ensure it has the ID for future selections
-            volumeWrapper.innerHTML = ''; // Clear wrapper
-            volumeWrapper.appendChild(canvas);
-            elements.volumeChartCanvas = canvas; // Update cached element
+        if (!canvas) {
+            console.error('Volume chart canvas element not found in DOM.');
+            if (volumeWrapper) volumeWrapper.classList.add('hidden');
+            return null;
         }
-        if (volumeWrapper) volumeWrapper.style.display = 'block'; // Ensure visible
+        // Make sure volume chart wrapper is visible when creating chart
+        if (volumeWrapper) {
+            volumeWrapper.classList.remove('hidden');
+            volumeWrapper.style.opacity = '1';
+        }
+
 
         const ctx = canvas.getContext('2d');
         if (volumeChartInstance) volumeChartInstance.destroy();
