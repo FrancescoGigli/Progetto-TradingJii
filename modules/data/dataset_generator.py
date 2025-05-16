@@ -15,6 +15,7 @@ import pandas as pd
 from typing import Dict, List, Tuple, Optional
 from colorama import Fore, Style
 from modules.data.series_segmenter import load_volatility_series, generate_subseries, categorize_series
+from datetime import datetime
 
 def export_supervised_training_data(
     symbol: str,
@@ -24,7 +25,8 @@ def export_supervised_training_data(
     threshold: float = 0.0,
     force_regeneration: bool = False,
     min_samples_per_pattern: int = 40,  # Minimum samples needed for proper train/validation split
-    oversample_factor: int = 3  # How many times to oversample small datasets
+    oversample_factor: int = 3,  # How many times to oversample small datasets
+    include_timestamps: bool = True  # Include timestamps in the output to enable joining with TA data
 ) -> Dict[str, int]:
     """
     Generate and export supervised training data from volatility time series.
@@ -56,16 +58,20 @@ def export_supervised_training_data(
         return {}
     
     # Organize by categories
-    categorized_data: Dict[str, List[Tuple[List[float], float]]] = {}
+    categorized_data: Dict[str, List[Tuple[List[float], float, str]]] = {}
     
-    for window, target in subseries:
+    for i in range(len(df) - window_size):
+        window = df['volatility'].iloc[i:i+window_size].tolist()
+        target = df['volatility'].iloc[i+window_size]  # Next value is the target
+        timestamp = df.index[i+window_size]  # Timestamp corresponding to the target
+        
         # Get the binary pattern for this window
         pattern = categorize_series(window, threshold)
         
         if pattern not in categorized_data:
             categorized_data[pattern] = []
         
-        categorized_data[pattern].append((window, target))
+        categorized_data[pattern].append((window, target, timestamp))
     
     # Create output directory structure if it doesn't exist
     # Format: datasets/{symbol}/{timeframe}/
@@ -103,12 +109,26 @@ def export_supervised_training_data(
     total_records = 0
     
     for pattern, data in categorized_data.items():
-        # Create DataFrame with x_1, x_2, ..., x_n columns and y column
+        # Create DataFrame with x_1, x_2, ..., x_n columns, y column, timestamp, and pattern
         rows = []
-        for window, target in data:
+        for window, target, timestamp in data:
             row = {f'x_{i+1}': val for i, val in enumerate(window)}
             row['y'] = target
             row['pattern'] = pattern
+            # Convert timestamp to ISO 8601 format for joining with TA data
+
+
+            if isinstance(timestamp, str):
+                row['timestamp'] = timestamp  # Already a string
+            elif isinstance(timestamp, (int, float)):
+                # Assume timestamp is in UNIX seconds
+                row['timestamp'] = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+            elif hasattr(timestamp, 'strftime'):
+                row['timestamp'] = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                logging.warning(f"Tipo timestamp non gestito: {type(timestamp)}. Lo converto a stringa grezza.")
+                row['timestamp'] = str(timestamp)
+
             rows.append(row)
         
         # Convert to DataFrame

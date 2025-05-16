@@ -25,6 +25,7 @@ DEFAULT_DAYS = 300
 DEFAULT_TIMEFRAMES = ['5m', '15m']
 DEFAULT_BATCH_SIZE = 10
 DEFAULT_CONCURRENCY = 5
+DEFAULT_WINDOW_SIZE = 7  # Default window size for ML pattern generation
 
 # Exchange configuration
 EXCHANGE_CONFIG = {

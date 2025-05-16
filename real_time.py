@@ -28,6 +28,7 @@ from modules.data.db_manager import init_data_tables
 from modules.data.volatility_processor import process_and_save_volatility
 from modules.data.indicator_processor import init_indicator_tables, compute_and_save_indicators
 from modules.data.dataset_generator import export_supervised_training_data, generate_ml_dataset
+from modules.data.full_dataset_generator import generate_full_ml_dataset
 
 # Inizializza colorama
 init(autoreset=True)
@@ -178,20 +179,23 @@ async def real_time_update(args):
             elif args.force_ml:
                 logging.info(f"{Fore.YELLOW}Forcing ML dataset regeneration as requested with --force-ml{Style.RESET_ALL}")
             
-            # Define output directory
-            your_output_dir = "datasets"
-            
-            # Generate ML dataset
-            from modules.data.dataset_generator import generate_ml_dataset
-
-            generate_ml_dataset(
-                db_path=DB_FILE,
-                output_dir=your_output_dir,
-                symbols=top_symbols,
-                timeframes=args.timeframes,
-                segment_len=7,
-                force_regeneration=args.force_ml
-            )
+            # Process each symbol and timeframe to generate the merged ML dataset
+            for sym in top_symbols:
+                for tf in args.timeframes:
+                    try:
+                        # Generate full ML dataset with merged data
+                        logging.info(f"Generating merged ML dataset for {Fore.YELLOW}{sym}{Style.RESET_ALL} ({tf})")
+                        
+                        await generate_full_ml_dataset(
+                            symbol=sym,
+                            timeframe=tf,
+                            window_size=7,  # Use default window size
+                            force=args.force_ml
+                        )
+                    except Exception as e:
+                        logging.error(f"Error generating merged ML dataset for {sym} ({tf}): {e}")
+                        import traceback
+                        logging.error(traceback.format_exc())
         elif not args.no_ml:
             logging.info(f"{Fore.YELLOW}No new volatility data found, skipping ML dataset generation. Use --force-ml to regenerate.{Style.RESET_ALL}")
 
