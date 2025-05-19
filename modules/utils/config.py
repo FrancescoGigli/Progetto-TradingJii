@@ -27,6 +27,10 @@ DEFAULT_BATCH_SIZE = 10
 DEFAULT_CONCURRENCY = 5
 DEFAULT_WINDOW_SIZE = 7  # Default window size for ML pattern generation
 
+# ML classification thresholds
+BUY_THRESHOLD = 0.5    # If y >= 0.5, then y_class = 1 (BUY)
+SELL_THRESHOLD = -0.5  # If y <= -0.5, then y_class = 2 (SELL)
+
 # Exchange configuration
 EXCHANGE_CONFIG = {
     'apiKey': API_KEY,

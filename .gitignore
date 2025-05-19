@@ -47,6 +47,7 @@ plots/
 output/
 datasets/
 models/
+ml_datasets/
 validation_reports/
 ohlcv_validation_reports/
 fetch_progress.json

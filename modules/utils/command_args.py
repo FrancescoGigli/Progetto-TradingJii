@@ -88,4 +88,21 @@ def parse_arguments():
         help='Disabilita il calcolo degli indicatori di analisi tecnica'
     )
     
+    # ML Classification options
+    ml_group = parser.add_argument_group('Classificazione ML')
+    
+    ml_group.add_argument(
+        '--buy-threshold',
+        type=float,
+        default=0.5,
+        help='Soglia per la classificazione BUY (default: 0.5)'
+    )
+    
+    ml_group.add_argument(
+        '--sell-threshold',
+        type=float,
+        default=-0.5,
+        help='Soglia per la classificazione SELL (default: -0.5)'
+    )
+    
     return parser.parse_args()

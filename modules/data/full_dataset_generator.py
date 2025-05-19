@@ -18,15 +18,17 @@ import pandas as pd
 import numpy as np
 from typing import List, Dict, Tuple, Optional
 from colorama import Fore, Style
-from modules.utils.config import DB_FILE, DEFAULT_WINDOW_SIZE
+from modules.utils.config import DB_FILE, DEFAULT_WINDOW_SIZE, BUY_THRESHOLD, SELL_THRESHOLD
 from modules.utils.logging_setup import setup_logging
+from modules.ml.utils import assign_y_class_multiclass
 
 async def generate_full_ml_dataset(
     symbol: str, 
     timeframe: str, 
     window_size: int = 7, 
     output_dir: Optional[str] = None,
-    force: bool = True
+    force: bool = True,
+    filter_flat_patterns: bool = False
 ) -> bool:
     """
     Generate a full ML dataset by combining volatility patterns with technical indicators.
@@ -37,6 +39,7 @@ async def generate_full_ml_dataset(
         window_size: Size of the sliding window (default: 7)
         output_dir: Directory where the dataset will be saved (default: ml_datasets/<symbol>/<timeframe>)
         force: Whether to overwrite existing file (default: True)
+        filter_flat_patterns: Whether to filter out flat patterns (all 0s or all 1s) (default: False)
         
     Returns:
         Boolean indicating success
@@ -80,7 +83,7 @@ async def generate_full_ml_dataset(
     logging.info(f"Loaded {Fore.GREEN}{total_volatility_records}{Style.RESET_ALL} volatility records")
     
     # Step 2: Generate sliding windows for patterns and targets
-    patterns_df = generate_pattern_windows(volatility_data, window_size)
+    patterns_df = generate_pattern_windows(volatility_data, window_size, filter_flat_patterns)
     
     if patterns_df.empty:
         logging.warning(f"Failed to generate pattern windows for {symbol} ({timeframe})")
@@ -92,17 +95,19 @@ async def generate_full_ml_dataset(
     # Step 3: Load technical indicators for the timestamps in patterns_df
     indicators_df = load_technical_indicators(symbol, timeframe, patterns_df['timestamp'].tolist())
     
+    # If no indicators are available, warn but continue with just volatility data
     if indicators_df.empty:
         logging.warning(f"No technical indicators found for {symbol} ({timeframe})")
-        return False
-    
-    logging.debug(f"Loaded {len(indicators_df)} technical indicator records")
-    
-    # Step 4: Merge patterns with indicators
-    merged_df = merge_patterns_with_indicators(patterns_df, indicators_df)
-    
+        logging.warning(f"Proceeding with volatility-only dataset (without technical indicators)")
+        merged_df = patterns_df.copy()  # Use only the pattern data
+    else:
+        logging.debug(f"Loaded {len(indicators_df)} technical indicator records")
+        
+        # Step 4: Merge patterns with indicators
+        merged_df = merge_patterns_with_indicators(patterns_df, indicators_df)
+        
     if merged_df.empty:
-        logging.warning(f"Failed to merge patterns with indicators for {symbol} ({timeframe})")
+        logging.warning(f"Failed to create dataset for {symbol} ({timeframe})")
         return False
     
     records_retained = len(merged_df)
@@ -117,6 +122,9 @@ async def generate_full_ml_dataset(
     
     # Save the dataset
     merged_df.to_csv(output_file, index=False)
+    
+    # Assign multiclass target and overwrite CSV
+    assign_y_class_multiclass(output_file, BUY_THRESHOLD, SELL_THRESHOLD)
     
     # Log summary
     logging.info(f"{Fore.GREEN}=== DATASET GENERATION SUMMARY ==={Style.RESET_ALL}")
@@ -172,7 +180,8 @@ def load_volatility_series(symbol: str, timeframe: str) -> pd.DataFrame:
 
 def generate_pattern_windows(
     df: pd.DataFrame, 
-    window_size: int = 7
+    window_size: int = 7,
+    filter_flat_patterns: bool = False
 ) -> pd.DataFrame:
     """
     Generate sliding windows of volatility values with targets and pattern strings.
@@ -180,9 +189,10 @@ def generate_pattern_windows(
     Args:
         df: DataFrame with timestamp and volatility columns
         window_size: Size of the sliding window (default: 7)
+        filter_flat_patterns: Whether to filter out flat patterns (all 0s or all 1s)
         
     Returns:
-        DataFrame with x_1 to x_n columns, y, pattern, and timestamp
+        DataFrame with x_1 to x_n columns, y, y_class, pattern, and timestamp
     """
     if df.empty or len(df) < window_size + 1:
         logging.warning(f"Insufficient data to generate pattern windows (need at least {window_size + 1} data points)")
@@ -200,9 +210,13 @@ def generate_pattern_windows(
         # Create binary pattern string (1 if volatility > 0, else 0)
         pattern = ''.join('1' if v > 0 else '0' for v in window)
         
+        # Skip flat patterns if requested
+        if filter_flat_patterns and (pattern == '0' * window_size or pattern == '1' * window_size):
+            continue
+        
         # Create row with x_1, x_2, ..., x_n columns, y, pattern, and timestamp
         row = {f'x_{i+1}': val for i, val in enumerate(window)}
-        row['y'] = target
+        row['y'] = target  # Keep original target value for regression or comparison
         row['pattern'] = pattern
         
         # Safely convert timestamp to string format before adding to row

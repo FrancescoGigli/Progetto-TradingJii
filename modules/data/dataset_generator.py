@@ -63,7 +63,7 @@ def export_supervised_training_data(
     for i in range(len(df) - window_size):
         window = df['volatility'].iloc[i:i+window_size].tolist()
         target = df['volatility'].iloc[i+window_size]  # Next value is the target
-        timestamp = df.index[i+window_size]  # Timestamp corresponding to the target
+        timestamp = df['timestamp'].iloc[i+window_size]  # Timestamp corresponding to the target
         
         # Get the binary pattern for this window
         pattern = categorize_series(window, threshold)
