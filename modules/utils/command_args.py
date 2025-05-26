@@ -64,7 +64,15 @@ def parse_arguments():
     optimization_group.add_argument(
         '-s', '--sequential',
         action='store_true',
-        help='Esegui in modalità sequenziale invece che parallela'
+        default=True,
+        help='Esegui in modalità sequenziale (DEFAULT)'
+    )
+    
+    optimization_group.add_argument(
+        '--parallel',
+        action='store_false',
+        dest='sequential',
+        help='Disattiva modalità sequenziale, usa modalità parallela'
     )
     
     optimization_group.add_argument(

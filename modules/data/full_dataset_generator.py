@@ -20,7 +20,6 @@ from typing import List, Dict, Tuple, Optional
 from colorama import Fore, Style
 from modules.utils.config import DB_FILE, DEFAULT_WINDOW_SIZE, BUY_THRESHOLD, SELL_THRESHOLD
 from modules.utils.logging_setup import setup_logging
-from modules.ml.utils import assign_y_class_multiclass
 
 async def generate_full_ml_dataset(
     symbol: str, 
@@ -122,9 +121,6 @@ async def generate_full_ml_dataset(
     
     # Save the dataset
     merged_df.to_csv(output_file, index=False)
-    
-    # Assign multiclass target and overwrite CSV
-    assign_y_class_multiclass(output_file, BUY_THRESHOLD, SELL_THRESHOLD)
     
     # Log summary
     logging.info(f"{Fore.GREEN}=== DATASET GENERATION SUMMARY ==={Style.RESET_ALL}")

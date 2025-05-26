@@ -23,8 +23,8 @@ DB_FILE = 'crypto_data.db'
 DEFAULT_TOP_SYMBOLS = 100
 DEFAULT_DAYS = 300
 DEFAULT_TIMEFRAMES = ['5m', '15m']
-DEFAULT_BATCH_SIZE = 10
-DEFAULT_CONCURRENCY = 5
+DEFAULT_BATCH_SIZE = 25
+DEFAULT_CONCURRENCY = 8
 DEFAULT_WINDOW_SIZE = 7  # Default window size for ML pattern generation
 
 # ML classification thresholds

@@ -28,7 +28,7 @@ from modules.data.volatility_processor import process_and_save_volatility
 from modules.data.indicator_processor import init_indicator_tables, compute_and_save_indicators
 from modules.data.dataset_generator import export_supervised_training_data
 from modules.data.full_dataset_generator import generate_full_ml_dataset
-from modules.ml.utils import assign_y_class_multiclass
+
 
 # Inizializza colorama
 init(autoreset=True)
@@ -194,9 +194,7 @@ async def real_time_update(args):
                             filter_flat_patterns=False  # Keep all patterns by default
                         )
                         
-                        # Applica etichette multiclasse con soglie personalizzate
-                        merged_path = os.path.join("ml_datasets", sym.replace("/", "_"), tf, "merged.csv")
-                        assign_y_class_multiclass(merged_path, args.buy_threshold, args.sell_threshold)
+
                         
                     except Exception as e:
                         logging.error(f"Error generating merged ML dataset for {sym} ({tf}): {e}")
@@ -300,8 +298,6 @@ async def main():
     print(f"  • Finestra ML: {Fore.MAGENTA}7{Style.RESET_ALL} valori (pattern a 7 bit)")
     print(f"  • Output dataset: {Fore.BLUE}{os.path.abspath('datasets')}{Style.RESET_ALL}")
     print(f"  • ML dataset: {'Disattivato' if args.no_ml else 'Attivato'} {Fore.YELLOW}(usa --no-ml per disattivare){Style.RESET_ALL}")
-    if not args.no_ml:
-        print(f"  • Soglie classificazione: BUY >= {Fore.GREEN}{args.buy_threshold}{Style.RESET_ALL}, SELL <= {Fore.RED}{args.sell_threshold}{Style.RESET_ALL}")
     print(f"  • Data e ora inizio: {Fore.CYAN}{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
     print("="*80 + "\n")
 
