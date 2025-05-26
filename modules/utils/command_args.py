@@ -96,6 +96,27 @@ def parse_arguments():
         help='Disabilita il calcolo degli indicatori di analisi tecnica'
     )
     
+    # Data Validation options
+    validation_group = parser.add_argument_group('Validazione Dati')
+    
+    validation_group.add_argument(
+        '--skip-validation',
+        action='store_true',
+        help='Salta la validazione dati (utile per test o ambienti a basse risorse)'
+    )
+    
+    validation_group.add_argument(
+        '--export-validation-report',
+        action='store_true',
+        help='Esporta report di validazione in CSV con timestamp'
+    )
+    
+    validation_group.add_argument(
+        '--generate-validation-charts',
+        action='store_true',
+        help='Genera grafici/heatmap della qualità dati (richiede matplotlib)'
+    )
+    
     # ML Classification options
     ml_group = parser.add_argument_group('Classificazione ML')
     

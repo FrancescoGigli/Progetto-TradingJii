@@ -28,6 +28,10 @@ from modules.data.volatility_processor import process_and_save_volatility
 from modules.data.indicator_processor import init_indicator_tables, compute_and_save_indicators
 from modules.data.dataset_generator import export_supervised_training_data
 from modules.data.full_dataset_generator import generate_full_ml_dataset
+from modules.data.data_validator import (
+    validate_and_repair_data, log_validation_results, log_validation_summary,
+    export_validation_report_csv, generate_validation_charts, DataQualityReport
+)
 
 
 # Inizializza colorama
@@ -135,6 +139,71 @@ async def real_time_update(args):
                 grand_total_symbols["saltati"] += res["saltati"]
                 grand_total_symbols["falliti"] += res["falliti"]
                 total_records_saved += res["record_totali"]
+        
+        # 🆕 VALIDAZIONE DATI POST-DOWNLOAD (se non saltata)
+        validation_reports = []
+        validation_summary = {
+            "symbols_validated": 0,
+            "issues_found": 0,
+            "auto_repaired": 0,
+            "high_quality": 0,
+            "medium_quality": 0,
+            "low_quality": 0
+        }
+        
+        if not args.skip_validation:
+            # Valida dati per tutti i simboli e timeframe dove abbiamo scaricato dati
+            for tf, res in all_timeframe_results.items():
+                if res["completati"] > 0:
+                    for sym in top_symbols:
+                        try:
+                            validation_report = await validate_and_repair_data(sym, tf)
+                            validation_summary["symbols_validated"] += 1
+                            
+                            if validation_report:  # Issues found
+                                validation_summary["issues_found"] += len(validation_report.issues)
+                                log_validation_results(sym, tf, validation_report)
+                                validation_reports.append(validation_report)
+                                
+                                # Categorize by quality score
+                                if validation_report.score >= 95:
+                                    validation_summary["high_quality"] += 1
+                                elif validation_report.score >= 85:
+                                    validation_summary["medium_quality"] += 1
+                                else:
+                                    validation_summary["low_quality"] += 1
+                                
+                                if validation_report.can_repair:
+                                    validation_summary["auto_repaired"] += 1
+                            else:
+                                # No issues found - high quality - create clean report for export
+                                clean_report = DataQualityReport(sym, tf)
+                                clean_report.score = 100
+                                clean_report.total_records = 1  # Placeholder
+                                validation_reports.append(clean_report)
+                                validation_summary["high_quality"] += 1
+                                
+                        except Exception as e:
+                            logging.error(f"Validation error for {sym} ({tf}): {e}")
+            
+            # Log overall validation summary
+            log_validation_summary(validation_summary)
+            
+            # 🆕 EXPORT REPORT CSV (se richiesto)
+            if args.export_validation_report and validation_reports:
+                try:
+                    export_validation_report_csv(validation_reports, validation_summary)
+                except Exception as e:
+                    logging.error(f"Error exporting validation report: {e}")
+            
+            # 🆕 GENERA GRAFICI (se richiesto)
+            if args.generate_validation_charts and validation_reports:
+                try:
+                    generate_validation_charts(validation_reports)
+                except Exception as e:
+                    logging.error(f"Error generating validation charts: {e}")
+        else:
+            logging.info(f"{Fore.YELLOW}🔍 Data validation skipped (--skip-validation flag used){Style.RESET_ALL}")
         
         # Elabora la volatilità per i simboli completati in tutti i timeframe
         for tf, res in all_timeframe_results.items():
@@ -298,6 +367,19 @@ async def main():
     print(f"  • Finestra ML: {Fore.MAGENTA}7{Style.RESET_ALL} valori (pattern a 7 bit)")
     print(f"  • Output dataset: {Fore.BLUE}{os.path.abspath('datasets')}{Style.RESET_ALL}")
     print(f"  • ML dataset: {'Disattivato' if args.no_ml else 'Attivato'} {Fore.YELLOW}(usa --no-ml per disattivare){Style.RESET_ALL}")
+    validation_status = "Saltata (--skip-validation)" if args.skip_validation else "Sempre attiva (controllo qualità e auto-riparazione)"
+    validation_color = Fore.YELLOW if args.skip_validation else Fore.GREEN
+    print(f"  • Validazione dati: {validation_color}{validation_status}{Style.RESET_ALL}")
+    
+    # Mostra opzioni di export/grafici se attive
+    if not args.skip_validation:
+        export_options = []
+        if args.export_validation_report:
+            export_options.append("CSV export")
+        if args.generate_validation_charts:
+            export_options.append("Grafici/heatmap")
+        if export_options:
+            print(f"  • Export validazione: {Fore.CYAN}{', '.join(export_options)}{Style.RESET_ALL}")
     print(f"  • Data e ora inizio: {Fore.CYAN}{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
     print("="*80 + "\n")
 
