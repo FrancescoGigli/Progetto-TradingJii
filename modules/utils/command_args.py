@@ -82,9 +82,16 @@ def parse_arguments():
     )
     
     optimization_group.add_argument(
-        '--force-ml',
+        '--generate-ml-datasets',
         action='store_true',
-        help='Force regeneration of ML datasets even if they already exist'
+        default=False,
+        help='Genera dataset merged.csv dopo la validazione dati'
+    )
+    
+    optimization_group.add_argument(
+        '--force-ml-dataset',
+        action='store_true',
+        help='Forza rigenerazione dataset anche se esistono già'
     )
     
     # Technical Analysis options

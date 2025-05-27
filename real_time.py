@@ -26,8 +26,7 @@ from modules.core.download_orchestrator import process_timeframe
 from modules.data.db_manager import init_data_tables
 from modules.data.volatility_processor import process_and_save_volatility
 from modules.data.indicator_processor import init_indicator_tables, compute_and_save_indicators
-from modules.data.dataset_generator import export_supervised_training_data
-from modules.data.full_dataset_generator import generate_full_ml_dataset
+from generate_merged_datasets import generate_dataset_for_symbol
 from modules.data.data_validator import (
     validate_and_repair_data, log_validation_results, log_validation_summary,
     export_validation_report_csv, generate_validation_charts, DataQualityReport
@@ -166,28 +165,6 @@ async def real_time_update(args):
                         if not args.no_ta:
                             await compute_and_save_indicators(sym, timeframe)
                         
-                        # Genera dataset per il machine learning supervisionato
-                        logging.info(f"Generazione dataset di ML per {Fore.YELLOW}{sym}{Style.RESET_ALL} ({timeframe})")
-                        try:
-                            output_dir = "datasets"
-                            pattern_counts = export_supervised_training_data(
-                                symbol=sym,
-                                timeframe=timeframe,
-                                output_dir=output_dir,
-                                window_size=7,  # default: finestra di 7 valori
-                                threshold=0.0   # default: soglia a 0.0
-                            )
-                            
-                            # Log dei risultati
-                            if pattern_counts:
-                                total_patterns = len(pattern_counts)
-                                total_records = sum(pattern_counts.values())
-                                logging.info(f"Dataset generato: {Fore.GREEN}{total_records}{Style.RESET_ALL} record in "
-                                           f"{Fore.CYAN}{total_patterns}{Style.RESET_ALL} categorie per {Fore.YELLOW}{sym}{Style.RESET_ALL}")
-                            else:
-                                logging.warning(f"Nessun dataset generato per {sym} ({timeframe})")
-                        except Exception as e:
-                            logging.error(f"Errore nella generazione del dataset per {sym} ({timeframe}): {e}")
         else:
             logging.info(f"{Fore.YELLOW}Modalità parallela attivata. Concorrenza massima per simbolo: {args.concurrency}{Style.RESET_ALL}")
             timeframe_tasks = []
@@ -286,61 +263,35 @@ async def real_time_update(args):
                     if not args.no_ta:
                         await compute_and_save_indicators(sym, tf)
                     
-                    # Genera dataset per il machine learning supervisionato
-                    logging.info(f"Generazione dataset di ML per {Fore.YELLOW}{sym}{Style.RESET_ALL} ({tf})")
-                    try:
-                        output_dir = "datasets"
-                        pattern_counts = export_supervised_training_data(
-                            symbol=sym,
-                            timeframe=tf,
-                            output_dir=output_dir,
-                            window_size=7,  # default: finestra di 7 valori
-                            threshold=0.0   # default: soglia a 0.0
-                        )
-                        
-                        # Log dei risultati
-                        if pattern_counts:
-                            total_patterns = len(pattern_counts)
-                            total_records = sum(pattern_counts.values())
-                            logging.info(f"Dataset generato: {Fore.GREEN}{total_records}{Style.RESET_ALL} record in "
-                                       f"{Fore.CYAN}{total_patterns}{Style.RESET_ALL} categorie per {Fore.YELLOW}{sym}{Style.RESET_ALL}")
-                        else:
-                            logging.warning(f"Nessun dataset generato per {sym} ({tf})")
-                    except Exception as e:
-                        logging.error(f"Errore nella generazione del dataset per {sym} ({tf}): {e}")
         
-        # Generate ML dataset (now by default unless --no-ml is specified)
-        # Check if any new volatility data was saved or if force regeneration is requested
-        has_new_data = any(res["completati"] > 0 for _, res in all_timeframe_results.items())
-        if not args.no_ml and (has_new_data or args.force_ml):
-            if has_new_data:
-                logging.info(f"{Fore.YELLOW}Generating ML dataset with new volatility data{Style.RESET_ALL}")
-            elif args.force_ml:
-                logging.info(f"{Fore.YELLOW}Forcing ML dataset regeneration as requested with --force-ml{Style.RESET_ALL}")
+        # 🆕 GENERAZIONE DATASET ML (se richiesto)
+        if args.generate_ml_datasets and not args.no_ml:
+            logging.info(f"{Fore.YELLOW}🤖 Generazione dataset ML abilitata{Style.RESET_ALL}")
             
-            # Process each symbol and timeframe to generate the merged ML dataset
+            # Process each symbol and timeframe
             for sym in top_symbols:
                 for tf in args.timeframes:
                     try:
-                        # Generate full ML dataset with merged data
-                        logging.info(f"Generating merged ML dataset for {Fore.YELLOW}{sym}{Style.RESET_ALL} ({tf})")
+                        logging.info(f"Generazione merged.csv per {Fore.YELLOW}{sym}{Style.RESET_ALL} ({tf})")
                         
-                        await generate_full_ml_dataset(
+                        success = generate_dataset_for_symbol(
                             symbol=sym,
-                            timeframe=tf,
-                            window_size=7,  # Use default window size
-                            force=args.force_ml,
-                            filter_flat_patterns=False  # Keep all patterns by default
+                            timeframe=tf, 
+                            force=args.force_ml_dataset
                         )
                         
-
-                        
+                        if success:
+                            logging.info(f"{Fore.GREEN}✅ Dataset generato per {sym} ({tf}){Style.RESET_ALL}")
+                        else:
+                            logging.error(f"{Fore.RED}❌ Errore generazione dataset per {sym} ({tf}){Style.RESET_ALL}")
+                            
                     except Exception as e:
-                        logging.error(f"Error generating merged ML dataset for {sym} ({tf}): {e}")
-                        import traceback
-                        logging.error(traceback.format_exc())
-        elif not args.no_ml:
-            logging.info(f"{Fore.YELLOW}No new volatility data found, skipping ML dataset generation. Use --force-ml to regenerate.{Style.RESET_ALL}")
+                        logging.error(f"{Fore.RED}Errore generazione dataset {sym} ({tf}): {e}{Style.RESET_ALL}")
+                        
+        elif args.generate_ml_datasets and args.no_ml:
+            logging.warning(f"{Fore.YELLOW}⚠️  --generate-ml-datasets ignorato perché --no-ml è attivo{Style.RESET_ALL}")
+        else:
+            logging.info(f"{Fore.CYAN}📊 Generazione dataset ML disabilitata (usa --generate-ml-datasets per abilitare){Style.RESET_ALL}")
 
         # Calcola il tempo totale di esecuzione
         end_time = datetime.now()
@@ -386,7 +337,7 @@ def display_update_results(results):
     print(f"{Back.GREEN}{Fore.BLACK}  RESOCONTO AGGIORNAMENTO COMPLETATO  {Style.RESET_ALL}")
     print("="*80)
     print(f"  • Database: {Fore.BLUE}{os.path.abspath(DB_FILE)}{Style.RESET_ALL}")
-    print(f"  • Dataset ML: {Fore.BLUE}{os.path.abspath('datasets')}{Style.RESET_ALL}")
+    print(f"  • Dataset ML: {Fore.BLUE}{os.path.abspath('ml_datasets')}{Style.RESET_ALL}")
     print(f"  • Tempo esecuzione: {Fore.CYAN}{time_str}{Style.RESET_ALL}")
     print()
     
@@ -435,8 +386,13 @@ async def main():
     if not args.sequential:
         print(f"  • Concorrenza: {Fore.YELLOW}{args.concurrency}{Style.RESET_ALL} download paralleli per batch")
     print(f"  • Finestra ML: {Fore.MAGENTA}7{Style.RESET_ALL} valori (pattern a 7 bit)")
-    print(f"  • Output dataset: {Fore.BLUE}{os.path.abspath('datasets')}{Style.RESET_ALL}")
-    print(f"  • ML dataset: {'Disattivato' if args.no_ml else 'Attivato'} {Fore.YELLOW}(usa --no-ml per disattivare){Style.RESET_ALL}")
+    print(f"  • Output dataset: {Fore.BLUE}{os.path.abspath('ml_datasets')}{Style.RESET_ALL}")
+    ml_status = "Disattivato (--no-ml)" if args.no_ml else ("Abilitato (--generate-ml-datasets)" if args.generate_ml_datasets else "Disabilitato")
+    ml_color = Fore.RED if args.no_ml else (Fore.GREEN if args.generate_ml_datasets else Fore.YELLOW)
+    print(f"  • Generazione ML datasets: {ml_color}{ml_status}{Style.RESET_ALL}")
+    if args.generate_ml_datasets:
+        force_status = "Sì" if args.force_ml_dataset else "No"
+        print(f"  • Forza rigenerazione: {Fore.CYAN}{force_status}{Style.RESET_ALL}")
     validation_status = "Saltata (--skip-validation)" if args.skip_validation else "Sempre attiva (controllo qualità e auto-riparazione)"
     validation_color = Fore.YELLOW if args.skip_validation else Fore.GREEN
     print(f"  • Validazione dati: {validation_color}{validation_status}{Style.RESET_ALL}")

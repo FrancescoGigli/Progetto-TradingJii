@@ -347,6 +347,20 @@ def generate_merged_dataset(symbol: str, timeframe: str, window_size: int = 7, f
     
     return True
 
+def generate_dataset_for_symbol(symbol: str, timeframe: str, force: bool = False) -> bool:
+    """
+    Wrapper function for integration with real_time.py
+    
+    Args:
+        symbol: The cryptocurrency symbol
+        timeframe: The timeframe (e.g., "1h", "4h") 
+        force: Whether to overwrite existing files
+        
+    Returns:
+        Boolean indicating success
+    """
+    return generate_merged_dataset(symbol, timeframe, window_size=7, force=force)
+
 def main():
     """Main function."""
     args = parse_arguments()
