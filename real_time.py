@@ -44,6 +44,71 @@ if sys.platform.startswith('win'):
 # Intervallo di aggiornamento in secondi (default: 5 minuti)
 UPDATE_INTERVAL = 5 * 60
 
+async def catch_up_missing_indicators(symbols, timeframes):
+    """
+    Controlla e calcola gli indicatori tecnici mancanti per tutti i simboli.
+    
+    Questo risolve il problema dei simboli "vecchi" che hanno dati OHLCV
+    ma non hanno indicatori tecnici nelle tabelle ta_<timeframe>.
+    
+    Args:
+        symbols: Lista di simboli da controllare
+        timeframes: Lista di timeframe da processare
+    """
+    import sqlite3
+    from modules.utils.config import DB_FILE
+    
+    logging.info(f"{Fore.CYAN}🔍 Controllo indicatori mancanti per {len(symbols)} simboli su {len(timeframes)} timeframe...{Style.RESET_ALL}")
+    
+    symbols_processed = 0
+    symbols_with_missing_ta = 0
+    
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            
+            for tf in timeframes:
+                data_table = f"data_{tf}"
+                ta_table = f"ta_{tf}"
+                
+                for symbol in symbols:
+                    try:
+                        # Controlla se ci sono dati OHLCV senza corrispondenti TA
+                        query = f"""
+                            SELECT COUNT(*) as missing_count
+                            FROM {data_table} d
+                            LEFT JOIN {ta_table} t ON d.symbol = t.symbol AND d.timestamp = t.timestamp  
+                            WHERE d.symbol = ? AND t.timestamp IS NULL
+                        """
+                        cursor.execute(query, (symbol,))
+                        missing_count = cursor.fetchone()[0]
+                        
+                        if missing_count > 0:
+                            logging.info(f"{Fore.YELLOW}📊 {symbol} ({tf}): {missing_count} indicatori mancanti{Style.RESET_ALL}")
+                            symbols_with_missing_ta += 1
+                            
+                            # Calcola gli indicatori mancanti
+                            success = await compute_and_save_indicators(symbol, tf)
+                            if success:
+                                logging.info(f"{Fore.GREEN}✅ {symbol} ({tf}): indicatori calcolati{Style.RESET_ALL}")
+                            else:
+                                logging.warning(f"{Fore.RED}❌ {symbol} ({tf}): errore nel calcolo indicatori{Style.RESET_ALL}")
+                        
+                        symbols_processed += 1
+                        
+                    except Exception as e:
+                        logging.error(f"{Fore.RED}Errore controllo {symbol} ({tf}): {e}{Style.RESET_ALL}")
+        
+        if symbols_with_missing_ta > 0:
+            logging.info(f"{Fore.GREEN}🎯 Catch-up completato: {symbols_with_missing_ta}/{symbols_processed} simboli con indicatori mancanti processati{Style.RESET_ALL}")
+        else:
+            logging.info(f"{Fore.CYAN}✨ Tutti i simboli hanno indicatori tecnici aggiornati!{Style.RESET_ALL}")
+            
+    except Exception as e:
+        logging.error(f"{Fore.RED}Errore durante catch-up indicatori: {e}{Style.RESET_ALL}")
+        import traceback
+        logging.error(traceback.format_exc())
+
 async def real_time_update(args):
     """
     Esegue un singolo ciclo di aggiornamento dati.
@@ -204,6 +269,11 @@ async def real_time_update(args):
                     logging.error(f"Error generating validation charts: {e}")
         else:
             logging.info(f"{Fore.YELLOW}🔍 Data validation skipped (--skip-validation flag used){Style.RESET_ALL}")
+        
+        # 🆕 CATCH-UP: Controlla e calcola TA mancanti per tutti i simboli
+        if not args.no_ta:
+            logging.info(f"{Fore.YELLOW}🔧 Controllo indicatori tecnici mancanti per tutti i simboli...{Style.RESET_ALL}")
+            await catch_up_missing_indicators(top_symbols, args.timeframes)
         
         # Elabora la volatilità per i simboli completati in tutti i timeframe
         for tf, res in all_timeframe_results.items():
