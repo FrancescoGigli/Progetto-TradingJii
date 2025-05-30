@@ -20,7 +20,7 @@ API_SECRET = os.environ.get('BYBIT_API_SECRET', '')
 DB_FILE = 'crypto_data.db'
 
 # Default values
-DEFAULT_TOP_SYMBOLS = 100
+DEFAULT_TOP_SYMBOLS = 10
 DEFAULT_DAYS = 600  # Optimized for technical indicators (EMA200 needs ~33 days for 4h timeframe)
 DEFAULT_TIMEFRAMES = ['1h', '4h']
 DEFAULT_BATCH_SIZE = 25
@@ -52,6 +52,106 @@ TIMEFRAME_CONFIG = {
     '1h': {'max_age': timedelta(hours=4), 'ms': 60 * 60 * 1000},
     '4h': {'max_age': timedelta(hours=12), 'ms': 4 * 60 * 60 * 1000},
     '1d': {'max_age': timedelta(days=2), 'ms': 24 * 60 * 60 * 1000}
+}
+
+# Real-Time System Configuration
+REALTIME_CONFIG = {
+    # Aggiornamento automatico
+    'update_interval_seconds': 300,  # 5 minuti (300 secondi)
+    'max_iterations': None,  # None = infinito, numero = limite iterazioni
+    
+    # Criptovalute da monitorare
+    'num_symbols': 25,  # Numero di top simboli per volume
+    'specific_symbols': [  # Lista specifica di simboli (opzionale)
+        'BTC/USDT:USDT',
+        'ETH/USDT:USDT', 
+        'SOL/USDT:USDT',
+        'ADA/USDT:USDT',
+        'AVAX/USDT:USDT',
+        'LINK/USDT:USDT',
+        'UNI/USDT:USDT',
+        'DOGE/USDT:USDT',
+        'XRP/USDT:USDT',
+        'SUI/USDT:USDT'
+    ],
+    'use_specific_symbols': False,  # True = usa specific_symbols, False = usa top N per volume
+    
+    # Timeframes da processare
+    'timeframes': ['1h', '4h'],  # Lista dei timeframes da scaricare
+    'days_back': 365,  # Giorni di storico da scaricare
+    
+    # Performance e concorrenza
+    'batch_size': 15,  # Dimensione batch per download
+    'concurrency': 6,  # Numero download paralleli per batch
+    'sequential_mode': False,  # True = sequenziale, False = parallelo
+    
+    # Funzionalità avanzate
+    'enable_technical_analysis': True,  # Calcola indicatori tecnici
+    'enable_ml_datasets': True,  # Genera dataset ML automaticamente
+    'force_ml_regeneration': False,  # Forza rigenerazione dataset ML
+    'enable_data_validation': True,  # Validazione e riparazione dati
+    'export_validation_reports': False,  # Export report validazione CSV
+    'generate_validation_charts': False,  # Genera grafici validazione
+    
+    # Notifiche e logging
+    'log_level': 'INFO',  # DEBUG, INFO, WARNING, ERROR
+    'enable_startup_banner': True,  # Mostra banner di avvio
+    'enable_progress_display': True,  # Mostra progress dettagliato
+    
+    # Controlli di sicurezza
+    'max_download_retries': 3,  # Numero massimo retry per download falliti
+    'api_rate_limit_delay': 1.0,  # Delay tra chiamate API (secondi)
+    'emergency_stop_file': '.stop_realtime',  # File per stop di emergenza
+}
+
+# Training System Configuration  
+TRAINING_CONFIG = {
+    # Modelli disponibili
+    'available_models': [
+        'RandomForest',
+        'XGBoost', 
+        'LightGBM',
+        'MLP'
+    ],
+    
+    # Configurazione modelli di default
+    'model_params': {
+        'RandomForest': {
+            'n_estimators': 100,
+            'random_state': 42,
+            'n_jobs': -1
+        },
+        'XGBoost': {
+            'random_state': 42,
+            'eval_metric': 'mlogloss',
+            'verbosity': 0
+        },
+        'LightGBM': {
+            'random_state': 42,
+            'verbose': -1,
+            'force_row_wise': True
+        },
+        'MLP': {
+            'hidden_layer_sizes': (100, 50),
+            'max_iter': 500,
+            'random_state': 42,
+            'early_stopping': True,
+            'validation_fraction': 0.1
+        }
+    },
+    
+    # Configurazione training
+    'train_test_split': 0.8,  # 80% training, 20% test
+    'temporal_split': True,  # Split temporale (non random)
+    'enable_preprocessing': True,  # Preprocessing avanzato
+    'enable_feature_engineering': True,  # Feature engineering
+    'log_training_to_file': True,  # Salva log training su file
+    
+    # Output e report
+    'models_dir': 'models',
+    'reports_dir': 'ml_system/reports/training',
+    'enable_model_comparison': True,
+    'save_feature_importance': True,
 }
 
 # Technical Analysis Parameters
