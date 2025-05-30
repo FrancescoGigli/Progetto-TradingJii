@@ -68,7 +68,7 @@ async def generate_full_ml_dataset(
         logging.info(f"{Fore.YELLOW}Dataset already exists at {output_file}. Use force=True to regenerate.{Style.RESET_ALL}")
         return True
     
-    logging.info(f"{Fore.GREEN}Generating full ML dataset for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe}){Style.RESET_ALL}")
+    logging.info(f"{Fore.GREEN}Generating dataset for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe}){Style.RESET_ALL}")
     logging.debug(f"Window size: {window_size}, Output: {output_file}")
     
     # Step 1: Load volatility series
@@ -79,7 +79,7 @@ async def generate_full_ml_dataset(
         return False
     
     total_volatility_records = len(volatility_data)
-    logging.info(f"Loaded {Fore.GREEN}{total_volatility_records}{Style.RESET_ALL} volatility records")
+    logging.info(f"Loaded {total_volatility_records} price records")
     
     # Step 2: Generate sliding windows for patterns and targets
     patterns_df = generate_pattern_windows(volatility_data, window_size, filter_flat_patterns)
@@ -89,15 +89,16 @@ async def generate_full_ml_dataset(
         return False
     
     total_records = len(patterns_df)
-    logging.debug(f"Generated {total_records} pattern windows")
+    logging.info(f"Created {total_records} feature records")
     
-    # Step 3: Load technical indicators for the timestamps in patterns_df
+    # Step 3: Load technical indicators for this symbol/timeframe
     indicators_df = load_technical_indicators(symbol, timeframe, patterns_df['timestamp'].tolist())
     
     # If no indicators are available, warn but continue with just volatility data
     if indicators_df.empty:
         logging.warning(f"No technical indicators found for {symbol} ({timeframe})")
-        logging.warning(f"Proceeding with volatility-only dataset (without technical indicators)")
+        logging.warning(f"No technical indicators found for {symbol} ({timeframe})")
+        logging.warning(f"Proceeding with volatility-only dataset")
         merged_df = patterns_df.copy()  # Use only the pattern data
     else:
         logging.debug(f"Loaded {len(indicators_df)} technical indicator records")
@@ -119,21 +120,21 @@ async def generate_full_ml_dataset(
                        f"while there are {total_volatility_records} volatility records available. "
                        f"This might indicate issues with technical indicators.{Style.RESET_ALL}")
     
+    # Add labels
+    merged_df = add_labels(merged_df)
+    
     # Save the dataset
     merged_df.to_csv(output_file, index=False)
     
-    # Log summary
-    logging.info(f"{Fore.GREEN}=== DATASET GENERATION SUMMARY ==={Style.RESET_ALL}")
-    logging.info(f"Total records processed: {Fore.CYAN}{total_records}{Style.RESET_ALL}")
-    logging.info(f"Records retained: {Fore.GREEN}{records_retained}{Style.RESET_ALL}")
-    logging.info(f"Records dropped: {Fore.YELLOW}{records_dropped}{Style.RESET_ALL}")
-    logging.info(f"Retention rate: {Fore.GREEN}{retention_rate:.2f}%{Style.RESET_ALL}")
+    # Count labels
+    label_counts = merged_df['y_class'].value_counts().sort_index()
+    logging.info("Label distribution:")
+    for label, count in label_counts.items():
+        label_name = "SELL" if label == 0 else "BUY"
+        percentage = (count / len(merged_df)) * 100
+        logging.info(f"  {label_name} ({label}): {count} ({percentage:.1f}%)")
     
-    if retention_rate < 95:
-        logging.warning(f"{Fore.YELLOW}Retention rate is below 95% ({retention_rate:.2f}%). "
-                       f"Check for missing technical indicators or NaN values.{Style.RESET_ALL}")
-    
-    logging.info(f"Dataset saved to: {Fore.MAGENTA}{output_file}{Style.RESET_ALL}")
+    logging.info(f"Saved dataset: {output_file} ({records_retained} records)")
     
     return True
 
@@ -257,56 +258,41 @@ def load_technical_indicators(symbol: str, timeframe: str, timestamps: List[str]
     table_name = f"ta_{timeframe}"
     
     try:
-        # Process in batches to avoid SQLite parameter limit
-        batch_size = 500  # SQLite typically has a limit of 999 parameters
-        all_results = []
-        
-        for i in range(0, len(timestamps), batch_size):
-            batch_timestamps = timestamps[i:i+batch_size]
+        with sqlite3.connect(DB_FILE) as conn:
+            # First, check if there are any indicators for this symbol
+            check_query = f"SELECT COUNT(*) FROM {table_name} WHERE symbol = ?"
+            cursor = conn.cursor()
+            cursor.execute(check_query, (symbol,))
+            total_indicators = cursor.fetchone()[0]
             
-            with sqlite3.connect(DB_FILE) as conn:
-                # Use a more efficient approach for large timestamp lists
-                # Create a temporary table to hold timestamps
-                temp_table = f"temp_timestamps_{timeframe}"
-                conn.execute(f"CREATE TEMP TABLE IF NOT EXISTS {temp_table} (ts TEXT)")
-                
-                # Insert timestamps into temporary table
-                conn.executemany(
-                    f"INSERT INTO {temp_table} VALUES (?)", 
-                    [(ts,) for ts in batch_timestamps]
-                )
-                
-                # Join with technical indicators table
-                query = f"""
-                    SELECT t.*
-                    FROM {table_name} t
-                    JOIN {temp_table} tmp ON t.timestamp = tmp.ts
-                    WHERE t.symbol = ?
-                """
-                
-                batch_df = pd.read_sql_query(query, conn, params=(symbol,))
-                
-                # Clean up temporary table
-                conn.execute(f"DELETE FROM {temp_table}")
-                
-                if not batch_df.empty:
-                    all_results.append(batch_df)
-        
-        # Combine all batches
-        if all_results:
-            df = pd.concat(all_results, ignore_index=True)
+            if total_indicators == 0:
+                logging.warning(f"No technical indicators found in database for {symbol} ({timeframe})")
+                return pd.DataFrame()
             
-            # The id, symbol columns are not needed for the final dataset
+            logging.debug(f"Found {total_indicators} total indicators for {symbol} ({timeframe})")
+            
+            # Load ALL indicators for this symbol and timeframe (simpler and more reliable)
+            query = f"""
+                SELECT *
+                FROM {table_name}
+                WHERE symbol = ?
+                ORDER BY timestamp ASC
+            """
+            
+            df = pd.read_sql_query(query, conn, params=(symbol,))
+            
+            if df.empty:
+                logging.warning(f"No technical indicators loaded for {symbol} ({timeframe})")
+                return pd.DataFrame()
+            
+            # Remove id and symbol columns as they're not needed for ML
             if 'id' in df.columns:
                 df = df.drop('id', axis=1)
-            
             if 'symbol' in df.columns:
                 df = df.drop('symbol', axis=1)
             
+            logging.debug(f"Successfully loaded {len(df)} technical indicators for {symbol} ({timeframe})")
             return df
-        else:
-            logging.warning(f"No technical indicators found for {symbol} ({timeframe}) for the requested timestamps")
-            return pd.DataFrame()
             
     except Exception as e:
         logging.error(f"Error loading technical indicators for {symbol} ({timeframe}): {e}")
@@ -364,6 +350,18 @@ def merge_patterns_with_indicators(patterns_df: pd.DataFrame, indicators_df: pd.
         logging.warning(f"{Fore.YELLOW}Dropped {dropped_rows} rows due to NaN values ({dropped_rows/rows_before:.2%} of total){Style.RESET_ALL}")
     
     return merged_df
+
+def add_labels(df: pd.DataFrame) -> pd.DataFrame:
+    """Add binary classification labels based on volatility thresholds."""
+    if 'y' not in df.columns:
+        return df
+    
+    df = df.copy()
+    
+    # Create binary labels: 1 for BUY (high volatility), 0 for SELL (low volatility)
+    df['y_class'] = (df['y'] > BUY_THRESHOLD).astype(int)
+    
+    return df
 
 if __name__ == "__main__":
     # Set up logging

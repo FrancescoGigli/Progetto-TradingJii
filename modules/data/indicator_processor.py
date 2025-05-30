@@ -200,6 +200,7 @@ def init_indicator_tables(timeframes):
 def load_ohlcv_data(symbol: str, timeframe: str) -> pd.DataFrame:
     """
     Load historical OHLCV data for a specific symbol and timeframe from the database.
+    Automatically checks coverage and triggers full recalculation if needed.
     
     Args:
         symbol: Cryptocurrency symbol
@@ -213,37 +214,79 @@ def load_ohlcv_data(symbol: str, timeframe: str) -> pd.DataFrame:
     
     try:
         with sqlite3.connect(DB_FILE) as conn:
-            # Query to get only data that hasn't been processed yet
-            query = f"""
-                SELECT d.timestamp, d.open, d.high, d.low, d.close, d.volume
-                FROM {table_name} d
-                LEFT JOIN {ta_table_name} t ON d.symbol = t.symbol AND d.timestamp = t.timestamp
-                WHERE d.symbol = ? AND t.timestamp IS NULL
-                ORDER BY d.timestamp ASC
-            """
+            cursor = conn.cursor()
             
-            # If we need a specific lookback period for SMA, EMA calculation, adjust the query
-            # This is for cases where we need data outside the DATA_NOT_IN_TA range
-            # Get parameters from the config
-            lookback = _get_longest_lookback_period()
-            if lookback > 0:
-                # Get additional lookback data to ensure proper calculation
+            # Check indicator coverage first
+            cursor.execute(f"SELECT COUNT(*) FROM {ta_table_name} WHERE symbol = ?", (symbol,))
+            existing_indicators = cursor.fetchone()[0]
+            
+            cursor.execute(f"SELECT COUNT(*) FROM {table_name} WHERE symbol = ?", (symbol,))
+            total_data = cursor.fetchone()[0]
+            
+            if total_data == 0:
+                logging.info(f"No data available for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe})")
+                return pd.DataFrame()
+            
+            coverage_ratio = existing_indicators / total_data
+            
+            # If coverage is very low, trigger full recalculation
+            if coverage_ratio < 0.1:
+                logging.info(f"🔧 Low indicator coverage ({coverage_ratio:.1%}) detected for {symbol} ({timeframe}) - loading ALL data for recalculation")
+                
+                # Clear existing indicators
+                cursor.execute(f"DELETE FROM {ta_table_name} WHERE symbol = ?", (symbol,))
+                conn.commit()
+                
+                # Load ALL data for complete recalculation
                 query = f"""
-                    SELECT d.timestamp, d.open, d.high, d.low, d.close, d.volume
-                    FROM {table_name} d
-                    WHERE d.symbol = ?
-                    ORDER BY d.timestamp ASC
-                    LIMIT -1 OFFSET (
-                        SELECT MAX(0, (SELECT COUNT(*) FROM {table_name} WHERE symbol = ?) - (
-                            SELECT COUNT(*) 
-                            FROM {ta_table_name} 
-                            WHERE symbol = ?
-                        ) - {lookback})
-                    )
+                    SELECT timestamp, open, high, low, close, volume
+                    FROM {table_name}
+                    WHERE symbol = ?
+                    ORDER BY timestamp ASC
                 """
-                df = pd.read_sql_query(query, conn, params=(symbol, symbol, symbol))
-            else:
                 df = pd.read_sql_query(query, conn, params=(symbol,))
+                
+                if not df.empty:
+                    logging.info(f"📊 Loaded {len(df)} records for complete indicator recalculation")
+                
+            else:
+                # Normal incremental update - only missing data with lookback
+                logging.debug(f"✅ Good coverage ({coverage_ratio:.1%}) - performing incremental update")
+                
+                # Get the latest timestamp with indicators
+                cursor.execute(f"SELECT MAX(timestamp) FROM {ta_table_name} WHERE symbol = ?", (symbol,))
+                latest_indicator_ts = cursor.fetchone()[0]
+                
+                lookback = _get_longest_lookback_period()
+                
+                if latest_indicator_ts and lookback > 0:
+                    # Include sufficient lookback data for proper calculation
+                    if timeframe == '1h':
+                        lookback_hours = lookback
+                    elif timeframe == '4h':
+                        lookback_hours = lookback * 4
+                    elif timeframe == '1d':
+                        lookback_hours = lookback * 24
+                    else:
+                        lookback_hours = lookback
+                    
+                    query = f"""
+                        SELECT timestamp, open, high, low, close, volume
+                        FROM {table_name}
+                        WHERE symbol = ? AND timestamp >= datetime(?, '-{lookback_hours} hours')
+                        ORDER BY timestamp ASC
+                    """
+                    df = pd.read_sql_query(query, conn, params=(symbol, latest_indicator_ts))
+                else:
+                    # Get all missing data
+                    query = f"""
+                        SELECT d.timestamp, d.open, d.high, d.low, d.close, d.volume
+                        FROM {table_name} d
+                        LEFT JOIN {ta_table_name} t ON d.symbol = t.symbol AND d.timestamp = t.timestamp
+                        WHERE d.symbol = ? AND t.timestamp IS NULL
+                        ORDER BY d.timestamp ASC
+                    """
+                    df = pd.read_sql_query(query, conn, params=(symbol,))
             
             if df.empty:
                 logging.info(f"No new data to process for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe})")
@@ -540,6 +583,52 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
         logging.error(traceback.format_exc())
         return pd.DataFrame()
 
+def _check_indicator_coverage(symbol: str, timeframe: str) -> bool:
+    """
+    Check if indicator coverage is adequate and trigger full recalculation if needed.
+    
+    Args:
+        symbol: Cryptocurrency symbol
+        timeframe: Timeframe (e.g., '1h')
+        
+    Returns:
+        Boolean indicating if full recalculation is needed
+    """
+    table_name = f"data_{timeframe}"
+    ta_table_name = f"ta_{timeframe}"
+    
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            
+            # Get counts
+            cursor.execute(f"SELECT COUNT(*) FROM {ta_table_name} WHERE symbol = ?", (symbol,))
+            existing_indicators = cursor.fetchone()[0]
+            
+            cursor.execute(f"SELECT COUNT(*) FROM {table_name} WHERE symbol = ?", (symbol,))
+            total_data = cursor.fetchone()[0]
+            
+            if total_data == 0:
+                return False  # No data, no recalculation needed
+            
+            coverage_ratio = existing_indicators / total_data
+            
+            # If coverage is less than 10%, trigger full recalculation
+            if coverage_ratio < 0.1:
+                logging.info(f"Low indicator coverage ({coverage_ratio:.1%}) detected for {symbol} ({timeframe}) - triggering full recalculation")
+                
+                # Clear existing indicators for clean recalculation
+                cursor.execute(f"DELETE FROM {ta_table_name} WHERE symbol = ?", (symbol,))
+                conn.commit()
+                
+                return True
+            
+            return False
+            
+    except Exception as e:
+        logging.error(f"{Fore.RED}Error checking indicator coverage for {symbol} ({timeframe}): {e}{Style.RESET_ALL}")
+        return False
+
 def save_indicators(symbol: str, timeframe: str, df: pd.DataFrame) -> bool:
     """
     Save calculated indicators to the database.
@@ -604,14 +693,22 @@ async def compute_and_save_indicators(symbol: str, timeframe: str) -> bool:
         
         logging.info(f"Computing indicators for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe})")
         
-        # 1. Load OHLCV data from database
+        # 1. Check indicator coverage and determine if full recalculation is needed
+        needs_full_recalc = _check_indicator_coverage(symbol, timeframe)
+        
+        # 2. Load OHLCV data from database (now coverage-aware)
         ohlcv_df = load_ohlcv_data(symbol, timeframe)
         
         if ohlcv_df.empty:
-            logging.info(f"No new data for {symbol} ({timeframe}) that needs indicators")
-            return True  # Nothing to do, but not an error
+            if not needs_full_recalc:
+                logging.info(f"No new data for {symbol} ({timeframe}) that needs indicators")
+                return True  # Nothing to do, but not an error
+            else:
+                logging.warning(f"Low coverage detected but no data available for {symbol} ({timeframe})")
+                return False
         
-        logging.info(f"Processing {Fore.GREEN}{len(ohlcv_df)}{Style.RESET_ALL} new candles for {Fore.YELLOW}{symbol}{Style.RESET_ALL}")
+        update_type = "FULL RECALC" if needs_full_recalc else "INCREMENTAL"
+        logging.info(f"Processing {Fore.GREEN}{len(ohlcv_df)}{Style.RESET_ALL} ({update_type}) candles for {Fore.YELLOW}{symbol}{Style.RESET_ALL}")
         
         # 2. Calculate indicators
         indicators_df = calculate_indicators(ohlcv_df)
