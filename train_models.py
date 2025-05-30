@@ -12,6 +12,7 @@ Features:
 4. Trains binary models with class_weight='balanced'
 5. Saves best model as best_binary_model.pkl
 6. Maintains existing preprocessing & feature engineering
+7. Auto-training on all available datasets when no arguments provided
 """
 
 import os
@@ -94,6 +95,27 @@ def print_warning(message: str) -> None:
 def print_error(message: str) -> None:
     """Print error message."""
     print(f"{Fore.RED}❌ {message}{Style.RESET_ALL}")
+
+def discover_available_datasets() -> List[Tuple[str, str]]:
+    """Discover all available symbol/timeframe combinations."""
+    ml_datasets_path = Path("ml_datasets")
+    combinations = []
+    
+    if not ml_datasets_path.exists():
+        print_warning("ml_datasets directory not found")
+        return combinations
+    
+    for symbol_dir in ml_datasets_path.iterdir():
+        if symbol_dir.is_dir():
+            symbol = symbol_dir.name
+            for timeframe_dir in symbol_dir.iterdir():
+                if timeframe_dir.is_dir():
+                    timeframe = timeframe_dir.name
+                    merged_file = timeframe_dir / "merged.csv"
+                    if merged_file.exists():
+                        combinations.append((symbol, timeframe))
+    
+    return combinations
 
 def create_output_directories() -> None:
     """Create necessary output directories."""
@@ -434,14 +456,66 @@ def generate_training_report(symbol: str, timeframe: str, results: Dict[str, Any
         fi_df.to_csv(fi_file, index=False)
         print_success(f"Feature importance saved: {fi_file}")
 
+def train_single_combination(symbol: str, timeframe: str, models: List[str],
+                           mapping: str, use_smote: bool) -> bool:
+    """Train models for a single symbol/timeframe combination."""
+    try:
+        print_header(f"🎯 TRAINING: {symbol} ({timeframe})", Fore.BLUE)
+        
+        # Load and prepare binary dataset
+        X, y, conversion_info = load_and_prepare_binary_dataset(
+            symbol, timeframe, mapping, use_smote
+        )
+        
+        # Apply preprocessing pipeline
+        print_step("PREPROCESSING", "Applying advanced preprocessing pipeline")
+        preprocessor = AdvancedPreprocessor(get_preprocessing_config())
+        X_processed = preprocessor.fit_transform(X, y)
+        print_success(f"Preprocessing: {X.shape} -> {X_processed.shape}")
+        
+        # Apply feature engineering
+        print_step("FEATURE ENGINEERING", "Applying feature engineering")
+        feature_engineer = AdvancedFeatureEngineer(get_feature_engineering_config())
+        X_final = feature_engineer.fit_transform(X_processed)
+        print_success(f"Feature engineering: {X_processed.shape} -> {X_final.shape}")
+        
+        # Train models
+        results = {}
+        for model_name in models:
+            result = train_binary_model(X_final, y, model_name, conversion_info)
+            results[model_name] = result
+        
+        # Select best model
+        best_model_name, best_result = select_best_binary_model(results)
+        
+        # Save model bundle
+        model_file = save_binary_model_bundle(
+            symbol, timeframe, best_result, 
+            preprocessor, feature_engineer
+        )
+        
+        # Generate reports
+        generate_training_report(symbol, timeframe, results, best_result)
+        
+        print_header(f"✅ {symbol} ({timeframe}) COMPLETED", Fore.GREEN)
+        print(f"Best Model: {Fore.YELLOW}{best_model_name}{Style.RESET_ALL}")
+        print(f"CV ROC-AUC: {Fore.GREEN}{best_result['cv_scores']['roc_auc']['mean']:.4f} ± {best_result['cv_scores']['roc_auc']['std']:.4f}{Style.RESET_ALL}")
+        
+        return True
+        
+    except Exception as e:
+        print_error(f"Training failed for {symbol} ({timeframe}): {str(e)}")
+        return False
+
 def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="TradingJii Binary Classification Training")
     
-    parser.add_argument('--symbol', '-s', type=str, required=True,
-                       help='Trading symbol')
-    parser.add_argument('--timeframe', '-t', type=str, required=True,
-                       choices=['1h', '4h', '1d'], help='Timeframe')
+    parser.add_argument('--symbol', '-s', type=str, 
+                       help='Trading symbol (if not specified, trains on all available)')
+    parser.add_argument('--timeframe', '-t', type=str,
+                       choices=['1h', '4h', '1d'], 
+                       help='Timeframe (if not specified, trains on all available)')
     parser.add_argument('--models', '-m', nargs='+',
                        choices=['RandomForest', 'XGBoost', 'LightGBM', 'MLP'],
                        default=['RandomForest', 'XGBoost', 'LightGBM'],
@@ -462,59 +536,75 @@ def main():
     logger = setup_logging(logging.INFO)
     create_output_directories()
     
+    # Determine combinations to train
+    if args.symbol and args.timeframe:
+        # Train specific combination
+        combinations = [(args.symbol, args.timeframe)]
+        mode = "SPECIFIC"
+    elif args.symbol:
+        # Train specific symbol, all timeframes
+        available = discover_available_datasets()
+        combinations = [(s, t) for s, t in available if s == args.symbol]
+        mode = f"SYMBOL: {args.symbol}"
+    elif args.timeframe:
+        # Train specific timeframe, all symbols
+        available = discover_available_datasets()
+        combinations = [(s, t) for s, t in available if t == args.timeframe]
+        mode = f"TIMEFRAME: {args.timeframe}"
+    else:
+        # Train all available combinations
+        combinations = discover_available_datasets()
+        mode = "ALL AVAILABLE"
+    
+    if not combinations:
+        print_error("No datasets found to train on!")
+        print_warning("Make sure to generate ML datasets first:")
+        print_warning("python real_time.py --timeframes 1h --generate-ml-datasets")
+        sys.exit(1)
+    
     print_header("🚀 TRADINGJII BINARY CLASSIFICATION TRAINING 🚀", Fore.BLUE)
-    print(f"{Fore.CYAN}Symbol: {args.symbol}")
-    print(f"Timeframe: {args.timeframe}")
+    print(f"{Fore.CYAN}Training Mode: {mode}")
+    print(f"Combinations to train: {len(combinations)}")
     print(f"Models: {', '.join(args.models)}")
     print(f"Mapping Strategy: {args.mapping}")
     print(f"SMOTE: {'Disabled' if args.no_smote else 'Enabled'}")
     print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
     
-    try:
-        # Load and prepare binary dataset
-        X, y, conversion_info = load_and_prepare_binary_dataset(
-            args.symbol, args.timeframe, args.mapping, not args.no_smote
+    # Show combinations
+    print(f"\n{Fore.YELLOW}📋 Training Schedule:{Style.RESET_ALL}")
+    for i, (symbol, timeframe) in enumerate(combinations, 1):
+        print(f"  {i:2d}. {symbol} ({timeframe})")
+    
+    successful_trains = 0
+    failed_trains = 0
+    
+    # Train each combination
+    for i, (symbol, timeframe) in enumerate(combinations, 1):
+        print(f"\n{Back.MAGENTA}{Fore.WHITE} PROGRESS: {i}/{len(combinations)} {Style.RESET_ALL}")
+        
+        success = train_single_combination(
+            symbol, timeframe, args.models, 
+            args.mapping, not args.no_smote
         )
         
-        # Apply preprocessing pipeline
-        print_step("PREPROCESSING", "Applying advanced preprocessing pipeline")
-        preprocessor = AdvancedPreprocessor(get_preprocessing_config())
-        X_processed = preprocessor.fit_transform(X, y)
-        print_success(f"Preprocessing: {X.shape} -> {X_processed.shape}")
-        
-        # Apply feature engineering
-        print_step("FEATURE ENGINEERING", "Applying feature engineering")
-        feature_engineer = AdvancedFeatureEngineer(get_feature_engineering_config())
-        X_final = feature_engineer.fit_transform(X_processed)
-        print_success(f"Feature engineering: {X_processed.shape} -> {X_final.shape}")
-        
-        # Train models
-        results = {}
-        for model_name in args.models:
-            result = train_binary_model(X_final, y, model_name, conversion_info)
-            results[model_name] = result
-        
-        # Select best model
-        best_model_name, best_result = select_best_binary_model(results)
-        
-        # Save model bundle
-        model_file = save_binary_model_bundle(
-            args.symbol, args.timeframe, best_result, 
-            preprocessor, feature_engineer
-        )
-        
-        # Generate reports
-        generate_training_report(args.symbol, args.timeframe, results, best_result)
-        
-        print_header("🎯 TRAINING COMPLETED SUCCESSFULLY", Fore.GREEN)
-        print(f"Best Model: {Fore.YELLOW}{best_model_name}{Style.RESET_ALL}")
-        print(f"CV ROC-AUC: {Fore.GREEN}{best_result['cv_scores']['roc_auc']['mean']:.4f} ± {best_result['cv_scores']['roc_auc']['std']:.4f}{Style.RESET_ALL}")
-        print(f"Model Bundle: {Fore.BLUE}{model_file}{Style.RESET_ALL}")
-        
-    except Exception as e:
-        print_error(f"Training failed: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        if success:
+            successful_trains += 1
+        else:
+            failed_trains += 1
+    
+    # Final summary
+    print_header("🎯 TRAINING SUMMARY", Fore.GREEN if failed_trains == 0 else Fore.YELLOW)
+    print(f"Total combinations: {len(combinations)}")
+    print(f"{Fore.GREEN}Successful: {successful_trains}{Style.RESET_ALL}")
+    if failed_trains > 0:
+        print(f"{Fore.RED}Failed: {failed_trains}{Style.RESET_ALL}")
+    
+    if successful_trains > 0:
+        print(f"\n{Fore.GREEN}✅ Training completed! Models saved to ml_system/models/binary_models/{Style.RESET_ALL}")
+        print(f"{Fore.BLUE}💡 Run prediction test: python predict.py --test{Style.RESET_ALL}")
+        print(f"{Fore.BLUE}🚀 Start real-time system: python real_time.py --timeframes 1h{Style.RESET_ALL}")
+    
+    if failed_trains > 0:
         sys.exit(1)
 
 if __name__ == "__main__":

@@ -582,7 +582,7 @@ async def main():
         print(f"  • Engines attivi: {Fore.GREEN}{len(trading_system.prediction_engines)}{Style.RESET_ALL}")
     
     print(f"  • Output dataset: {Fore.BLUE}{os.path.abspath('ml_datasets')}{Style.RESET_ALL}")
-    ml_status = "Disattivato (--no-ml)" if args.no_ml else ("Abilitato (--generate-ml-datasets)" if args.generate_ml_datasets else "Disabilitato")
+    ml_status = "Disattivato (--no-ml)" if args.no_ml else ("Abilitato (DEFAULT)" if args.generate_ml_datasets else "Disabilitato")
     ml_color = Fore.RED if args.no_ml else (Fore.GREEN if args.generate_ml_datasets else Fore.YELLOW)
     print(f"  • Generazione ML datasets: {ml_color}{ml_status}{Style.RESET_ALL}")
     

@@ -84,8 +84,8 @@ def parse_arguments():
     optimization_group.add_argument(
         '--generate-ml-datasets',
         action='store_true',
-        default=False,
-        help='Genera dataset merged.csv dopo la validazione dati'
+        default=True,
+        help='Genera dataset merged.csv dopo la validazione dati (DEFAULT)'
     )
     
     optimization_group.add_argument(

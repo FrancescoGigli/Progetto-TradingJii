@@ -190,9 +190,11 @@ def create_volatility_features(df: pd.DataFrame, window_size: int = 7) -> pd.Dat
         return result_df
     
     # Create labels based on price change thresholds
-    result_df['label'] = 0  # Default to HOLD
-    result_df.loc[result_df['y'] >= 0.01, 'label'] = 1  # BUY
-    result_df.loc[result_df['y'] <= -0.01, 'label'] = 2  # SELL
+    # Create BINARY labels based on price change direction
+    # Binary system: 1 = BUY (positive change), 0 = SELL (negative change)
+    result_df['label'] = (result_df['y'] >= 0).astype(int)  # BUY=1, SELL=0
+
+
     
     return result_df
 
@@ -337,7 +339,7 @@ def generate_merged_dataset(symbol: str, timeframe: str, window_size: int = 7, f
     class_counts = merged_df['label'].value_counts().sort_index()
     logging.info("Label distribution:")
     for label, count in class_counts.items():
-        class_name = {0: "HOLD", 1: "BUY", 2: "SELL"}.get(label, f"Unknown({label})")
+        class_name = {0: "SELL", 1: "BUY"}.get(label, f"Unknown({label})")
         percentage = count / len(merged_df) * 100
         logging.info(f"  {class_name} ({label}): {count} ({percentage:.1f}%)")
     

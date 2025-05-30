@@ -87,7 +87,7 @@ REALTIME_CONFIG = {
     
     # Funzionalità avanzate
     'enable_technical_analysis': True,  # Calcola indicatori tecnici
-    'enable_ml_datasets': True,  # Genera dataset ML automaticamente
+    'enable_ml_datasets': True,  # Genera dataset ML automaticamente (DEFAULT)
     'force_ml_regeneration': False,  # Forza rigenerazione dataset ML
     'enable_data_validation': True,  # Validazione e riparazione dati
     'export_validation_reports': False,  # Export report validazione CSV
