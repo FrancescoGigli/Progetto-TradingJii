@@ -20,16 +20,17 @@ API_SECRET = os.environ.get('BYBIT_API_SECRET', '')
 DB_FILE = 'crypto_data.db'
 
 # Default values
-DEFAULT_TOP_SYMBOLS = 10
-DEFAULT_DAYS = 600  # Optimized for technical indicators (EMA200 needs ~33 days for 4h timeframe)
-DEFAULT_TIMEFRAMES = ['1h', '4h']
-DEFAULT_BATCH_SIZE = 25
-DEFAULT_CONCURRENCY = 8
-DEFAULT_WINDOW_SIZE = 7  # Default window size for ML pattern generation
+DEFAULT_TOP_SYMBOLS = 20  # Top 20 crypto per volume (buon equilibrio)
+# Configurazione giorni di dati con warmup automatico per indicatori
+DESIRED_ANALYSIS_DAYS = 365  # Giorni di dati puliti che vogliamo per l'analisi
+INDICATOR_WARMUP_BUFFER = 10  # Buffer aggiuntivo per sicurezza
 
-# ML classification thresholds
-BUY_THRESHOLD = 0.5    # If y >= 0.5, then y_class = 1 (BUY)
-SELL_THRESHOLD = -0.5  # If y <= -0.5, then y_class = 2 (SELL)
+# Il valore effettivo di DEFAULT_DAYS verrà calcolato dinamicamente
+# Include automaticamente il periodo di warmup necessario per gli indicatori
+DEFAULT_DAYS = 365  # Verrà aggiornato dalla funzione calculate_total_days_needed()
+DEFAULT_TIMEFRAMES = ['1h', '4h']
+DEFAULT_BATCH_SIZE = 15  # Batch size moderato per stabilità
+DEFAULT_CONCURRENCY = 6  # Concorrenza bilanciata per evitare rate limits
 
 # Exchange configuration
 EXCHANGE_CONFIG = {
@@ -87,8 +88,6 @@ REALTIME_CONFIG = {
     
     # Funzionalità avanzate
     'enable_technical_analysis': True,  # Calcola indicatori tecnici
-    'enable_ml_datasets': True,  # Genera dataset ML automaticamente (DEFAULT)
-    'force_ml_regeneration': False,  # Forza rigenerazione dataset ML
     'enable_data_validation': True,  # Validazione e riparazione dati
     'export_validation_reports': False,  # Export report validazione CSV
     'generate_validation_charts': False,  # Genera grafici validazione
@@ -102,56 +101,6 @@ REALTIME_CONFIG = {
     'max_download_retries': 3,  # Numero massimo retry per download falliti
     'api_rate_limit_delay': 1.0,  # Delay tra chiamate API (secondi)
     'emergency_stop_file': '.stop_realtime',  # File per stop di emergenza
-}
-
-# Training System Configuration  
-TRAINING_CONFIG = {
-    # Modelli disponibili
-    'available_models': [
-        'RandomForest',
-        'XGBoost', 
-        'LightGBM',
-        'MLP'
-    ],
-    
-    # Configurazione modelli di default
-    'model_params': {
-        'RandomForest': {
-            'n_estimators': 100,
-            'random_state': 42,
-            'n_jobs': -1
-        },
-        'XGBoost': {
-            'random_state': 42,
-            'eval_metric': 'mlogloss',
-            'verbosity': 0
-        },
-        'LightGBM': {
-            'random_state': 42,
-            'verbose': -1,
-            'force_row_wise': True
-        },
-        'MLP': {
-            'hidden_layer_sizes': (100, 50),
-            'max_iter': 500,
-            'random_state': 42,
-            'early_stopping': True,
-            'validation_fraction': 0.1
-        }
-    },
-    
-    # Configurazione training
-    'train_test_split': 0.8,  # 80% training, 20% test
-    'temporal_split': True,  # Split temporale (non random)
-    'enable_preprocessing': True,  # Preprocessing avanzato
-    'enable_feature_engineering': True,  # Feature engineering
-    'log_training_to_file': True,  # Salva log training su file
-    
-    # Output e report
-    'models_dir': 'models',
-    'reports_dir': 'ml_system/reports/training',
-    'enable_model_comparison': True,
-    'save_feature_importance': True,
 }
 
 # Technical Analysis Parameters
@@ -182,3 +131,120 @@ TA_PARAMS = {
     # Trend Strength
     'adx14': {'timeperiod': 14}
 }
+
+# Funzioni per il calcolo automatico del warmup degli indicatori
+def calculate_indicator_warmup_period() -> int:
+    """
+    Calcola automaticamente il periodo di warmup necessario per gli indicatori
+    basandosi sui parametri configurati in TA_PARAMS.
+    
+    Returns:
+        Il numero di periodi necessari per il warmup (corrispondente all'indicatore più lento)
+    """
+    # Trova il periodo più lungo tra tutti gli indicatori configurati
+    max_periods = []
+    
+    # Simple Moving Averages
+    max_periods.extend([
+        TA_PARAMS.get('sma9', {}).get('timeperiod', 9),
+        TA_PARAMS.get('sma20', {}).get('timeperiod', 20),
+        TA_PARAMS.get('sma50', {}).get('timeperiod', 50)
+    ])
+    
+    # Exponential Moving Averages
+    max_periods.extend([
+        TA_PARAMS.get('ema20', {}).get('timeperiod', 20),
+        TA_PARAMS.get('ema50', {}).get('timeperiod', 50),
+        TA_PARAMS.get('ema200', {}).get('timeperiod', 200)  # Questo è tipicamente il più lungo
+    ])
+    
+    # Momentum Indicators
+    max_periods.extend([
+        TA_PARAMS.get('rsi14', {}).get('timeperiod', 14),
+        TA_PARAMS.get('stoch', {}).get('fastk_period', 14),
+        TA_PARAMS.get('macd', {}).get('slowperiod', 26)
+    ])
+    
+    # Volatility Indicators
+    max_periods.extend([
+        TA_PARAMS.get('atr14', {}).get('timeperiod', 14),
+        TA_PARAMS.get('bbands', {}).get('timeperiod', 20)
+    ])
+    
+    # Volume-based Indicators
+    max_periods.append(TA_PARAMS.get('volume_sma20', {}).get('timeperiod', 20))
+    
+    # Trend Strength
+    max_periods.append(TA_PARAMS.get('adx14', {}).get('timeperiod', 14))
+    
+    # Trova il periodo massimo
+    warmup_periods = max(max_periods) if max_periods else 200
+    
+    # Aggiungi il buffer di sicurezza
+    return warmup_periods + INDICATOR_WARMUP_BUFFER
+
+def calculate_total_days_needed() -> int:
+    """
+    Calcola il numero totale di giorni di dati da scaricare,
+    includendo il periodo di warmup per gli indicatori.
+    
+    Returns:
+        Numero totale di giorni da scaricare (analisi + warmup)
+    """
+    warmup_periods = calculate_indicator_warmup_period()
+    total_days = DESIRED_ANALYSIS_DAYS + warmup_periods
+    
+    return total_days
+
+def update_default_days():
+    """
+    Aggiorna la variabile globale DEFAULT_DAYS con il valore calcolato dinamicamente.
+    Questa funzione dovrebbe essere chiamata all'avvio del sistema.
+    """
+    global DEFAULT_DAYS
+    DEFAULT_DAYS = calculate_total_days_needed()
+    return DEFAULT_DAYS
+
+def get_effective_analysis_period(timeframe: str) -> dict:
+    """
+    Calcola informazioni dettagliate sul periodo di analisi effettivo
+    per un dato timeframe.
+    
+    Args:
+        timeframe: Il timeframe (es. '1h', '4h', '1d')
+        
+    Returns:
+        Dictionary con informazioni sul periodo di analisi
+    """
+    warmup_periods = calculate_indicator_warmup_period()
+    total_days = calculate_total_days_needed()
+    
+    # Calcola il numero di candele per timeframe
+    timeframe_multipliers = {
+        '1m': 24 * 60,
+        '5m': 24 * 12,
+        '15m': 24 * 4,
+        '30m': 24 * 2,
+        '1h': 24,
+        '4h': 6,
+        '1d': 1
+    }
+    
+    multiplier = timeframe_multipliers.get(timeframe, 24)
+    
+    total_candles = total_days * multiplier
+    warmup_candles = warmup_periods
+    analysis_candles = total_candles - warmup_candles
+    
+    return {
+        'total_days': total_days,
+        'analysis_days': DESIRED_ANALYSIS_DAYS,
+        'warmup_periods': warmup_periods,
+        'total_candles': total_candles,
+        'warmup_candles': warmup_candles,
+        'analysis_candles': analysis_candles,
+        'clean_data_percentage': (analysis_candles / total_candles) * 100 if total_candles > 0 else 0
+    }
+
+# Aggiorna DEFAULT_DAYS all'importazione del modulo
+update_default_days()

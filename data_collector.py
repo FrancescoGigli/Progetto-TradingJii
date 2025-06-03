@@ -1,48 +1,48 @@
 #!/usr/bin/env python3
 """
-Binary Real-Time Trading Signal System
-=====================================
+Real-Time Crypto Data Collector
+===============================
 
-Sistema di trading real-time che integra:
+Sistema di raccolta dati crypto real-time che integra:
 1. Download continuo dati OHLCV
-2. Generazione dataset ML 
-3. Predizione binaria con gestione confidenza
-4. Logging strutturato segnali
-5. Aggiornamento stato persistente
+2. Calcolo indicatori tecnici
+3. Calcolo volatilità
+4. Validazione e riparazione dati
+5. Salvataggio persistente su database SQLite
 
 Caratteristiche:
-- Engine di predizione binaria con threshold di confidenza
-- Gestione transizioni di stato BUY/SELL/HOLD
-- Logging JSON strutturato
-- Monitoraggio continuo ogni 5 minuti
-- Integration con pipeline ML esistente
+- Monitoraggio continuo multi-timeframe
+- Calcolo automatico indicatori tecnici
+- Validazione qualità dati con riparazione automatica
+- Logging strutturato e dettagliato
+- Supporto modalità sequenziale e parallela
 """
 
 import sys
 import os
 import asyncio
 import logging
-import pandas as pd
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Dict, List, Any, Optional
 from colorama import Fore, Style, Back, init
 
 # Moduli personalizzati
 from modules.utils.logging_setup import setup_logging
 from modules.utils.command_args import parse_arguments
-from modules.utils.config import DB_FILE, TIMEFRAME_CONFIG, REALTIME_CONFIG
+from modules.utils.config import DB_FILE, REALTIME_CONFIG
 from modules.core.exchange import create_exchange, fetch_markets, get_top_symbols
 from modules.core.download_orchestrator import process_timeframe
 from modules.data.db_manager import init_data_tables
 from modules.data.volatility_processor import process_and_save_volatility
-from modules.data.indicator_processor import init_indicator_tables, compute_and_save_indicators
-from modules.data.full_dataset_generator import generate_full_ml_dataset as generate_dataset_for_symbol
+from modules.data.indicator_processor import init_indicator_tables, process_and_save_indicators
+from modules.data.data_integrity_checker import (
+    get_all_symbols_integrity_status, log_integrity_summary
+)
 from modules.data.data_validator import (
     validate_and_repair_data, log_validation_results, log_validation_summary,
     export_validation_report_csv, generate_validation_charts, DataQualityReport
 )
-from predict import PredictionEngine
+
 
 # Inizializza colorama
 init(autoreset=True)
@@ -54,249 +54,15 @@ if sys.platform.startswith('win'):
 # Intervallo di aggiornamento in secondi (default: 5 minuti)
 UPDATE_INTERVAL = REALTIME_CONFIG['update_interval_seconds']
 
-# ====================================================================
-# BINARY PREDICTION SYSTEM CONFIGURATION
-# ====================================================================
-
-BINARY_PREDICTION_CONFIG = {
-    'confidence_threshold': 0.7,
-    'confidence_improvement_threshold': 0.05,
-    'model_path': 'ml_system/models/binary_models/best_binary_model.pkl',
-    'enable_predictions': True,
-    'prediction_symbols': ['BTC_USDTUSDT', 'ETH_USDTUSDT'],  # Simboli per predizione
-    'prediction_timeframes': ['1h'],              # Timeframes per predizione
-    'log_all_predictions': True,
-    'signal_state_file': 'ml_system/logs/predictions/signal_state.json'
-}
-
-class BinaryTradingSystem:
+async def real_time_update(args):
     """
-    Sistema di trading binario con predizioni real-time.
-    
-    Integra download dati, generazione dataset ML e predizioni binarie
-    con gestione dello stato dei segnali.
-    """
-    
-    def __init__(self, config: Optional[Dict] = None):
-        """Initialize binary trading system."""
-        self.config = {**BINARY_PREDICTION_CONFIG, **(config or {})}
-        self.logger = setup_logging(logging.INFO)
-        
-        # Prediction engines per simbolo/timeframe
-        self.prediction_engines = {}
-        self.last_predictions = {}
-        
-        # Inizializza prediction engines se abilitato
-        if self.config['enable_predictions']:
-            self._initialize_prediction_engines()
-    
-    def _initialize_prediction_engines(self) -> None:
-        """Initialize prediction engines for configured symbols/timeframes."""
-        model_path = Path(self.config['model_path'])
-        
-        if not model_path.exists():
-            self.logger.warning(f"Model not found: {model_path}. Predictions disabled.")
-            self.config['enable_predictions'] = False
-            return
-        
-        try:
-            for symbol in self.config['prediction_symbols']:
-                for timeframe in self.config['prediction_timeframes']:
-                    key = f"{symbol}_{timeframe}"
-                    
-                    engine_config = {
-                        'model_path': self.config['model_path'],
-                        'confidence_threshold': self.config['confidence_threshold'],
-                        'confidence_improvement_threshold': self.config['confidence_improvement_threshold'],
-                        'log_file': f"signal_log_{symbol}_{timeframe}.json",
-                        'state_file': f"ml_system/logs/predictions/signal_state_{symbol}_{timeframe}.json",
-                        'enable_detailed_logging': self.config['log_all_predictions']
-                    }
-                    
-                    self.prediction_engines[key] = PredictionEngine(engine_config)
-                    self.last_predictions[key] = None
-                    
-                    self.logger.info(f"Initialized prediction engine for {symbol} ({timeframe})")
-            
-            self.logger.info(f"Binary prediction system ready with {len(self.prediction_engines)} engines")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to initialize prediction engines: {e}")
-            self.config['enable_predictions'] = False
-    
-    async def run_predictions(self, symbols: List[str], timeframes: List[str]) -> Dict[str, Any]:
-        """
-        Run predictions on latest data for configured symbols/timeframes.
-        
-        Args:
-            symbols: List of symbols that were updated
-            timeframes: List of timeframes that were updated
-            
-        Returns:
-            Dictionary with prediction results
-        """
-        if not self.config['enable_predictions']:
-            return {'predictions_enabled': False}
-        
-        prediction_results = {}
-        total_predictions = 0
-        signal_changes = 0
-        
-        try:
-            for symbol in self.config['prediction_symbols']:
-                if symbol not in symbols:
-                    continue
-                    
-                for timeframe in self.config['prediction_timeframes']:
-                    if timeframe not in timeframes:
-                        continue
-                    
-                    key = f"{symbol}_{timeframe}"
-                    
-                    if key not in self.prediction_engines:
-                        continue
-                    
-                    try:
-                        # Load latest dataset
-                        dataset_path = Path(f"ml_datasets/{symbol}/{timeframe}/merged.csv")
-                        
-                        if not dataset_path.exists():
-                            self.logger.warning(f"Dataset not found for prediction: {dataset_path}")
-                            continue
-                        
-                        # Load and prepare data for prediction
-                        df = pd.read_csv(dataset_path)
-                        
-                        if len(df) == 0:
-                            self.logger.warning(f"Empty dataset for {symbol} ({timeframe})")
-                            continue
-                        
-                        # Get latest features (excluding label columns)
-                        exclude_cols = ['label', 'timestamp', 'datetime']
-                        feature_cols = [col for col in df.columns if col not in exclude_cols]
-                        
-                        # Use latest row for prediction
-                        latest_features = df[feature_cols].iloc[-1:].copy()
-                        latest_timestamp = datetime.now().isoformat()
-                        
-                        # Make prediction
-                        engine = self.prediction_engines[key]
-                        result = engine.predict_single(
-                            latest_features,
-                            timestamp=latest_timestamp,
-                            symbol=symbol,
-                            timeframe=timeframe
-                        )
-                        
-                        prediction_results[key] = result
-                        total_predictions += 1
-                        
-                        if result.get('signal_changed', False):
-                            signal_changes += 1
-                        
-                        # Log significant events
-                        if result.get('signal_changed', False):
-                            self.logger.info(
-                                f"{Fore.CYAN}🚨 SIGNAL CHANGE: {symbol} ({timeframe}) → {result['signal']} "
-                                f"(confidence: {result['confidence']:.3f}, reason: {result['decision_reason']}){Style.RESET_ALL}"
-                            )
-                        elif self.config['log_all_predictions']:
-                            self.logger.debug(
-                                f"Prediction: {symbol} ({timeframe}) → {result['signal']} "
-                                f"(confidence: {result['confidence']:.3f})"
-                            )
-                        
-                        # Store last prediction
-                        self.last_predictions[key] = result
-                        
-                    except Exception as e:
-                        self.logger.error(f"Prediction failed for {key}: {e}")
-                        prediction_results[key] = {
-                            'error': str(e),
-                            'timestamp': datetime.now().isoformat()
-                        }
-            
-            return {
-                'predictions_enabled': True,
-                'total_predictions': total_predictions,
-                'signal_changes': signal_changes,
-                'results': prediction_results,
-                'engines_active': len(self.prediction_engines)
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Prediction system error: {e}")
-            return {
-                'predictions_enabled': True,
-                'error': str(e),
-                'total_predictions': 0,
-                'signal_changes': 0
-            }
-    
-    def get_current_signals(self) -> Dict[str, Any]:
-        """Get current signals from all engines."""
-        signals = {}
-        
-        for key, engine in self.prediction_engines.items():
-            try:
-                signal_state = engine.get_current_signal()
-                signals[key] = signal_state
-            except Exception as e:
-                signals[key] = {'error': str(e)}
-        
-        return signals
-    
-    def display_signal_summary(self, prediction_results: Dict[str, Any]) -> None:
-        """Display summary of current signals."""
-        if not prediction_results.get('predictions_enabled', False):
-            return
-        
-        results = prediction_results.get('results', {})
-        
-        if not results:
-            return
-        
-        print(f"\n{Back.BLUE}{Fore.WHITE}  BINARY TRADING SIGNALS  {Style.RESET_ALL}")
-        print(f"{'Symbol':^12} | {'Timeframe':^10} | {'Signal':^6} | {'Confidence':^10} | {'Reason':^20}")
-        print("-" * 75)
-        
-        for key, result in results.items():
-            if 'error' in result:
-                continue
-            
-            symbol, timeframe = key.split('_')
-            signal = result.get('signal', 'N/A')
-            confidence = result.get('confidence', 0.0)
-            reason = result.get('decision_reason', 'unknown')[:18]
-            
-            # Color coding for signals
-            if signal == 'BUY':
-                signal_colored = f"{Fore.GREEN}{signal}{Style.RESET_ALL}"
-            elif signal == 'SELL':
-                signal_colored = f"{Fore.RED}{signal}{Style.RESET_ALL}"
-            else:  # HOLD
-                signal_colored = f"{Fore.YELLOW}{signal}{Style.RESET_ALL}"
-            
-            print(f"{symbol:^12} | {timeframe:^10} | {signal_colored:^12} | {confidence:^10.3f} | {reason:^20}")
-        
-        # Summary statistics
-        total_predictions = prediction_results.get('total_predictions', 0)
-        signal_changes = prediction_results.get('signal_changes', 0)
-        engines_active = prediction_results.get('engines_active', 0)
-        
-        print("-" * 75)
-        print(f"Active Engines: {engines_active} | Predictions: {total_predictions} | Signal Changes: {signal_changes}")
-
-async def real_time_update_with_predictions(args, trading_system: BinaryTradingSystem):
-    """
-    Enhanced real-time update with binary predictions.
+    Aggiornamento dati real-time con elaborazione completa.
     
     Args:
         args: Command line arguments
-        trading_system: Binary trading system instance
         
     Returns:
-        Dictionary with update and prediction results
+        Dictionary with update results
     """
     start_time = datetime.now()
     
@@ -343,7 +109,7 @@ async def real_time_update_with_predictions(args, trading_system: BinaryTradingS
                         
                         # Calcola e salva gli indicatori tecnici se non è specificato --no-ta
                         if not args.no_ta:
-                            await compute_and_save_indicators(sym, timeframe)
+                            process_and_save_indicators(sym, timeframe)
         else:
             logging.info(f"{Fore.YELLOW}Modalità parallela attivata. Concorrenza massima per simbolo: {args.concurrency}{Style.RESET_ALL}")
             timeframe_tasks = []
@@ -361,7 +127,12 @@ async def real_time_update_with_predictions(args, trading_system: BinaryTradingS
                 grand_total_symbols["falliti"] += res["falliti"]
                 total_records_saved += res["record_totali"]
         
-        # 🆕 VALIDAZIONE DATI POST-DOWNLOAD (se non saltata)
+        # VALIDAZIONE DATI POST-DOWNLOAD (se non saltata)
+        # VERIFICA INTEGRITÀ DATI POST-DOWNLOAD
+        integrity_results = get_all_symbols_integrity_status(args.timeframes)
+        if integrity_results:
+            log_integrity_summary(integrity_results)
+        
         validation_reports = []
         validation_summary = {
             "symbols_validated": 0,
@@ -410,14 +181,14 @@ async def real_time_update_with_predictions(args, trading_system: BinaryTradingS
             # Log overall validation summary
             log_validation_summary(validation_summary)
             
-            # 🆕 EXPORT REPORT CSV (se richiesto)
+            # EXPORT REPORT CSV (se richiesto)
             if args.export_validation_report and validation_reports:
                 try:
                     export_validation_report_csv(validation_reports, validation_summary)
                 except Exception as e:
                     logging.error(f"Error exporting validation report: {e}")
             
-            # 🆕 GENERA GRAFICI (se richiesto)
+            # GENERA GRAFICI (se richiesto)
             if args.generate_validation_charts and validation_reports:
                 try:
                     generate_validation_charts(validation_reports)
@@ -435,37 +206,7 @@ async def real_time_update_with_predictions(args, trading_system: BinaryTradingS
                     
                     # Calcola e salva gli indicatori tecnici se non è specificato --no-ta
                     if not args.no_ta:
-                        await compute_and_save_indicators(sym, tf)
-        
-        # 🆕 GENERAZIONE DATASET ML (se richiesto)
-        symbols_with_ml_datasets = []
-        if args.generate_ml_datasets and not args.no_ml:
-            logging.info(f"{Fore.YELLOW}🤖 Generazione dataset ML abilitata{Style.RESET_ALL}")
-            
-            # Process each symbol and timeframe
-            for sym in top_symbols:
-                for tf in args.timeframes:
-                    try:
-                        logging.info(f"Generazione merged.csv per {Fore.YELLOW}{sym}{Style.RESET_ALL} ({tf})")
-                        
-                        success = await generate_dataset_for_symbol(
-                            symbol=sym,
-                            timeframe=tf, 
-                            force=args.force_ml_dataset
-                        )
-                        
-                        if success:
-                            logging.info(f"{Fore.GREEN}✅ Dataset generato per {sym} ({tf}){Style.RESET_ALL}")
-                            if sym not in symbols_with_ml_datasets:
-                                symbols_with_ml_datasets.append(sym)
-                        else:
-                            logging.error(f"{Fore.RED}❌ Errore generazione dataset per {sym} ({tf}){Style.RESET_ALL}")
-                            
-                    except Exception as e:
-                        logging.error(f"{Fore.RED}Errore generazione dataset {sym} ({tf}): {e}{Style.RESET_ALL}")
-        
-        # 🚀 BINARY PREDICTIONS (nuovo!)
-        prediction_results = await trading_system.run_predictions(symbols_with_ml_datasets or top_symbols, args.timeframes)
+                        process_and_save_indicators(sym, tf)
         
         # Calcola il tempo totale di esecuzione
         end_time = datetime.now()
@@ -478,7 +219,6 @@ async def real_time_update_with_predictions(args, trading_system: BinaryTradingS
             "all_timeframe_results": all_timeframe_results,
             "total_records_saved": total_records_saved,
             "grand_total_symbols": grand_total_symbols,
-            "prediction_results": prediction_results,
             "validation_summary": validation_summary,
             "start_time": start_time,
             "end_time": end_time,
@@ -491,13 +231,12 @@ async def real_time_update_with_predictions(args, trading_system: BinaryTradingS
         logging.error(traceback.format_exc())
         return None
 
-def display_enhanced_results(results, trading_system: BinaryTradingSystem):
+def display_results(results):
     """
-    Display enhanced results including predictions.
+    Display results of data collection and processing.
     
     Args:
-        results: Update results
-        trading_system: Binary trading system instance
+        results: Update results dictionary
     """
     if not results:
         return
@@ -505,17 +244,16 @@ def display_enhanced_results(results, trading_system: BinaryTradingSystem):
     all_timeframe_results = results["all_timeframe_results"]
     total_records_saved = results["total_records_saved"]
     grand_total_symbols = results["grand_total_symbols"]
-    prediction_results = results["prediction_results"]
+    validation_summary = results["validation_summary"]
     start_time = results["start_time"]
     end_time = results["end_time"]
     time_str = results["execution_time"]
     
     # Resoconto finale dell'aggiornamento
     print("\n" + "="*80)
-    print(f"{Back.GREEN}{Fore.BLACK}  RESOCONTO AGGIORNAMENTO E PREDIZIONI COMPLETATO  {Style.RESET_ALL}")
+    print(f"{Back.GREEN}{Fore.BLACK}  RESOCONTO AGGIORNAMENTO DATI COMPLETATO  {Style.RESET_ALL}")
     print("="*80)
     print(f"  • Database: {Fore.BLUE}{os.path.abspath(DB_FILE)}{Style.RESET_ALL}")
-    print(f"  • Dataset ML: {Fore.BLUE}{os.path.abspath('ml_datasets')}{Style.RESET_ALL}")
     print(f"  • Tempo esecuzione: {Fore.CYAN}{time_str}{Style.RESET_ALL}")
     print()
     
@@ -538,16 +276,23 @@ def display_enhanced_results(results, trading_system: BinaryTradingSystem):
           f"{Fore.RED}{grand_total_symbols['falliti']:^12}{Style.RESET_ALL} | " + 
           f"{Fore.YELLOW}{total_records_saved:^15,}{Style.RESET_ALL}")
     
-    # 🚀 Display prediction results
-    trading_system.display_signal_summary(prediction_results)
+    # Validazione summary
+    if validation_summary["symbols_validated"] > 0:
+        print(f"\n{Back.CYAN}{Fore.BLACK}  VALIDAZIONE DATI  {Style.RESET_ALL}")
+        print(f"  • Simboli validati: {Fore.GREEN}{validation_summary['symbols_validated']}{Style.RESET_ALL}")
+        print(f"  • Problemi trovati: {Fore.YELLOW}{validation_summary['issues_found']}{Style.RESET_ALL}")
+        print(f"  • Riparazioni automatiche: {Fore.GREEN}{validation_summary['auto_repaired']}{Style.RESET_ALL}")
+        print(f"  • Qualità alta: {Fore.GREEN}{validation_summary['high_quality']}{Style.RESET_ALL}")
+        print(f"  • Qualità media: {Fore.YELLOW}{validation_summary['medium_quality']}{Style.RESET_ALL}")
+        print(f"  • Qualità bassa: {Fore.RED}{validation_summary['low_quality']}{Style.RESET_ALL}")
     
-    print(f"Inizio: {Fore.CYAN}{start_time.strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
+    print(f"\nInizio: {Fore.CYAN}{start_time.strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
     print(f"Fine:   {Fore.CYAN}{end_time.strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
     print("="*80 + "\n")
 
 async def main():
     """
-    Main entry point for binary real-time trading system.
+    Main entry point for crypto data collector.
     """
     # Configura il logger
     logger = setup_logging(level=logging.INFO)
@@ -556,12 +301,9 @@ async def main():
     args = parse_arguments()
     mode = "SEQUENZIALE" if args.sequential else "PARALLELA"
     
-    # Initialize binary trading system
-    trading_system = BinaryTradingSystem()
-    
     # Header generale
     print("\n" + "="*80)
-    print(f"{Back.BLUE}{Fore.WHITE}  BINARY TRADING SYSTEM (MODALITÀ {mode})  {Style.RESET_ALL}")
+    print(f"{Back.BLUE}{Fore.WHITE}  CRYPTO DATA COLLECTOR (MODALITÀ {mode})  {Style.RESET_ALL}")
     print("="*80)
     print(f"  • Criptovalute da monitorare: {Fore.YELLOW}{args.num_symbols}{Style.RESET_ALL}")
     print(f"  • Timeframes monitorati: {Fore.GREEN}{', '.join(args.timeframes)}{Style.RESET_ALL}")
@@ -570,21 +312,17 @@ async def main():
     if not args.sequential:
         print(f"  • Concorrenza: {Fore.YELLOW}{args.concurrency}{Style.RESET_ALL} download paralleli per batch")
     
-    # Prediction system status
-    pred_status = "Abilitato" if trading_system.config['enable_predictions'] else "Disabilitato"
-    pred_color = Fore.GREEN if trading_system.config['enable_predictions'] else Fore.RED
-    print(f"  • Sistema predizioni binarie: {pred_color}{pred_status}{Style.RESET_ALL}")
+    print(f"  • Database output: {Fore.BLUE}{os.path.abspath(DB_FILE)}{Style.RESET_ALL}")
     
-    if trading_system.config['enable_predictions']:
-        print(f"  • Simboli predizione: {Fore.CYAN}{', '.join(trading_system.config['prediction_symbols'])}{Style.RESET_ALL}")
-        print(f"  • Timeframes predizione: {Fore.CYAN}{', '.join(trading_system.config['prediction_timeframes'])}{Style.RESET_ALL}")
-        print(f"  • Soglia confidenza: {Fore.YELLOW}{trading_system.config['confidence_threshold']}{Style.RESET_ALL}")
-        print(f"  • Engines attivi: {Fore.GREEN}{len(trading_system.prediction_engines)}{Style.RESET_ALL}")
+    # Status indicatori tecnici
+    ta_status = "Disabilitato (--no-ta)" if args.no_ta else "Abilitato"
+    ta_color = Fore.RED if args.no_ta else Fore.GREEN
+    print(f"  • Indicatori tecnici: {ta_color}{ta_status}{Style.RESET_ALL}")
     
-    print(f"  • Output dataset: {Fore.BLUE}{os.path.abspath('ml_datasets')}{Style.RESET_ALL}")
-    ml_status = "Disattivato (--no-ml)" if args.no_ml else ("Abilitato (DEFAULT)" if args.generate_ml_datasets else "Disabilitato")
-    ml_color = Fore.RED if args.no_ml else (Fore.GREEN if args.generate_ml_datasets else Fore.YELLOW)
-    print(f"  • Generazione ML datasets: {ml_color}{ml_status}{Style.RESET_ALL}")
+    # Status validazione
+    validation_status = "Disabilitata (--skip-validation)" if args.skip_validation else "Abilitata"
+    validation_color = Fore.RED if args.skip_validation else Fore.GREEN
+    print(f"  • Validazione dati: {validation_color}{validation_status}{Style.RESET_ALL}")
     
     print(f"  • Data e ora inizio: {Fore.CYAN}{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
     print("="*80 + "\n")
@@ -606,14 +344,14 @@ async def main():
     try:
         while True:
             current_time = datetime.now()
-            print(f"\n{Back.MAGENTA}{Fore.WHITE} INIZIO CICLO #{iteration} - TRADING BINARIO - {current_time.strftime('%Y-%m-%d %H:%M:%S')} {Style.RESET_ALL}")
+            print(f"\n{Back.MAGENTA}{Fore.WHITE} INIZIO CICLO #{iteration} - DATA COLLECTION - {current_time.strftime('%Y-%m-%d %H:%M:%S')} {Style.RESET_ALL}")
             
-            # Esegui l'aggiornamento con predizioni
-            results = await real_time_update_with_predictions(args, trading_system)
+            # Esegui l'aggiornamento dei dati
+            results = await real_time_update(args)
             
-            # Visualizza i risultati enhanced
+            # Visualizza i risultati
             if results:
-                display_enhanced_results(results, trading_system)
+                display_results(results)
             
             # Calcola il prossimo orario di aggiornamento
             next_update = datetime.now() + timedelta(seconds=UPDATE_INTERVAL)
@@ -621,19 +359,19 @@ async def main():
             
             # Attendi il prossimo ciclo di aggiornamento
             print(f"{Fore.YELLOW}In attesa del prossimo ciclo di aggiornamento tra {UPDATE_INTERVAL} secondi...{Style.RESET_ALL}")
-            print(f"{Fore.YELLOW}Premi Ctrl+C per interrompere il sistema di trading.{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Premi Ctrl+C per interrompere il data collector.{Style.RESET_ALL}")
             
             await asyncio.sleep(UPDATE_INTERVAL)
             iteration += 1
             
     except KeyboardInterrupt:
-        print(f"\n{Fore.RED}Sistema di trading binario interrotto manualmente dall'utente.{Style.RESET_ALL}")
+        print(f"\n{Fore.RED}Data collector interrotto manualmente dall'utente.{Style.RESET_ALL}")
     except Exception as e:
         logging.error(f"Errore nel loop principale: {e}")
         import traceback
         logging.error(traceback.format_exc())
     finally:
-        logging.info("Sistema di trading binario terminato.")
+        logging.info("Data collector terminato.")
 
 if __name__ == "__main__":
     asyncio.run(main())

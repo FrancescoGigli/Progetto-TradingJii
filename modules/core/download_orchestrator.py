@@ -12,6 +12,7 @@ from datetime import datetime
 from colorama import Fore, Style, Back
 from modules.core.exchange import create_exchange
 from modules.core.data_fetcher import fetch_ohlcv_data
+from modules.data.data_integrity_checker import verify_data_integrity_post_download
 
 async def process_timeframe(timeframe, top_symbols, days, concurrency, batch_size, use_sequential=False):
     """
@@ -211,7 +212,15 @@ async def fetch_data_sequential(symbols, timeframe, data_limit_days, batch_size=
                         results["record_totali"] += count
                         status_str = f"{Fore.GREEN}✓ Completato{Style.RESET_ALL}"
                         batch_results.append((symbol, status_str, count))
-                        print(f"  • {Fore.YELLOW}{symbol:<20}{Style.RESET_ALL} {status_str:<25} {count} record")
+                        # VERIFICA ISTANTANEA INTEGRITÀ
+                        try:
+                            integrity_result = verify_data_integrity_post_download(symbol, timeframe)
+                            quality_icon = "🟢" if integrity_result.status == "EXCELLENT" else "🟡" if integrity_result.status == "GOOD" else "🟠" if integrity_result.status == "FAIR" else "🔴"
+                            quality_text = f"{quality_icon} {integrity_result.status} ({integrity_result.quality_score:.1f}%)"
+                        except Exception:
+                            quality_text = "⚪ SKIP"
+                        
+                        print(f"  • {Fore.YELLOW}{symbol:<20}{Style.RESET_ALL} {status_str:<25} {count} record {quality_text}")
                     else:
                         results["falliti"] += 1
                         status_str = f"{Fore.RED}✗ Fallito{Style.RESET_ALL}"

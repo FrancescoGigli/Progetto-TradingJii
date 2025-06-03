@@ -6,6 +6,7 @@ This module computes and manages technical indicators for cryptocurrency price d
 - Extracts OHLCV data from the SQLite database
 - Computes various technical indicators (SMA, EMA, RSI, etc.)
 - Stores the results in dedicated indicator tables
+- Implements automatic warmup filtering for clean, NULL-free data
 
 Integrates with the real_time.py update flow.
 """
@@ -20,7 +21,7 @@ from datetime import datetime
 import traceback
 import sys
 import subprocess
-from modules.utils.config import DB_FILE, TA_PARAMS
+from modules.utils.config import DB_FILE, TA_PARAMS, DESIRED_ANALYSIS_DAYS, calculate_indicator_warmup_period
 
 # Global variables to track if we've checked for TA-Lib
 talib_checked = False
@@ -310,18 +311,79 @@ def _get_longest_lookback_period() -> int:
     Returns:
         The maximum lookback period
     """
-    # Get the custom parameters from config, or use defaults
-    ta_params = getattr(sys.modules['modules.utils.config'], 'TA_PARAMS', {})
+    # Use the new config function for automatic calculation
+    return calculate_indicator_warmup_period()
+
+def filter_warmup_period(df: pd.DataFrame, symbol: str, timeframe: str) -> pd.DataFrame:
+    """
+    Rimuove il periodo di warmup per avere solo indicatori non-null.
+    Mantiene solo i dati corrispondenti al periodo di analisi desiderato.
     
-    # Determine the longest lookback needed based on longest period indicators
-    longest_lookback = max([
-        ta_params.get('sma50', {}).get('timeperiod', 50),
-        ta_params.get('ema200', {}).get('timeperiod', 200),
-        ta_params.get('bbands', {}).get('timeperiod', 20) + 10,  # Add buffer for convergence
-        200  # Default safe value to capture most indicators
-    ])
+    Args:
+        df: DataFrame con indicatori calcolati
+        symbol: Simbolo della criptovaluta  
+        timeframe: Timeframe (es. '1h', '4h')
+        
+    Returns:
+        DataFrame filtrato senza periodo di warmup
+    """
+    if df.empty:
+        return df
     
-    return longest_lookback
+    try:
+        # Calcola il periodo di warmup necessario
+        warmup_periods = calculate_indicator_warmup_period()
+        
+        # Se abbiamo meno dati del periodo di warmup, restituisci tutto
+        if len(df) <= warmup_periods:
+            logging.warning(f"Insufficient data for {symbol} ({timeframe}): {len(df)} records < {warmup_periods} warmup periods")
+            return df
+        
+        # Mantieni solo gli ultimi DESIRED_ANALYSIS_DAYS di dati
+        # Calcola quante candele corrispondono al periodo di analisi desiderato
+        timeframe_multipliers = {
+            '1m': 24 * 60,
+            '5m': 24 * 12, 
+            '15m': 24 * 4,
+            '30m': 24 * 2,
+            '1h': 24,
+            '4h': 6,
+            '1d': 1
+        }
+        
+        multiplier = timeframe_multipliers.get(timeframe, 24)
+        desired_candles = DESIRED_ANALYSIS_DAYS * multiplier
+        
+        # Prendi gli ultimi N candles per l'analisi (dopo il warmup)
+        if len(df) > desired_candles:
+            # Se abbiamo più dati del necessario, prendi solo gli ultimi desired_candles
+            filtered_df = df.tail(desired_candles).copy()
+            logging.info(f"📊 Filtered to latest {Fore.GREEN}{len(filtered_df)}{Style.RESET_ALL} candles for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe}) - {Fore.CYAN}100% clean data{Style.RESET_ALL}")
+        else:
+            # Rimuovi solo il periodo di warmup iniziale
+            filtered_df = df.iloc[warmup_periods:].copy()
+            clean_percentage = (len(filtered_df) / len(df)) * 100 if len(df) > 0 else 0
+            logging.info(f"📊 Filtered warmup period for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe}): {Fore.GREEN}{len(filtered_df)}{Style.RESET_ALL}/{len(df)} records ({clean_percentage:.1f}% clean)")
+        
+        # Verifica che tutti gli indicatori abbiano valori validi
+        indicator_columns = [col for col in filtered_df.columns if col != 'timestamp']
+        
+        if indicator_columns:
+            null_counts = filtered_df[indicator_columns].isnull().sum()
+            total_nulls = null_counts.sum()
+            
+            if total_nulls > 0:
+                logging.warning(f"{Fore.YELLOW}Found {total_nulls} null values in filtered indicators for {symbol} ({timeframe}){Style.RESET_ALL}")
+                # Log which indicators have nulls
+                for col, null_count in null_counts[null_counts > 0].items():
+                    logging.warning(f"  - {col}: {null_count} null values")
+        
+        return filtered_df
+        
+    except Exception as e:
+        logging.error(f"{Fore.RED}Error filtering warmup period for {symbol} ({timeframe}): {e}{Style.RESET_ALL}")
+        logging.error(traceback.format_exc())
+        return df  # Return original data if filtering fails
 
 def _calculate_indicators_talib(df: pd.DataFrame) -> Dict[str, pd.Series]:
     """
@@ -583,203 +645,128 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
         logging.error(traceback.format_exc())
         return pd.DataFrame()
 
-def _check_indicator_coverage(symbol: str, timeframe: str) -> bool:
+def save_indicators(symbol: str, timeframe: str, indicators_df: pd.DataFrame) -> bool:
     """
-    Check if indicator coverage is adequate and trigger full recalculation if needed.
+    Save calculated indicators to the database.
+    Applies warmup period filtering to ensure only clean data is saved.
+    
+    Args:
+        symbol: Cryptocurrency symbol
+        timeframe: Timeframe (e.g., '1h')
+        indicators_df: DataFrame with calculated indicators
+        
+    Returns:
+        Boolean indicating success
+    """
+    if indicators_df.empty:
+        logging.warning(f"No indicators to save for {symbol} ({timeframe})")
+        return False
+    
+    try:
+        # Apply warmup period filtering to ensure clean data
+        filtered_df = filter_warmup_period(indicators_df, symbol, timeframe)
+        
+        if filtered_df.empty:
+            logging.warning(f"No data remaining after warmup filtering for {symbol} ({timeframe})")
+            return False
+        
+        table_name = f"ta_{timeframe}".replace('-', '_')
+        
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            
+            # Prepare data for insertion
+            records_saved = 0
+            for _, row in filtered_df.iterrows():
+                try:
+                    # Prepare the insert statement
+                    cursor.execute(f"""
+                        INSERT OR REPLACE INTO {table_name} (
+                            symbol, timestamp,
+                            sma9, sma20, sma50,
+                            ema20, ema50, ema200,
+                            rsi14, stoch_k, stoch_d,
+                            macd, macd_signal, macd_hist,
+                            atr14, bbands_upper, bbands_middle, bbands_lower,
+                            obv, vwap, volume_sma20,
+                            adx14
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        symbol, row['timestamp'].isoformat(),
+                        row.get('sma9'), row.get('sma20'), row.get('sma50'),
+                        row.get('ema20'), row.get('ema50'), row.get('ema200'),
+                        row.get('rsi14'), row.get('stoch_k'), row.get('stoch_d'),
+                        row.get('macd'), row.get('macd_signal'), row.get('macd_hist'),
+                        row.get('atr14'), row.get('bbands_upper'), row.get('bbands_middle'), row.get('bbands_lower'),
+                        row.get('obv'), row.get('vwap'), row.get('volume_sma20'),
+                        row.get('adx14')
+                    ))
+                    records_saved += 1
+                except Exception as e:
+                    logging.error(f"Error inserting indicator record for {symbol} at {row['timestamp']}: {e}")
+                    continue
+            
+            conn.commit()
+            logging.info(f"💾 Saved {Fore.GREEN}{records_saved}{Style.RESET_ALL} indicator records for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe})")
+            return records_saved > 0
+            
+    except Exception as e:
+        logging.error(f"{Fore.RED}Error saving indicators for {symbol} ({timeframe}): {e}{Style.RESET_ALL}")
+        logging.error(traceback.format_exc())
+        return False
+
+def process_and_save_indicators(symbol: str, timeframe: str) -> bool:
+    """
+    Complete workflow to process and save technical indicators for a symbol and timeframe.
     
     Args:
         symbol: Cryptocurrency symbol
         timeframe: Timeframe (e.g., '1h')
         
     Returns:
-        Boolean indicating if full recalculation is needed
-    """
-    table_name = f"data_{timeframe}"
-    ta_table_name = f"ta_{timeframe}"
-    
-    try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            
-            # Get counts
-            cursor.execute(f"SELECT COUNT(*) FROM {ta_table_name} WHERE symbol = ?", (symbol,))
-            existing_indicators = cursor.fetchone()[0]
-            
-            cursor.execute(f"SELECT COUNT(*) FROM {table_name} WHERE symbol = ?", (symbol,))
-            total_data = cursor.fetchone()[0]
-            
-            if total_data == 0:
-                return False  # No data, no recalculation needed
-            
-            coverage_ratio = existing_indicators / total_data
-            
-            # If coverage is less than 10%, trigger full recalculation
-            if coverage_ratio < 0.1:
-                logging.info(f"Low indicator coverage ({coverage_ratio:.1%}) detected for {symbol} ({timeframe}) - triggering full recalculation")
-                
-                # Clear existing indicators for clean recalculation
-                cursor.execute(f"DELETE FROM {ta_table_name} WHERE symbol = ?", (symbol,))
-                conn.commit()
-                
-                return True
-            
-            return False
-            
-    except Exception as e:
-        logging.error(f"{Fore.RED}Error checking indicator coverage for {symbol} ({timeframe}): {e}{Style.RESET_ALL}")
-        return False
-
-def save_indicators(symbol: str, timeframe: str, df: pd.DataFrame) -> bool:
-    """
-    Save calculated indicators to the database.
-    
-    Args:
-        symbol: Cryptocurrency symbol
-        timeframe: Timeframe (e.g., '5m')
-        df: DataFrame with calculated indicators
-        
-    Returns:
-        Boolean indicating success
-    """
-    if df.empty:
-        return False
-    
-    table_name = f"ta_{timeframe}"
-    
-    try:
-        with sqlite3.connect(DB_FILE) as conn:
-            # Format timestamp for SQLite
-            df_to_save = df.copy()
-            df_to_save['symbol'] = symbol
-            df_to_save['timestamp'] = df_to_save['timestamp'].dt.strftime('%Y-%m-%dT%H:%M:%S')
-            
-            # Create SQL placeholders for the columns
-            columns = df_to_save.columns
-            placeholders = ', '.join(['?' for _ in columns])
-            columns_str = ', '.join(columns)
-            
-            # Insert data using INSERT OR REPLACE
-            cursor = conn.cursor()
-            sql = f"INSERT OR REPLACE INTO {table_name} ({columns_str}) VALUES ({placeholders})"
-            
-            # Convert DataFrame to list of tuples
-            records = [tuple(x) for x in df_to_save.values]
-            cursor.executemany(sql, records)
-            
-            conn.commit()
-            logging.info(f"Saved {Fore.GREEN}{len(records)}{Style.RESET_ALL} indicator records for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe})")
-            return True
-    except Exception as e:
-        logging.error(f"{Fore.RED}Error saving indicators for {symbol} ({timeframe}): {e}{Style.RESET_ALL}")
-        logging.error(traceback.format_exc())
-        return False
-
-async def compute_and_save_indicators(symbol: str, timeframe: str) -> bool:
-    """
-    Compute and save indicators for a specific symbol and timeframe.
-    
-    Args:
-        symbol: Cryptocurrency symbol
-        timeframe: Timeframe (e.g., '5m')
-        
-    Returns:
         Boolean indicating success
     """
     try:
-        # Skip if no TA libraries are available
-        if not (_check_talib() or _check_pandas_ta()):
-            logging.error(f"{Fore.RED}No technical analysis libraries available. Skipping indicator calculation.{Style.RESET_ALL}")
-            return False
+        logging.debug(f"🔧 Processing indicators for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe})")
         
-        logging.info(f"Computing indicators for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe})")
-        
-        # 1. Check indicator coverage and determine if full recalculation is needed
-        needs_full_recalc = _check_indicator_coverage(symbol, timeframe)
-        
-        # 2. Load OHLCV data from database (now coverage-aware)
+        # Load OHLCV data
         ohlcv_df = load_ohlcv_data(symbol, timeframe)
         
         if ohlcv_df.empty:
-            if not needs_full_recalc:
-                logging.info(f"No new data for {symbol} ({timeframe}) that needs indicators")
-                return True  # Nothing to do, but not an error
-            else:
-                logging.warning(f"Low coverage detected but no data available for {symbol} ({timeframe})")
-                return False
+            logging.debug(f"No OHLCV data available for {symbol} ({timeframe})")
+            return False
         
-        update_type = "FULL RECALC" if needs_full_recalc else "INCREMENTAL"
-        logging.info(f"Processing {Fore.GREEN}{len(ohlcv_df)}{Style.RESET_ALL} ({update_type}) candles for {Fore.YELLOW}{symbol}{Style.RESET_ALL}")
-        
-        # 2. Calculate indicators
+        # Calculate indicators
         indicators_df = calculate_indicators(ohlcv_df)
         
         if indicators_df.empty:
-            logging.warning(f"No indicators calculated for {symbol} ({timeframe})")
+            logging.warning(f"Failed to calculate indicators for {symbol} ({timeframe})")
             return False
         
-        # Validate indicators
-        non_null_percentage = _validate_indicators(indicators_df)
-        
-        # 3. Save indicators to database
+        # Save indicators to database
         success = save_indicators(symbol, timeframe, indicators_df)
         
         if success:
-            logging.info(f"Successfully saved indicators for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe})")
-            logging.info(f"Indicators non-null percentage: {Fore.CYAN}{non_null_percentage:.1f}%{Style.RESET_ALL}")
-            return True
+            logging.debug(f"✅ Indicators processed successfully for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe})")
         else:
-            return False
-    
+            logging.warning(f"❌ Failed to save indicators for {symbol} ({timeframe})")
+        
+        return success
+        
     except Exception as e:
-        logging.error(f"{Fore.RED}Error in indicator processing pipeline for {symbol} ({timeframe}): {e}{Style.RESET_ALL}")
+        logging.error(f"{Fore.RED}Error processing indicators for {symbol} ({timeframe}): {e}{Style.RESET_ALL}")
         logging.error(traceback.format_exc())
         return False
 
-def _validate_indicators(df: pd.DataFrame) -> float:
+def compute_and_save_indicators(symbol: str, timeframe: str) -> bool:
     """
-    Validate calculated indicators and log any issues.
+    Alias for process_and_save_indicators for backward compatibility.
     
     Args:
-        df: DataFrame with calculated indicators
+        symbol: Cryptocurrency symbol
+        timeframe: Timeframe (e.g., '1h')
         
     Returns:
-        Percentage of non-null values across all indicators
+        Boolean indicating success
     """
-    if df.empty:
-        return 0.0
-    
-    try:
-        # Skip the timestamp column when calculating null percentage
-        indicator_columns = [col for col in df.columns if col != 'timestamp']
-        
-        if not indicator_columns:
-            return 0.0
-        
-        # Count non-null values
-        total_values = len(df) * len(indicator_columns)
-        non_null_values = df[indicator_columns].count().sum()
-        
-        if total_values == 0:
-            return 0.0
-        
-        non_null_percentage = (non_null_values / total_values) * 100
-        
-        # Check for values outside expected ranges
-        range_checks = {
-            'rsi14': (0, 100),
-            'stoch_k': (0, 100),
-            'stoch_d': (0, 100),
-            'adx14': (0, 100)
-        }
-        
-        for indicator, (min_val, max_val) in range_checks.items():
-            if indicator in df:
-                out_of_range = df[(df[indicator] < min_val) | (df[indicator] > max_val)].shape[0]
-                if out_of_range > 0:
-                    logging.warning(f"{Fore.YELLOW}Found {out_of_range} values outside range [{min_val}, {max_val}] for {indicator}{Style.RESET_ALL}")
-        
-        return non_null_percentage
-    
-    except Exception as e:
-        logging.error(f"{Fore.RED}Error validating indicators: {e}{Style.RESET_ALL}")
-        return 0.0
+    return process_and_save_indicators(symbol, timeframe)
