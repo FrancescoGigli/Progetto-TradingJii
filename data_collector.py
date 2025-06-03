@@ -37,7 +37,7 @@ from modules.core.download_orchestrator import process_timeframe
 from modules.data.db_manager import init_data_tables
 from modules.data.volatility_processor import process_and_save_volatility
 from modules.data.indicator_processor import init_indicator_tables, compute_and_save_indicators
-from generate_merged_datasets import generate_dataset_for_symbol
+from modules.data.full_dataset_generator import generate_full_ml_dataset as generate_dataset_for_symbol
 from modules.data.data_validator import (
     validate_and_repair_data, log_validation_results, log_validation_summary,
     export_validation_report_csv, generate_validation_charts, DataQualityReport
@@ -448,7 +448,7 @@ async def real_time_update_with_predictions(args, trading_system: BinaryTradingS
                     try:
                         logging.info(f"Generazione merged.csv per {Fore.YELLOW}{sym}{Style.RESET_ALL} ({tf})")
                         
-                        success = generate_dataset_for_symbol(
+                        success = await generate_dataset_for_symbol(
                             symbol=sym,
                             timeframe=tf, 
                             force=args.force_ml_dataset
