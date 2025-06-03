@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-Full Dataset Generator Module for TradingJii
+Full Dataset Generator Module for TradingJii - FIXED VERSION
+
+Fixed timestamp alignment issue between volatility patterns and technical indicators.
+The main fix is in the merge_patterns_with_indicators function that normalizes 
+timestamp formats before merging.
 
 This module generates merged ML datasets directly from volatility and technical indicator data:
 - Extracts volatility sliding windows from the SQLite database
@@ -97,13 +101,12 @@ async def generate_full_ml_dataset(
     # If no indicators are available, warn but continue with just volatility data
     if indicators_df.empty:
         logging.warning(f"No technical indicators found for {symbol} ({timeframe})")
-        logging.warning(f"No technical indicators found for {symbol} ({timeframe})")
         logging.warning(f"Proceeding with volatility-only dataset")
         merged_df = patterns_df.copy()  # Use only the pattern data
     else:
         logging.debug(f"Loaded {len(indicators_df)} technical indicator records")
         
-        # Step 4: Merge patterns with indicators
+        # Step 4: Merge patterns with indicators (FIXED VERSION)
         merged_df = merge_patterns_with_indicators(patterns_df, indicators_df)
         
     if merged_df.empty:
@@ -127,12 +130,13 @@ async def generate_full_ml_dataset(
     merged_df.to_csv(output_file, index=False)
     
     # Count labels
-    label_counts = merged_df['y_class'].value_counts().sort_index()
-    logging.info("Label distribution:")
-    for label, count in label_counts.items():
-        label_name = "SELL" if label == 0 else "BUY"
-        percentage = (count / len(merged_df)) * 100
-        logging.info(f"  {label_name} ({label}): {count} ({percentage:.1f}%)")
+    if 'y_class' in merged_df.columns:
+        label_counts = merged_df['y_class'].value_counts().sort_index()
+        logging.info("Label distribution:")
+        for label, count in label_counts.items():
+            label_name = "SELL" if label == 0 else "BUY"
+            percentage = (count / len(merged_df)) * 100
+            logging.info(f"  {label_name} ({label}): {count} ({percentage:.1f}%)")
     
     logging.info(f"Saved dataset: {output_file} ({len(merged_df)} records)")
     
@@ -304,6 +308,12 @@ def normalize_timestamp_format(timestamp_str: str) -> str:
     """
     Normalize timestamp format to ensure consistent merging.
     Converts both 'YYYY-MM-DD HH:MM:SS' and 'YYYY-MM-DDTHH:MM:SS' to 'YYYY-MM-DD HH:MM:SS'.
+    
+    Args:
+        timestamp_str: Timestamp string in any supported format
+        
+    Returns:
+        Normalized timestamp string in 'YYYY-MM-DD HH:MM:SS' format
     """
     if isinstance(timestamp_str, str):
         # Replace 'T' with space if present (ISO format)
@@ -312,7 +322,11 @@ def normalize_timestamp_format(timestamp_str: str) -> str:
 
 def merge_patterns_with_indicators(patterns_df: pd.DataFrame, indicators_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Merge pattern data with technical indicators based on timestamp.
+    FIXED VERSION: Merge pattern data with technical indicators based on timestamp.
+    
+    The main fix is normalizing timestamp formats before merging:
+    - Pattern timestamps: 'YYYY-MM-DD HH:MM:SS' 
+    - Indicator timestamps: 'YYYY-MM-DDTHH:MM:SS' (ISO format)
     
     Args:
         patterns_df: DataFrame with pattern features, target, and timestamp
@@ -333,22 +347,37 @@ def merge_patterns_with_indicators(patterns_df: pd.DataFrame, indicators_df: pd.
     logging.debug(f"Pattern timestamps sample: {patterns_df['timestamp'].iloc[0]} (type: {type(patterns_df['timestamp'].iloc[0])})")
     logging.debug(f"Indicator timestamps sample: {indicators_df['timestamp'].iloc[0]} (type: {type(indicators_df['timestamp'].iloc[0])})")
     
-    # Ensure timestamp column is string in both dataframes
+    # Convert timestamps to strings and normalize format (FIX APPLIED HERE)
     try:
-        patterns_df['timestamp'] = patterns_df['timestamp'].astype(str)
-        indicators_df['timestamp'] = indicators_df['timestamp'].astype(str)
+        patterns_df['timestamp'] = patterns_df['timestamp'].astype(str).apply(normalize_timestamp_format)
+        indicators_df['timestamp'] = indicators_df['timestamp'].astype(str).apply(normalize_timestamp_format)
     except Exception as e:
         logging.error(f"Error converting timestamps to string: {e}")
         # Try a more robust approach if simple casting fails
-        patterns_df['timestamp'] = patterns_df['timestamp'].apply(lambda x: str(x))
-        indicators_df['timestamp'] = indicators_df['timestamp'].apply(lambda x: str(x))
+        patterns_df['timestamp'] = patterns_df['timestamp'].apply(lambda x: normalize_timestamp_format(str(x)))
+        indicators_df['timestamp'] = indicators_df['timestamp'].apply(lambda x: normalize_timestamp_format(str(x)))
     
     # Log sample values for debugging
-    logging.debug(f"After conversion - Pattern timestamps: {patterns_df['timestamp'].iloc[0]}")
-    logging.debug(f"After conversion - Indicator timestamps: {indicators_df['timestamp'].iloc[0]}")
+    logging.debug(f"After normalization - Pattern timestamps: {patterns_df['timestamp'].iloc[0]}")
+    logging.debug(f"After normalization - Indicator timestamps: {indicators_df['timestamp'].iloc[0]}")
+    
+    # Check for timestamp overlap before merge (ENHANCED DEBUGGING)
+    pattern_timestamps = set(patterns_df['timestamp'].tolist())
+    indicator_timestamps = set(indicators_df['timestamp'].tolist())
+    overlap = pattern_timestamps.intersection(indicator_timestamps)
+    
+    logging.debug(f"Timestamp overlap: {len(overlap)} out of {len(pattern_timestamps)} patterns")
+    
+    if len(overlap) == 0:
+        logging.warning(f"{Fore.YELLOW}No timestamp overlap found between patterns and indicators!{Style.RESET_ALL}")
+        logging.warning(f"Sample pattern timestamps: {list(pattern_timestamps)[:3]}")
+        logging.warning(f"Sample indicator timestamps: {list(indicator_timestamps)[:3]}")
+        return pd.DataFrame()
     
     # Merge the dataframes on timestamp
     merged_df = pd.merge(patterns_df, indicators_df, on='timestamp', how='inner')
+    
+    logging.debug(f"Merge resulted in {len(merged_df)} records")
     
     # Check for any NaN values and drop rows that contain them
     rows_before = len(merged_df)
