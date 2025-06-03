@@ -325,19 +325,31 @@ MONITORING_CONFIG = {
 }
 
 # ====================================================================
-# CLASS MAPPINGS
+# REFINED BINARY CLASS MAPPINGS
 # ====================================================================
+
+# Refined Binary Classification System:
+# - Uses neutral zone exclusion during training for cleaner class separation
+# - Class 0 (SELL): Strong negative volatility (y < SELL_THRESHOLD = -0.5)
+# - Class 1 (BUY): Strong positive volatility (y > BUY_THRESHOLD = 0.5)
+# - Excluded during training: Neutral zone (-0.5 <= y <= 0.5)
+# - PredictionEngine handles HOLD decisions post-prediction based on confidence
 
 CLASS_MAPPINGS = {
     'labels': {
-        0: 'HOLD',
-        1: 'BUY', 
-        2: 'SELL'
+        0: 'SELL',  # Strong negative volatility (y < SELL_THRESHOLD)
+        1: 'BUY'    # Strong positive volatility (y > BUY_THRESHOLD)
     },
     'colors': {
-        0: '#FFA500',  # Orange for HOLD
-        1: '#00FF00',  # Green for BUY
-        2: '#FF0000'   # Red for SELL
+        0: '#FF0000',  # Red for SELL
+        1: '#00FF00'   # Green for BUY
+    },
+    'description': {
+        'approach': 'refined_binary',
+        'neutral_zone_excluded': True,
+        'buy_threshold': 0.5,
+        'sell_threshold': -0.5,
+        'note': 'Samples in neutral zone (-0.5 <= y <= 0.5) are excluded during training for cleaner class separation. HOLD decisions are made by PredictionEngine based on confidence thresholds.'
     }
 }
 
@@ -409,5 +421,7 @@ if __name__ == "__main__":
         print(f"🔧 Feature engineering features: {list(FEATURE_ENGINEERING_CONFIG.keys())}")
         print(f"🤖 Available models: {list(MODEL_CONFIG.keys())}")
         print(f"🚀 Training configurations: {list(TRAINING_CONFIG.keys())}")
+        print(f"🎯 Classification approach: {CLASS_MAPPINGS['description']['approach']}")
+        print(f"🔄 Neutral zone excluded: {CLASS_MAPPINGS['description']['neutral_zone_excluded']}")
     else:
         print("❌ Configuration validation failed!")

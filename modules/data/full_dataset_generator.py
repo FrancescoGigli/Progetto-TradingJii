@@ -134,7 +134,7 @@ async def generate_full_ml_dataset(
         percentage = (count / len(merged_df)) * 100
         logging.info(f"  {label_name} ({label}): {count} ({percentage:.1f}%)")
     
-    logging.info(f"Saved dataset: {output_file} ({records_retained} records)")
+    logging.info(f"Saved dataset: {output_file} ({len(merged_df)} records)")
     
     return True
 
@@ -352,16 +352,51 @@ def merge_patterns_with_indicators(patterns_df: pd.DataFrame, indicators_df: pd.
     return merged_df
 
 def add_labels(df: pd.DataFrame) -> pd.DataFrame:
-    """Add binary classification labels based on volatility thresholds."""
+    """Add refined binary classification labels excluding neutral zone.
+    
+    Uses both BUY_THRESHOLD and SELL_THRESHOLD to create cleaner classes:
+    - Class 1 (BUY): y > BUY_THRESHOLD (strong positive volatility)
+    - Class 0 (SELL): y < SELL_THRESHOLD (strong negative volatility) 
+    - Excluded: SELL_THRESHOLD <= y <= BUY_THRESHOLD (neutral zone)
+    
+    This approach creates more distinct classes by excluding ambiguous signals.
+    """
     if 'y' not in df.columns:
         return df
     
     df = df.copy()
+    initial_count = len(df)
     
-    # Create binary labels: 1 for BUY (high volatility), 0 for SELL (low volatility)
-    df['y_class'] = (df['y'] > BUY_THRESHOLD).astype(int)
+    # Create masks for clear signals
+    buy_mask = df['y'] > BUY_THRESHOLD
+    sell_mask = df['y'] < SELL_THRESHOLD
+    neutral_mask = (df['y'] >= SELL_THRESHOLD) & (df['y'] <= BUY_THRESHOLD)
     
-    return df
+    # Only keep samples with clear signals (exclude neutral zone)
+    clear_signal_mask = buy_mask | sell_mask
+    df_filtered = df[clear_signal_mask].copy()
+    
+    # Assign refined binary labels: 1 for BUY, 0 for SELL
+    df_filtered['y_class'] = buy_mask[clear_signal_mask].astype(int)
+    
+    # Log filtering statistics
+    final_count = len(df_filtered)
+    excluded_count = initial_count - final_count
+    neutral_count = neutral_mask.sum()
+    
+    logging.info(f"Refined binary labeling statistics:")
+    logging.info(f"  Initial samples: {initial_count}")
+    logging.info(f"  BUY samples (y > {BUY_THRESHOLD}): {buy_mask.sum()}")
+    logging.info(f"  SELL samples (y < {SELL_THRESHOLD}): {sell_mask.sum()}")
+    logging.info(f"  Neutral zone excluded ({SELL_THRESHOLD} <= y <= {BUY_THRESHOLD}): {neutral_count}")
+    logging.info(f"  Final samples retained: {final_count} ({(final_count/initial_count)*100:.1f}%)")
+    logging.info(f"  Samples excluded: {excluded_count} ({(excluded_count/initial_count)*100:.1f}%)")
+    
+    if final_count < initial_count * 0.5:
+        logging.warning(f"{Fore.YELLOW}Warning: More than 50% of samples excluded due to neutral zone filtering. "
+                       f"Consider adjusting BUY_THRESHOLD ({BUY_THRESHOLD}) or SELL_THRESHOLD ({SELL_THRESHOLD}){Style.RESET_ALL}")
+    
+    return df_filtered
 
 if __name__ == "__main__":
     # Set up logging

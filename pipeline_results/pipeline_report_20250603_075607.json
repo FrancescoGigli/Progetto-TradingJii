@@ -1,0 +1,64 @@
+{
+  "execution_time": "0:04:28.197329",
+  "start_time": "2025-06-03T07:51:38.906496",
+  "end_time": "2025-06-03T07:56:07.131326",
+  "config": {
+    "num_symbols": 10,
+    "timeframes": [
+      "1h"
+    ],
+    "days_of_data": 30,
+    "batch_size": 5,
+    "concurrency": 3,
+    "enable_validation": true,
+    "generate_ml_datasets": true,
+    "force_rebuild": false
+  },
+  "phase_times": {
+    "data_collection": {
+      "start": "2025-06-03T07:51:38.908496",
+      "end": "2025-06-03T07:55:12.801662",
+      "duration": "0:03:33.893166",
+      "success": true
+    },
+    "feature_engineering": {
+      "start": "2025-06-03T07:55:12.804164",
+      "end": "2025-06-03T07:56:04.305829",
+      "duration": "0:00:51.501665",
+      "success": true
+    },
+    "model_training": {
+      "start": "2025-06-03T07:56:04.308324",
+      "end": "2025-06-03T07:56:07.131326",
+      "duration": "0:00:00",
+      "success": false
+    },
+    "prediction_testing": {
+      "start": "2025-06-03T07:56:06.375824",
+      "end": "2025-06-03T07:56:07.100827",
+      "duration": "0:00:00.725003",
+      "success": false
+    }
+  },
+  "results": {
+    "data_collection": {
+      "total_records": 559,
+      "symbols_completed": 10,
+      "symbols_skipped": 0,
+      "symbols_failed": 0,
+      "execution_time": "0h 3m 27s",
+      "validation_summary": {
+        "symbols_validated": 10,
+        "issues_found": 8,
+        "auto_repaired": 8,
+        "high_quality": 2,
+        "medium_quality": 8,
+        "low_quality": 0
+      }
+    },
+    "feature_engineering": {
+      "status": "completed",
+      "enhanced_datasets_created": true
+    }
+  }
+}
