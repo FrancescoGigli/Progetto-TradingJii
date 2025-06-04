@@ -34,6 +34,8 @@ from .config import (
     FALLBACK_CONFIG,
     VALIDATION_CONFIG,
     LOGGING_CONFIG,
+    MODEL_SELECTION_CONFIG,
+    CONFIDENCE_CONFIG,
     get_model_config,
     get_threshold_config,
     ModelNotFoundError,
@@ -42,6 +44,8 @@ from .config import (
     InsufficientDataError,
     generate_schema_hash
 )
+
+from .model_selector import SmartModelSelector, ModelCompatibilityError
 
 from .feature_extractor import (
     extract_and_validate_features,
@@ -71,6 +75,8 @@ class ModelPredictor:
             "total_predictions": 0,
             "successful_predictions": 0,
             "fallback_used": 0,
+            "cross_contamination_prevented": 0,  # NEW: Track prevented cross-contamination
+            "smart_selection_used": 0,  # NEW: Track smart selections
             "errors": []
         }
         
@@ -81,7 +87,15 @@ class ModelPredictor:
         # Setup logging
         self.setup_logging()
         
-        # Discover available models on initialization
+        # Initialize Smart Model Selector (NEW)
+        if FALLBACK_CONFIG.get("use_smart_model_selection", True):
+            self.smart_selector = SmartModelSelector(models_dir)
+            self.logger.info("SmartModelSelector initialized - cross-asset contamination prevention enabled")
+        else:
+            self.smart_selector = None
+            self.logger.warning("SmartModelSelector disabled - using legacy model selection")
+        
+        # Discover available models on initialization (legacy support)
         self.discover_available_models()
 
     def setup_logging(self):
@@ -169,7 +183,7 @@ class ModelPredictor:
 
     def find_best_model_for_symbol(self, model_name: str, symbol: str) -> Optional[str]:
         """
-        Find the best available model file for a given symbol.
+        Find the best available model file for a given symbol using smart selection.
         
         Args:
             model_name: Name of the model type
@@ -179,6 +193,53 @@ class ModelPredictor:
             Path to the best model file or None if not found
         """
         try:
+            # Use SmartModelSelector for safe model selection
+            if self.smart_selector and FALLBACK_CONFIG.get("use_smart_model_selection", True):
+                self.logger.debug(f"Using SmartModelSelector for {symbol} ({model_name})")
+                
+                model_path = self.smart_selector.select_best_model(symbol, model_name)
+                
+                if model_path:
+                    self.prediction_stats["smart_selection_used"] += 1
+                    
+                    # Validate the selection is actually compatible
+                    if self.smart_selector.validate_model_selection(symbol, model_path):
+                        self.logger.info(f"[SUCCESS] Smart selection succeeded for {symbol}: {os.path.basename(model_path)}")
+                        return model_path
+                    else:
+                        self.logger.error(f"[ERROR] Smart selection validation failed for {symbol}")
+                        self.prediction_stats["cross_contamination_prevented"] += 1
+                        return None
+                else:
+                    self.logger.warning(f"[BLOCKED] No compatible model found for {symbol} - preventing cross-asset contamination")
+                    self.prediction_stats["cross_contamination_prevented"] += 1
+                    
+                    # Log available models for debugging
+                    if hasattr(self.smart_selector, 'discovered_models') and model_name in self.smart_selector.discovered_models:
+                        available_symbols = list(self.smart_selector.discovered_models[model_name].keys())
+                        self.logger.info(f"Available {model_name} models: {available_symbols}")
+                        self.logger.info(f"Cross-asset usage forbidden for {symbol} - ensuring data integrity")
+                    
+                    return None
+            else:
+                # Fallback to legacy method (less safe but still functional)
+                self.logger.warning(f"Using legacy model selection for {symbol} - SmartModelSelector disabled")
+                return self._legacy_find_model(model_name, symbol)
+                
+        except Exception as e:
+            self.logger.error(f"Error in smart model selection for {symbol}: {e}")
+            return None
+    
+    def _legacy_find_model(self, model_name: str, symbol: str) -> Optional[str]:
+        """
+        Legacy model finding method (kept for compatibility).
+        
+        WARNING: This method can cause cross-asset contamination.
+        Use SmartModelSelector instead.
+        """
+        try:
+            self.logger.warning("⚠️  Using legacy model selection - cross-contamination possible!")
+            
             # Clean symbol for matching (remove :USDT suffix if present)
             clean_symbol = symbol.replace("/USDT:USDT", "_USDTUSDT").replace("/", "_")
             
@@ -199,17 +260,20 @@ class ModelPredictor:
                         self.logger.debug(f"Found partial model match for {symbol}: {best_model['filename']}")
                         return best_model["path"]
                 
-                # Fallback to any available model of this type
-                if symbol_models:
+                # DANGEROUS: Fallback to any available model (cross-contamination risk)
+                if symbol_models and not FALLBACK_CONFIG.get("prevent_cross_asset_contamination", True):
                     first_symbol = list(symbol_models.keys())[0]
                     best_model = symbol_models[first_symbol][0]
-                    self.logger.warning(f"Using fallback model for {symbol}: {best_model['filename']}")
+                    self.logger.error(f"🚨 DANGEROUS: Using cross-asset model for {symbol}: {best_model['filename']}")
                     return best_model["path"]
+                else:
+                    self.logger.info(f"🛡️  Cross-asset contamination prevented for {symbol}")
+                    return None
             
             return None
             
         except Exception as e:
-            self.logger.error(f"Error finding model for {symbol}: {e}")
+            self.logger.error(f"Error in legacy model finding for {symbol}: {e}")
             return None
 
     def load_model_safe(self, model_path: str, expected_version: str = None) -> Optional[Dict]:
@@ -774,21 +838,59 @@ class ModelPredictor:
         total = self.prediction_stats["total_predictions"]
         successful = self.prediction_stats["successful_predictions"]
         fallback = self.prediction_stats["fallback_used"]
+        cross_contamination_prevented = self.prediction_stats["cross_contamination_prevented"]
+        smart_selection_used = self.prediction_stats["smart_selection_used"]
         
         success_rate = (successful / total) if total > 0 else 0.0
         fallback_rate = (fallback / total) if total > 0 else 0.0
+        contamination_prevention_rate = (cross_contamination_prevented / total) if total > 0 else 0.0
+        smart_selection_rate = (smart_selection_used / total) if total > 0 else 0.0
         
-        return {
+        stats = {
             "total_predictions": total,
             "successful_predictions": successful,
             "success_rate": success_rate,
             "fallback_used": fallback,
             "fallback_rate": fallback_rate,
+            "cross_contamination_prevented": cross_contamination_prevented,
+            "contamination_prevention_rate": contamination_prevention_rate,
+            "smart_selection_used": smart_selection_used,
+            "smart_selection_rate": smart_selection_rate,
             "error_count": len(self.prediction_stats["errors"]),
             "recent_errors": self.prediction_stats["errors"][-5:],  # Last 5 errors
             "models_loaded": list(self.loaded_models.keys()),
-            "health_status": "healthy" if success_rate > 0.8 and fallback_rate < 0.2 else "degraded"
+            "health_status": self._calculate_health_status(success_rate, fallback_rate, contamination_prevention_rate)
         }
+        
+        # Add Smart Model Selector stats if available
+        if self.smart_selector:
+            selector_stats = self.smart_selector.get_selection_stats()
+            stats["smart_selector"] = selector_stats
+        
+        return stats
+    
+    def _calculate_health_status(self, success_rate: float, fallback_rate: float, contamination_prevention_rate: float) -> str:
+        """
+        Calculate overall system health status.
+        
+        Args:
+            success_rate: Rate of successful predictions
+            fallback_rate: Rate of fallback usage
+            contamination_prevention_rate: Rate of prevented cross-contamination
+            
+        Returns:
+            Health status string
+        """
+        if success_rate > 0.9 and fallback_rate < 0.1:
+            return "excellent"
+        elif success_rate > 0.8 and fallback_rate < 0.2:
+            return "healthy"
+        elif success_rate > 0.6 and fallback_rate < 0.4:
+            return "degraded"
+        elif contamination_prevention_rate > 0.5:
+            return "protected"  # System is protecting data integrity even if success is low
+        else:
+            return "critical"
 
     def clear_cache(self):
         """Clear loaded model cache."""

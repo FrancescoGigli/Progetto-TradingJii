@@ -340,7 +340,7 @@ def predict_signals_command(args) -> bool:
                     result = future.result()
                     results.append(result)
                     
-                    # Display result immediately
+                    # Display result immediately with enhanced info
                     signal_color = {
                         "BUY": Fore.GREEN,
                         "SELL": Fore.RED,
@@ -348,14 +348,30 @@ def predict_signals_command(args) -> bool:
                     }.get(result["signal"], Fore.WHITE)
                     
                     confidence_bar = "█" * int(result["confidence"] * 10)
+                    confidence_stars = "⭐" * max(1, int(result["confidence"] * 5))
                     
-                    print(f"\n{signal_color}[{result['signal']}]{Style.RESET_ALL} {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe})")
+                    print(f"\n{signal_color}[{result['signal']}]{Style.RESET_ALL} {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe}) - {confidence_stars}")
                     print(f"   Confidence: {confidence_bar} {result['confidence']:.1%}")
                     
-                    if result.get("fallback_used"):
+                    # Show model selection info
+                    if result.get("model_used"):
+                        model_name = result["model_used"]
+                        if model_name == "safe_fallback":
+                            print(f"   {Fore.BLUE}🛡️  Safe fallback used (data integrity protected){Style.RESET_ALL}")
+                        else:
+                            print(f"   Model: {Fore.CYAN}{model_name}{Style.RESET_ALL}")
+                    
+                    # Show smart selection info
+                    if result.get("success") and result.get("model_used") and result["model_used"] != "safe_fallback":
+                        print(f"   {Fore.GREEN}✅ Smart selection: Asset-compatible model used{Style.RESET_ALL}")
+                    
+                    if result.get("fallback_used") and result.get("model_used") != "safe_fallback":
                         print(f"   {Fore.BLUE}ℹ️  Used fallback model{Style.RESET_ALL}")
                     
-                    if result.get("error"):
+                    if result.get("error") and "No compatible model" in str(result.get("error", "")):
+                        print(f"   {Fore.BLUE}🚫 Cross-contamination prevented{Style.RESET_ALL}")
+                        print(f"   {Fore.BLUE}   → Ensuring data integrity over predictions{Style.RESET_ALL}")
+                    elif result.get("error"):
                         print(f"   {Fore.RED}⚠️  Error: {result['error']}{Style.RESET_ALL}")
                     
                 except Exception as e:

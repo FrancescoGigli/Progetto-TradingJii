@@ -92,7 +92,37 @@ FALLBACK_CONFIG = {
     "max_fallback_rate": 0.2,  # Alert if fallback rate > 20%
     "enable_health_monitoring": True,
     "recursion_depth_limit": 3,  # Prevent infinite recursion
-    "safe_mode_enabled": True  # Always return HOLD if all models fail
+    "safe_mode_enabled": True,  # Always return HOLD if all models fail
+    "use_smart_model_selection": True,  # NEW: Use SmartModelSelector
+    "prevent_cross_asset_contamination": True,  # NEW: Strict anti-contamination
+    "log_model_selection_decisions": True  # NEW: Enhanced logging
+}
+
+# Enhanced Model Selection Configuration
+MODEL_SELECTION_CONFIG = {
+    "enable_smart_selection": True,
+    "require_symbol_compatibility": True,
+    "cross_asset_forbidden": True,  # CRITICAL: Never use ETH model for SOL
+    "prefer_exact_match": True,
+    "fallback_to_safe_hold": True,  # Return HOLD instead of wrong model
+    "log_selection_decisions": True,
+    "validate_model_compatibility": True
+}
+
+# Confidence Display Configuration (for Phase 4)
+CONFIDENCE_CONFIG = {
+    "show_confidence_in_cli": True,
+    "confidence_stars_enabled": True,  # ⭐⭐⭐⭐⭐ visual display
+    "confidence_thresholds": {
+        "very_high": 0.85,  # ⭐⭐⭐⭐⭐
+        "high": 0.75,       # ⭐⭐⭐⭐
+        "moderate": 0.65,   # ⭐⭐⭐
+        "low": 0.55,        # ⭐⭐
+        "very_low": 0.45    # ⭐
+    },
+    "filter_low_confidence": True,
+    "min_confidence_for_display": 0.5,
+    "show_filtered_signals": True  # Show filtered signals with reason
 }
 
 # Logging configuration
