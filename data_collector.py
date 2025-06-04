@@ -30,7 +30,8 @@ from colorama import Fore, Style, Back, init
 from modules.utils.logging_setup import setup_logging
 from modules.utils.command_args import parse_arguments
 from modules.utils.config import DB_FILE, REALTIME_CONFIG
-from modules.core.exchange import create_exchange, fetch_markets, get_top_symbols
+from modules.core.exchange import create_exchange
+from modules.utils.symbol_manager import get_top_symbols
 from modules.core.download_orchestrator import process_timeframe
 from modules.data.db_manager import init_data_tables
 from modules.data.volatility_processor import process_and_save_volatility
@@ -74,22 +75,16 @@ async def real_time_update(args):
     try:
         # Ottieni i simboli da monitorare (specifici o top per volume)
         async_exchange = await create_exchange()
-        markets = await fetch_markets(async_exchange)
-        
-        if not markets:
-            logging.error("Nessun mercato trovato. Controlla la tua connessione internet e le credenziali API.")
-            return None
 
         # Usa simboli specifici se configurato, altrimenti usa top per volume
         if REALTIME_CONFIG['use_specific_symbols']:
             top_symbols = REALTIME_CONFIG['specific_symbols']
             logging.info(f"Utilizzo simboli specifici configurati: {Fore.GREEN}{', '.join(top_symbols)}{Style.RESET_ALL}")
         else:
-            all_symbols = list(markets.keys())
-            top_symbols = await get_top_symbols(async_exchange, all_symbols, top_n=args.num_symbols)
+            top_symbols = await get_top_symbols(async_exchange, limit=args.num_symbols)
             if not top_symbols:
-                logging.error("Impossibile ottenere i simboli con maggior volume. Utilizzo di tutti i simboli disponibili.")
-                top_symbols = all_symbols[:args.num_symbols]
+                logging.error("Impossibile ottenere i simboli con maggior volume.")
+                return None
         
         await async_exchange.close()
         

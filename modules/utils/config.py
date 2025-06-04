@@ -21,6 +21,7 @@ DB_FILE = 'crypto_data.db'
 
 # Default values
 DEFAULT_TOP_SYMBOLS = 5  # Top 5 crypto per volume
+EXCLUDED_SYMBOLS = []  # Simboli da escludere dalla selezione automatica
 # Configurazione giorni di dati con warmup automatico per indicatori
 DESIRED_ANALYSIS_DAYS = 365  # Giorni di dati puliti che vogliamo per l'analisi
 INDICATOR_WARMUP_BUFFER = 10  # Buffer aggiuntivo per sicurezza
