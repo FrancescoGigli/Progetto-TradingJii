@@ -72,7 +72,7 @@ async def real_time_update(args):
     grand_total_symbols = {"completati": 0, "saltati": 0, "falliti": 0}
     
     try:
-        # Ottieni i primi N simboli per volume
+        # Ottieni i simboli da monitorare (specifici o top per volume)
         async_exchange = await create_exchange()
         markets = await fetch_markets(async_exchange)
         
@@ -80,13 +80,18 @@ async def real_time_update(args):
             logging.error("Nessun mercato trovato. Controlla la tua connessione internet e le credenziali API.")
             return None
 
-        all_symbols = list(markets.keys())
-        top_symbols = await get_top_symbols(async_exchange, all_symbols, top_n=args.num_symbols)
+        # Usa simboli specifici se configurato, altrimenti usa top per volume
+        if REALTIME_CONFIG['use_specific_symbols']:
+            top_symbols = REALTIME_CONFIG['specific_symbols']
+            logging.info(f"Utilizzo simboli specifici configurati: {Fore.GREEN}{', '.join(top_symbols)}{Style.RESET_ALL}")
+        else:
+            all_symbols = list(markets.keys())
+            top_symbols = await get_top_symbols(async_exchange, all_symbols, top_n=args.num_symbols)
+            if not top_symbols:
+                logging.error("Impossibile ottenere i simboli con maggior volume. Utilizzo di tutti i simboli disponibili.")
+                top_symbols = all_symbols[:args.num_symbols]
+        
         await async_exchange.close()
-
-        if not top_symbols:
-            logging.error("Impossibile ottenere i simboli con maggior volume. Utilizzo di tutti i simboli disponibili.")
-            top_symbols = all_symbols[:args.num_symbols]
         
         # Aggiorna i dati per ogni timeframe
         if args.sequential:

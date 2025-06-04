@@ -20,7 +20,7 @@ API_SECRET = os.environ.get('BYBIT_API_SECRET', '')
 DB_FILE = 'crypto_data.db'
 
 # Default values
-DEFAULT_TOP_SYMBOLS = 20  # Top 20 crypto per volume (buon equilibrio)
+DEFAULT_TOP_SYMBOLS = 5  # Top 5 crypto per volume
 # Configurazione giorni di dati con warmup automatico per indicatori
 DESIRED_ANALYSIS_DAYS = 365  # Giorni di dati puliti che vogliamo per l'analisi
 INDICATOR_WARMUP_BUFFER = 10  # Buffer aggiuntivo per sicurezza
@@ -44,6 +44,13 @@ EXCHANGE_CONFIG = {
     }
 }
 
+# OHLCV Fetch Retry Configuration
+OHLCV_FETCH_CONFIG = {
+    'max_retries': 3,           # Numero massimo di tentativi per fetch OHLCV
+    'backoff_seconds': 2,       # Tempo base per backoff esponenziale (secondi)
+    'max_backoff_seconds': 30,  # Tempo massimo di attesa tra tentativi
+}
+
 # Timeframe configuration
 TIMEFRAME_CONFIG = {
     '1m': {'max_age': timedelta(minutes=5), 'ms': 60 * 1000},
@@ -62,20 +69,13 @@ REALTIME_CONFIG = {
     'max_iterations': None,  # None = infinito, numero = limite iterazioni
     
     # Criptovalute da monitorare
-    'num_symbols': 25,  # Numero di top simboli per volume
+    'num_symbols': 5,  # Numero di top simboli per volume
     'specific_symbols': [  # Lista specifica di simboli (opzionale)
         'BTC/USDT:USDT',
         'ETH/USDT:USDT', 
-        'SOL/USDT:USDT',
-        'ADA/USDT:USDT',
-        'AVAX/USDT:USDT',
-        'LINK/USDT:USDT',
-        'UNI/USDT:USDT',
-        'DOGE/USDT:USDT',
-        'XRP/USDT:USDT',
-        'SUI/USDT:USDT'
+        'SOL/USDT:USDT'
     ],
-    'use_specific_symbols': False,  # True = usa specific_symbols, False = usa top N per volume
+    'use_specific_symbols': True,  # True = usa specific_symbols, False = usa top N per volume
     
     # Timeframes da processare
     'timeframes': ['1h', '4h'],  # Lista dei timeframes da scaricare

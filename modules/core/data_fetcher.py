@@ -7,11 +7,12 @@ Handles OHLCV data fetching from the exchange.
 
 import logging
 import asyncio
+import ccxt
 from datetime import datetime, timedelta
 from colorama import Fore, Style
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
-from modules.utils.config import TIMEFRAME_CONFIG
+from modules.utils.config import TIMEFRAME_CONFIG, OHLCV_FETCH_CONFIG
 from modules.data.db_manager import check_data_freshness, save_ohlcv_data
 
 def estimated_iterations(since, now_ms, timeframe):
@@ -28,6 +29,35 @@ def estimated_iterations(since, now_ms, timeframe):
     """
     time_diff_ms = now_ms - since
     return max(1, int(time_diff_ms / TIMEFRAME_CONFIG[timeframe]['ms'] / 1000))
+
+async def fetch_with_retry(exchange, symbol, timeframe, since, limit):
+    """
+    Fetch OHLCV data with exponential backoff retry mechanism using config parameters.
+    
+    Args:
+        exchange: The exchange object
+        symbol: The cryptocurrency symbol
+        timeframe: The timeframe to fetch data for
+        since: Start timestamp in milliseconds
+        limit: Maximum number of candles to fetch
+        
+    Returns:
+        OHLCV data chunk or raises exception after all retries fail
+    """
+    max_retries = OHLCV_FETCH_CONFIG['max_retries']
+    backoff = OHLCV_FETCH_CONFIG['backoff_seconds']
+    max_backoff = OHLCV_FETCH_CONFIG['max_backoff_seconds']
+    
+    for attempt in range(max_retries):
+        try:
+            return await exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=limit)
+        except (ccxt.NetworkError, ccxt.ExchangeError) as e:
+            if attempt == max_retries - 1:  # Last attempt
+                raise e
+            wait_time = min(backoff * (2 ** attempt), max_backoff)
+            logging.warning(f"Tentativo {attempt+1} fallito per {symbol} ({timeframe}): {e}. Ritento tra {wait_time}s...")
+            await asyncio.sleep(wait_time)
+    return None
 
 async def fetch_ohlcv_data(exchange, symbol, timeframe, data_limit_days):
     """
@@ -69,7 +99,7 @@ async def fetch_ohlcv_data(exchange, symbol, timeframe, data_limit_days):
             current_since = since
             while current_since < now_ms:
                 try:
-                    data_chunk = await exchange.fetch_ohlcv(symbol, timeframe, since=current_since, limit=1000)
+                    data_chunk = await fetch_with_retry(exchange, symbol, timeframe, current_since, 1000)
                     if not data_chunk:
                         break
                     ohlcv_data.extend(data_chunk)
@@ -77,7 +107,7 @@ async def fetch_ohlcv_data(exchange, symbol, timeframe, data_limit_days):
                         current_since = data_chunk[-1][0] + 1
                     pbar.update(1)
                 except Exception as e:
-                    logging.error(f"Errore nel recupero dei dati OHLCV per {symbol} ({timeframe}): {e}")
+                    logging.error(f"Fetch fallito dopo {OHLCV_FETCH_CONFIG['max_retries']} tentativi per {symbol} ({timeframe}): {e}")
                     break
 
     # Save data to database
