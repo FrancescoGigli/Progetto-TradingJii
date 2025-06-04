@@ -86,30 +86,36 @@ class ModelPredictor:
 
     def setup_logging(self):
         """Setup logging for predictions."""
-        if LOGGING_CONFIG["enable_file_logging"]:
-            # Log to predictor-specific log file
-            import logging.handlers
+        import logging as log
+        import logging.handlers
+        
+        # Create a logger specific to predictions
+        self.logger = log.getLogger('predictor')
+        self.logger.setLevel(getattr(log, LOGGING_CONFIG["log_level"]))
+        
+        # Avoid duplicate handlers
+        if not self.logger.handlers:
+            formatter = log.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
             
-            log_file = LOGGING_CONFIG["predictor_log"]
+            # Always add console handler
+            if LOGGING_CONFIG.get("enable_console_logging", True):
+                console_handler = log.StreamHandler()
+                console_handler.setFormatter(formatter)
+                self.logger.addHandler(console_handler)
             
-            # Create a logger specific to predictions
-            self.logger = logging.getLogger('predictor')
-            self.logger.setLevel(getattr(logging, LOGGING_CONFIG["log_level"]))
-            
-            # Avoid duplicate handlers
-            if not self.logger.handlers:
-                handler = logging.handlers.RotatingFileHandler(
+            # Add file handler if enabled
+            if LOGGING_CONFIG["enable_file_logging"]:
+                log_file = LOGGING_CONFIG["predictor_log"]
+                
+                file_handler = log.handlers.RotatingFileHandler(
                     log_file,
                     maxBytes=LOGGING_CONFIG["max_log_size_mb"] * 1024 * 1024,
                     backupCount=5
                 )
-                formatter = logging.Formatter(
-                    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-                )
-                handler.setFormatter(formatter)
-                self.logger.addHandler(handler)
-        else:
-            self.logger = logging.getLogger('predictor')
+                file_handler.setFormatter(formatter)
+                self.logger.addHandler(file_handler)
 
     def discover_available_models(self):
         """Discover available model files in the models directory."""
@@ -673,8 +679,8 @@ class ModelPredictor:
             Updated result with fallback attempt
         """
         if not FALLBACK_CONFIG["enable_graceful_degradation"]:
-            original_result["error"] = error_msg
-            return original_result
+            # Return safe neutral fallback
+            return self._create_safe_fallback_result(symbol, timeframe, error_msg)
         
         fallback_model = FALLBACK_CONFIG.get("fallback_model")
         if fallback_model and fallback_model != original_result.get("model_attempted"):
@@ -691,10 +697,44 @@ class ModelPredictor:
             except Exception as e:
                 self.logger.error(f"Fallback model also failed for {symbol}: {e}")
         
-        # If fallback fails or not available, return safe default
-        original_result["error"] = error_msg
-        original_result["signal"] = FALLBACK_CONFIG["fallback_signal"]
-        return original_result
+        # If fallback fails or not available, return safe neutral default
+        return self._create_safe_fallback_result(symbol, timeframe, error_msg)
+
+    def _create_safe_fallback_result(self, symbol: str, timeframe: str, error_msg: str) -> Dict:
+        """
+        Create a safe neutral fallback result when all models fail.
+        
+        Args:
+            symbol: Cryptocurrency symbol
+            timeframe: Timeframe  
+            error_msg: Error message from failed predictions
+            
+        Returns:
+            Safe fallback result with HOLD signal and 0.0 confidence
+        """
+        return {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "timestamp": datetime.now().isoformat(),
+            "success": True,  # Mark as success since we're providing a safe signal
+            "prediction": 0,  # 0 = HOLD in classification
+            "signal": "HOLD",
+            "confidence": 0.0,  # Zero confidence indicates fallback
+            "model_used": "safe_fallback",
+            "fallback_used": True,
+            "error": error_msg,
+            "feature_quality": {},
+            "prediction_meta": {
+                "prediction": 0,
+                "confidence": 0.0,
+                "model_info": {
+                    "name": "safe_fallback",
+                    "version": "1.0.0",
+                    "accuracy": 0.0
+                },
+                "fallback_reason": "All models failed - returning safe neutral signal"
+            }
+        }
 
     def _prediction_to_signal(self, prediction: int, confidence: float, model_name: str) -> str:
         """

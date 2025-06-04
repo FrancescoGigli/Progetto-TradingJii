@@ -17,6 +17,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from colorama import Fore, Style, init
 
 # Initialize colorama
@@ -257,7 +258,7 @@ def train_models_command(args) -> bool:
             
     except Exception as e:
         print(f"\n{Fore.RED}❌ Training failed: {e}{Style.RESET_ALL}")
-        logging.error(f"Model training error: {e}")
+        print(f"Training error details: {e}")
         return False
 
 
@@ -295,14 +296,48 @@ def predict_signals_command(args) -> bool:
         print(f"   Timeframes: {Fore.CYAN}{', '.join(timeframes)}{Style.RESET_ALL}")
         print(f"   Model: {Fore.GREEN}{args.model or 'default'}{Style.RESET_ALL}")
         
-        # Make predictions
+        # Make predictions with parallelization
         predictor = ModelPredictor()
         results = []
         
+        # Create list of prediction tasks
+        prediction_tasks = []
         for symbol in symbols:
             for timeframe in timeframes:
+                prediction_tasks.append((symbol, timeframe))
+        
+        def make_prediction(task):
+            """Helper function for parallel prediction."""
+            symbol, timeframe = task
+            try:
+                return predictor.predict_with_fallbacks(symbol, timeframe, args.model)
+            except Exception as e:
+                print(f"Warning: Prediction failed for {symbol} ({timeframe}): {e}")
+                return {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "success": False,
+                    "signal": "HOLD",
+                    "confidence": 0.0,
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat()
+                }
+        
+        # Execute predictions in parallel
+        max_workers = min(len(prediction_tasks), 4)  # Limit concurrent threads
+        print(f"🚀 Running {len(prediction_tasks)} predictions with {max_workers} parallel workers...")
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_task = {executor.submit(make_prediction, task): task for task in prediction_tasks}
+            
+            # Process completed predictions as they finish
+            for future in as_completed(future_to_task):
+                task = future_to_task[future]
+                symbol, timeframe = task
+                
                 try:
-                    result = predictor.predict_with_fallbacks(symbol, timeframe, args.model)
+                    result = future.result()
                     results.append(result)
                     
                     # Display result immediately
@@ -325,6 +360,15 @@ def predict_signals_command(args) -> bool:
                     
                 except Exception as e:
                     print(f"{Fore.RED}❌ Prediction failed for {symbol} ({timeframe}): {e}{Style.RESET_ALL}")
+                    results.append({
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "success": False,
+                        "signal": "HOLD",
+                        "confidence": 0.0,
+                        "error": str(e),
+                        "timestamp": datetime.now().isoformat()
+                    })
         
         # Save results if requested
         if args.save_to:
@@ -363,7 +407,7 @@ def predict_signals_command(args) -> bool:
         
     except Exception as e:
         print(f"\n{Fore.RED}❌ Prediction failed: {e}{Style.RESET_ALL}")
-        logging.error(f"Signal prediction error: {e}")
+        print(f"Error details: {e}")
         return False
 
 
@@ -568,7 +612,7 @@ Examples:
         success = False
     except Exception as e:
         print(f"\n{Fore.RED}❌ Unexpected error: {e}{Style.RESET_ALL}")
-        logger.error(f"CLI error: {e}")
+        print(f"CLI error details: {e}")
         success = False
     
     # Exit with appropriate code
