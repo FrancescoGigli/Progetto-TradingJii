@@ -99,7 +99,7 @@ class ModelTrainer:
             timeframe: Timeframe
             
         Returns:
-            Dictionary mapping pattern categories to DataFrames
+            Dictionary mapping patterns or classes to DataFrames
         """
         try:
             # Construct data path like in dataset_generator
@@ -121,23 +121,28 @@ class ModelTrainer:
                 logging.error(f"No CSV files found in {data_path}")
                 return {}
             
+            # Check if we're using data-driven labels or pattern-based
+            using_data_driven = any(f.startswith('class_') for f in csv_files)
+            file_prefix = 'class_' if using_data_driven else 'cat_'
+            
             for csv_file in csv_files:
-                # Extract pattern from filename (cat_PATTERN.csv)
-                if csv_file.startswith('cat_') and csv_file.endswith('.csv'):
-                    pattern = csv_file[4:-4]  # Remove 'cat_' prefix and '.csv' suffix
+                # Extract pattern/class from filename
+                if csv_file.startswith(file_prefix) and csv_file.endswith('.csv'):
+                    identifier = csv_file[len(file_prefix):-4]  # Remove prefix and '.csv' suffix
                     
                     file_path = os.path.join(data_path, csv_file)
                     df = pd.read_csv(file_path)
                     
                     if not df.empty:
-                        datasets[pattern] = df
-                        logging.info(f"Loaded {len(df)} samples for pattern '{pattern}' from {csv_file}")
+                        datasets[identifier] = df
+                        logging.info(f"Loaded {len(df)} samples for {file_prefix[:-1]} '{identifier}' from {csv_file}")
                     else:
                         logging.warning(f"Empty dataset file: {csv_file}")
                 else:
-                    logging.warning(f"Skipping non-pattern file: {csv_file}")
+                    logging.warning(f"Skipping unexpected file: {csv_file}")
             
-            logging.info(f"Loaded {len(datasets)} pattern datasets for {symbol} ({timeframe})")
+            type_desc = "class" if using_data_driven else "pattern"
+            logging.info(f"Loaded {len(datasets)} {type_desc} datasets for {symbol} ({timeframe})")
             return datasets
             
         except Exception as e:
@@ -146,10 +151,10 @@ class ModelTrainer:
 
     def prepare_training_data(self, datasets: Dict[str, pd.DataFrame]) -> Tuple[np.ndarray, np.ndarray, List[str]]:
         """
-        Prepare training data from pattern datasets.
+        Prepare training data from pattern or class datasets.
         
         Args:
-            datasets: Dictionary of pattern datasets
+            datasets: Dictionary of pattern/class datasets
             
         Returns:
             Tuple of (features, labels, feature_names)
@@ -159,30 +164,51 @@ class ModelTrainer:
             all_labels = []
             feature_names = []
             
-            for pattern, df in datasets.items():
+            # Determine if we're using data-driven labels or pattern-based
+            using_data_driven = any(name in ['buy', 'sell', 'hold'] for name in datasets.keys())
+            
+            for identifier, df in datasets.items():
                 # Extract feature columns (x_1, x_2, ..., x_n)
                 feature_cols = [col for col in df.columns if col.startswith('x_')]
                 feature_cols.sort(key=lambda x: int(x.split('_')[1]))  # Sort by number
                 
                 if not feature_cols:
-                    logging.warning(f"No feature columns found for pattern {pattern}")
+                    logging.warning(f"No feature columns found for {identifier}")
                     continue
                 
                 # Set feature names from first dataset
                 if not feature_names:
                     feature_names = feature_cols
                 
-                # Extract features and convert pattern to classification labels
+                # Extract features
                 features = df[feature_cols].values
                 
-                # Convert patterns to numeric labels for classification
-                # We'll create a 3-class problem: BUY(1), SELL(-1), HOLD(0)
-                labels = self.pattern_to_signal(pattern, len(features))
+                # Handle labels based on format
+                if using_data_driven:
+                    # For data-driven labels, we use class names directly
+                    if identifier == 'buy':
+                        labels = np.ones(len(features), dtype=int)  # BUY = 1
+                    elif identifier == 'sell':
+                        labels = -np.ones(len(features), dtype=int)  # SELL = -1
+                    elif identifier == 'hold':
+                        labels = np.zeros(len(features), dtype=int)  # HOLD = 0
+                    else:
+                        # For other classes, check if 'y' column exists
+                        if 'y' in df.columns and np.all(df['y'].isin([1, 0, -1])):
+                            # Use 'y' column directly as labels
+                            labels = df['y'].values
+                        else:
+                            # Fallback to old pattern logic
+                            labels = self._map_pattern_to_signal(identifier, len(features))
+                else:
+                    # For pattern-based format, use pattern_to_signal
+                    labels = self.pattern_to_signal(identifier, len(features))
                 
                 all_features.append(features)
                 all_labels.extend(labels)
                 
-                logging.debug(f"Pattern {pattern}: {len(features)} samples -> signal {labels[0] if labels else 'none'}")
+                label_value = labels[0] if len(labels) > 0 else 'none'
+                logging.debug(f"{identifier}: {len(features)} samples -> signal {label_value}")
             
             if not all_features:
                 raise ValueError("No valid feature data found")
@@ -200,6 +226,62 @@ class ModelTrainer:
             logging.error(f"Error preparing training data: {e}")
             raise
 
+    def _map_pattern_to_signal(self, pattern: str, num_samples: int = 1) -> List[int]:
+        """
+        Private helper for backward compatibility.
+        Maps a pattern to a trading signal. Used only for old pattern-based datasets.
+        
+        Args:
+            pattern: Pattern string or identifier
+            num_samples: Number of samples to create labels for
+            
+        Returns:
+            List of signal values (1=BUY, 0=HOLD, -1=SELL)
+        """
+        # Handle directly if pattern is already a trading signal name
+        if pattern in ['buy', 'sell', 'hold']:
+            signal_map = {'buy': 1, 'sell': -1, 'hold': 0}
+            return [signal_map[pattern]] * num_samples
+            
+        # Legacy pattern mapping for backward compatibility
+        pattern_mapping = {
+            "1111111": 1,   # BUY
+            "0111111": 1,
+            "0011111": 1,
+            "0001111": 1,
+            "0000000": -1,  # SELL
+            "1000000": -1,
+            "1100000": -1,
+            "1110000": -1,
+            "0101010": 0,   # HOLD
+            "1010101": 0,
+            "0110110": 0,
+            "1001001": 0,
+            "0100100": 0,
+        }
+        
+        # Use direct mapping if available
+        if pattern in pattern_mapping:
+            return [pattern_mapping[pattern]] * num_samples
+        
+        # Fallback to statistical heuristic
+        ones_count = pattern.count('1') if '1' in pattern else 0
+        zeros_count = pattern.count('0') if '0' in pattern else 0
+        
+        if ones_count + zeros_count == 0:  # Not a binary pattern
+            return [0] * num_samples  # Default to HOLD
+            
+        volatility_ratio = ones_count / (ones_count + zeros_count)
+        
+        # Simple heuristic based on volatility ratio
+        if volatility_ratio >= 0.7:
+            return [1] * num_samples  # BUY
+        elif volatility_ratio <= 0.3:
+            return [-1] * num_samples  # SELL
+        else:
+            return [0] * num_samples  # HOLD
+    
+    # Keep original method for backward compatibility
     def pattern_to_signal(self, pattern: str, num_samples: int) -> List[int]:
         """
         Convert volatility pattern to trading signal labels.
@@ -592,7 +674,8 @@ def generate_datasets_and_train(
     timeframes: List[str],
     data_dir: str = "datasets",
     models_dir: str = "models",
-    force_regeneration: bool = False
+    force_regeneration: bool = False,
+    use_data_driven_labels: bool = True
 ) -> Dict[str, List[str]]:
     """
     Generate datasets and train models in one workflow.
@@ -616,7 +699,8 @@ def generate_datasets_and_train(
             symbols=symbols,
             timeframes=timeframes,
             output_dir=data_dir,
-            force_regeneration=force_regeneration
+            force_regeneration=force_regeneration,
+            use_data_driven_labels=use_data_driven_labels
         )
         
         if not export_results:

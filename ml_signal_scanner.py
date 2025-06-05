@@ -220,13 +220,15 @@ def train_models_command(args) -> bool:
         print(f"   Symbols: {Fore.YELLOW}{', '.join(symbols)}{Style.RESET_ALL}")
         print(f"   Timeframes: {Fore.CYAN}{', '.join(timeframes)}{Style.RESET_ALL}")
         print(f"   Model types: {Fore.GREEN}{', '.join(args.model_types)}{Style.RESET_ALL}")
+        print(f"   Label type: {Fore.MAGENTA}{'Data-driven (real returns)' if args.data_driven_labels else 'Pattern-based (volatility)'}{Style.RESET_ALL}")
         
         if args.generate_datasets:
             print(f"\n📊 Generating datasets and training models...")
             results = generate_datasets_and_train(
                 symbols=symbols,
                 timeframes=timeframes,
-                force_regeneration=args.force_regeneration
+                force_regeneration=args.force_regeneration,
+                use_data_driven_labels=args.data_driven_labels
             )
         else:
             print(f"\n🤖 Training models on existing datasets...")
@@ -575,6 +577,10 @@ Examples:
                              choices=['random_forest', 'gradient_boosting', 'svm', 'logistic_regression'],
                              default=['random_forest'],
                              help='Model types to train')
+    train_group.add_argument('--data-driven-labels', action='store_true', default=True,
+                             help='Use data-driven labels based on real returns (default: True)')
+    train_group.add_argument('--pattern-based-labels', dest='data_driven_labels', action='store_false',
+                             help='Use pattern-based labels from volatility')
     
     # Prediction options
     predict_group = parser.add_argument_group('prediction options')
