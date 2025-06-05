@@ -28,7 +28,7 @@ def load_price_data(symbol: str, timeframe: str, lookback_periods: int = 500) ->
     Returns:
         DataFrame con prezzi OHLCV e timestamp
     """
-    table_name = f"data_{timeframe}"
+    table_name = f"market_data_{timeframe}"
     
     try:
         with sqlite3.connect(DB_FILE) as conn:

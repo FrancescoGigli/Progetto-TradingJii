@@ -17,7 +17,7 @@ from modules.utils.config import DB_FILE
 
 def load_volatility_series(symbol: str, timeframe: str) -> pd.DataFrame:
     """
-    Load timestamp, volatility for a given symbol and timeframe from the volatility table.
+    Load timestamp, volatility for a given symbol and timeframe from the market data table.
     
     Args:
         symbol: The cryptocurrency symbol (e.g., "BTC/USDT")
@@ -26,7 +26,7 @@ def load_volatility_series(symbol: str, timeframe: str) -> pd.DataFrame:
     Returns:
         A pandas DataFrame with timestamp and volatility columns, sorted chronologically
     """
-    table_name = f"volatility_{timeframe}"
+    table_name = f"market_data_{timeframe}"
     
     try:
         with sqlite3.connect(DB_FILE) as conn:

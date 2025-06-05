@@ -52,8 +52,7 @@ def verify_data_integrity_post_download(symbol: str, timeframe: str) -> DataInte
     
     try:
         # Connessione al database
-        table_name = f"data_{timeframe}"
-        indicators_table = f"indicators_{timeframe}"
+        table_name = f"market_data_{timeframe}"
         
         with sqlite3.connect(DB_FILE) as conn:
             # 1. STATISTICHE BASE
@@ -147,30 +146,27 @@ def verify_data_integrity_post_download(symbol: str, timeframe: str) -> DataInte
                         'duration_hours': gap_hours
                     })
             
-            # 5. VERIFICA INDICATORI TECNICI
-            try:
-                indicators_query = f"""
-                    SELECT COUNT(*) as indicators_count,
-                           COUNT(CASE WHEN rsi14 IS NOT NULL THEN 1 END) as rsi_count,
-                           COUNT(CASE WHEN ema20 IS NOT NULL THEN 1 END) as ema_count,
-                           COUNT(CASE WHEN macd IS NOT NULL THEN 1 END) as macd_count
-                    FROM {indicators_table}
-                    WHERE symbol = ?
-                """
-                
-                df_indicators = pd.read_sql_query(indicators_query, conn, params=[symbol])
-                
-                if len(df_indicators) > 0 and df_indicators['indicators_count'].iloc[0] > 0:
-                    result.has_indicators = True
-                    indicators_count = df_indicators['indicators_count'].iloc[0]
-                    non_null_count = (df_indicators['rsi_count'].iloc[0] + 
-                                    df_indicators['ema_count'].iloc[0] + 
-                                    df_indicators['macd_count'].iloc[0])
-                    if indicators_count > 0:
-                        result.indicators_coverage_pct = (non_null_count / (indicators_count * 3)) * 100
-                        
-            except Exception:
-                # Tabella indicatori non esiste o errore
+            # 5. VERIFICA INDICATORI TECNICI - adesso nella stessa tabella
+            indicators_query = f"""
+                SELECT COUNT(*) as indicators_count,
+                       COUNT(CASE WHEN rsi14 IS NOT NULL THEN 1 END) as rsi_count,
+                       COUNT(CASE WHEN ema20 IS NOT NULL THEN 1 END) as ema_count,
+                       COUNT(CASE WHEN macd IS NOT NULL THEN 1 END) as macd_count
+                FROM {table_name}
+                WHERE symbol = ?
+            """
+            
+            df_indicators = pd.read_sql_query(indicators_query, conn, params=[symbol])
+            
+            if len(df_indicators) > 0 and df_indicators['indicators_count'].iloc[0] > 0:
+                result.has_indicators = True
+                indicators_count = df_indicators['indicators_count'].iloc[0]
+                non_null_count = (df_indicators['rsi_count'].iloc[0] + 
+                                df_indicators['ema_count'].iloc[0] + 
+                                df_indicators['macd_count'].iloc[0])
+                if indicators_count > 0:
+                    result.indicators_coverage_pct = (non_null_count / (indicators_count * 3)) * 100
+            else:
                 result.has_indicators = False
             
             # 6. CALCOLO QUALITY SCORE
@@ -229,7 +225,7 @@ def get_all_symbols_integrity_status(timeframes: List[str]) -> Dict[str, Dict[st
             all_symbols = set()
             
             for timeframe in timeframes:
-                table_name = f"data_{timeframe}"
+                table_name = f"market_data_{timeframe}"
                 
                 # Verifica se la tabella esiste
                 cursor = conn.cursor()

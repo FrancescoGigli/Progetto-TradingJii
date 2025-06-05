@@ -11,9 +11,10 @@ import logging
 from colorama import Fore, Style
 from modules.utils.config import DB_FILE, TIMEFRAME_CONFIG
 
-def init_data_tables(timeframes):
+def init_market_data_tables(timeframes):
     """
-    Initialize database tables for each timeframe.
+    Initialize unified market data tables for each timeframe.
+    These tables contain OHLCV data, technical indicators, and volatility metrics.
     
     Args:
         timeframes: List of timeframes to create tables for
@@ -24,27 +25,55 @@ def init_data_tables(timeframes):
             tables_created = []
             
             for timeframe in timeframes:
-                table_name = f"data_{timeframe}"
+                table_name = f"market_data_{timeframe}"
                 # Ensure the table name is valid - remove any problematic characters
                 table_name = table_name.replace('-', '_')
                 
                 try:
-                    logging.info(f"Creating table {table_name} if it doesn't exist...")
+                    logging.info(f"Creating unified table {table_name} if it doesn't exist...")
                     cursor.execute(f"""
                         CREATE TABLE IF NOT EXISTS {table_name} (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             symbol TEXT NOT NULL,
                             timestamp TEXT NOT NULL,
-                            open REAL NOT NULL,
-                            high REAL NOT NULL,
-                            low REAL NOT NULL,
-                            close REAL NOT NULL,
-                            volume REAL NOT NULL,
+                            
+                            /* OHLCV data */
+                            open REAL,
+                            high REAL,
+                            low REAL,
+                            close REAL,
+                            volume REAL,
+                            
+                            /* Technical indicators */
+                            sma9 REAL,
+                            sma20 REAL,
+                            sma50 REAL,
+                            ema20 REAL,
+                            ema50 REAL,
+                            ema200 REAL,
+                            rsi14 REAL,
+                            stoch_k REAL,
+                            stoch_d REAL,
+                            macd REAL,
+                            macd_signal REAL,
+                            macd_hist REAL,
+                            atr14 REAL,
+                            bbands_upper REAL,
+                            bbands_middle REAL,
+                            bbands_lower REAL,
+                            obv REAL,
+                            vwap REAL,
+                            volume_sma20 REAL,
+                            adx14 REAL,
+                            
+                            /* Volatility data */
+                            volatility REAL,
+                            
                             UNIQUE(symbol, timestamp)
                         )
                     """)
                     cursor.execute(f"""
-                        CREATE INDEX IF NOT EXISTS idx_{timeframe}_symbol_timestamp
+                        CREATE INDEX IF NOT EXISTS idx_{timeframe}_mkt_symbol_timestamp
                         ON {table_name} (symbol, timestamp)
                     """)
                     tables_created.append(table_name)
@@ -52,11 +81,11 @@ def init_data_tables(timeframes):
                     # Verify table was created successfully
                     cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
                     if cursor.fetchone():
-                        logging.info(f"{Fore.GREEN}Table {table_name} created or already exists{Style.RESET_ALL}")
+                        logging.info(f"{Fore.GREEN}Unified table {table_name} created or already exists{Style.RESET_ALL}")
                     else:
-                        logging.error(f"{Fore.RED}Failed to verify table {table_name} after creation{Style.RESET_ALL}")
+                        logging.error(f"{Fore.RED}Failed to verify unified table {table_name} after creation{Style.RESET_ALL}")
                 except Exception as e:
-                    logging.error(f"{Fore.RED}Error creating table {table_name}: {e}{Style.RESET_ALL}")
+                    logging.error(f"{Fore.RED}Error creating unified table {table_name}: {e}{Style.RESET_ALL}")
                     raise
             
             conn.commit()
@@ -72,6 +101,20 @@ def init_data_tables(timeframes):
         logging.error(traceback.format_exc())
         raise
 
+def init_data_tables(timeframes):
+    """
+    Initialize legacy database tables for each timeframe.
+    DEPRECATED: Use init_market_data_tables instead.
+    
+    Args:
+        timeframes: List of timeframes to create tables for
+    """
+    # For backward compatibility, this calls the new unified table creation function
+    init_market_data_tables(timeframes)
+    
+    # Log a deprecation warning
+    logging.warning(f"{Fore.YELLOW}DEPRECATED: init_data_tables is deprecated. Use init_market_data_tables instead.{Style.RESET_ALL}")
+
 def get_timestamp_range(symbol, timeframe):
     """
     Get the first and last timestamp available for a symbol.
@@ -83,7 +126,7 @@ def get_timestamp_range(symbol, timeframe):
     Returns:
         Tuple of (first_date, last_date) as datetime objects or (None, None) if no data
     """
-    table_name = f"data_{timeframe}"
+    table_name = f"market_data_{timeframe}"
     
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
@@ -114,7 +157,7 @@ def check_data_freshness(symbol, timeframe):
     """
     try:
         now = datetime.now()
-        table_name = f"data_{timeframe}"
+        table_name = f"market_data_{timeframe}"
         
         # First, verify the table exists
         with sqlite3.connect(DB_FILE) as conn:
@@ -142,7 +185,7 @@ def check_data_freshness(symbol, timeframe):
 
 def save_ohlcv_data(symbol, timeframe, ohlcv_data):
     """
-    Save OHLCV data to the database.
+    Save OHLCV data to the unified market data table.
     
     Args:
         symbol: The cryptocurrency symbol
@@ -155,7 +198,7 @@ def save_ohlcv_data(symbol, timeframe, ohlcv_data):
     if not ohlcv_data:
         return False, 0
         
-    table_name = f"data_{timeframe}"
+    table_name = f"market_data_{timeframe}"
     
     try:
         with sqlite3.connect(DB_FILE) as conn:
@@ -170,16 +213,44 @@ def save_ohlcv_data(symbol, timeframe, ohlcv_data):
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         symbol TEXT NOT NULL,
                         timestamp TEXT NOT NULL,
-                        open REAL NOT NULL,
-                        high REAL NOT NULL,
-                        low REAL NOT NULL,
-                        close REAL NOT NULL,
-                        volume REAL NOT NULL,
+                        
+                        /* OHLCV data */
+                        open REAL,
+                        high REAL,
+                        low REAL,
+                        close REAL,
+                        volume REAL,
+                        
+                        /* Technical indicators */
+                        sma9 REAL,
+                        sma20 REAL,
+                        sma50 REAL,
+                        ema20 REAL,
+                        ema50 REAL,
+                        ema200 REAL,
+                        rsi14 REAL,
+                        stoch_k REAL,
+                        stoch_d REAL,
+                        macd REAL,
+                        macd_signal REAL,
+                        macd_hist REAL,
+                        atr14 REAL,
+                        bbands_upper REAL,
+                        bbands_middle REAL,
+                        bbands_lower REAL,
+                        obv REAL,
+                        vwap REAL,
+                        volume_sma20 REAL,
+                        adx14 REAL,
+                        
+                        /* Volatility data */
+                        volatility REAL,
+                        
                         UNIQUE(symbol, timestamp)
                     )
                 """)
                 cursor.execute(f"""
-                    CREATE INDEX IF NOT EXISTS idx_{timeframe.replace('-', '_')}_symbol_timestamp
+                    CREATE INDEX IF NOT EXISTS idx_{timeframe.replace('-', '_')}_mkt_symbol_timestamp
                     ON {table_name} (symbol, timestamp)
                 """)
                 conn.commit()
@@ -191,7 +262,7 @@ def save_ohlcv_data(symbol, timeframe, ohlcv_data):
                 for r in ohlcv_data
             ]
             
-            # Insert data using INSERT OR REPLACE
+            # Insert data using INSERT OR REPLACE - only update OHLCV fields
             cursor.executemany(f"""
                 INSERT OR REPLACE INTO {table_name}
                 (symbol, timestamp, open, high, low, close, volume)

@@ -116,87 +116,17 @@ def _check_pandas_ta():
 
 def init_indicator_tables(timeframes):
     """
-    Initialize database tables for technical indicators for each timeframe.
+    Initialize indicator columns in the unified market data tables.
+    DEPRECATED: Technical indicators are now stored in market_data_{timeframe} tables.
     
     Args:
         timeframes: List of timeframes to create tables for
     """
-    try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            tables_created = []
-            
-            for timeframe in timeframes:
-                table_name = f"ta_{timeframe}"
-                # Ensure the table name is valid - remove any problematic characters
-                table_name = table_name.replace('-', '_')
-                
-                try:
-                    logging.info(f"Creating table {table_name} if it doesn't exist...")
-                    cursor.execute(f"""
-                        CREATE TABLE IF NOT EXISTS {table_name} (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            symbol TEXT NOT NULL,
-                            timestamp TEXT NOT NULL,
-                            
-                            /* Simple Moving Averages */
-                            sma9 REAL,
-                            sma20 REAL,
-                            sma50 REAL,
-                            
-                            /* Exponential Moving Averages */
-                            ema20 REAL,
-                            ema50 REAL,
-                            ema200 REAL,
-                            
-                            /* Momentum Indicators */
-                            rsi14 REAL,
-                            stoch_k REAL,
-                            stoch_d REAL,
-                            macd REAL,
-                            macd_signal REAL,
-                            macd_hist REAL,
-                            
-                            /* Volatility Indicators */
-                            atr14 REAL,
-                            bbands_upper REAL,
-                            bbands_middle REAL,
-                            bbands_lower REAL,
-                            
-                            /* Volume-based Indicators */
-                            obv REAL,
-                            vwap REAL,
-                            volume_sma20 REAL,
-                            
-                            /* Trend Strength */
-                            adx14 REAL,
-                            
-                            /* Ensure no duplicate entries */
-                            UNIQUE(symbol, timestamp)
-                        )
-                    """)
-                    cursor.execute(f"""
-                        CREATE INDEX IF NOT EXISTS idx_{timeframe}_ta_symbol_timestamp
-                        ON {table_name} (symbol, timestamp)
-                    """)
-                    tables_created.append(table_name)
-                    
-                    # Verify table was created successfully
-                    cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
-                    if cursor.fetchone():
-                        logging.info(f"{Fore.GREEN}Table {table_name} created or already exists{Style.RESET_ALL}")
-                    else:
-                        logging.error(f"{Fore.RED}Failed to verify table {table_name} after creation{Style.RESET_ALL}")
-                except Exception as e:
-                    logging.error(f"{Fore.RED}Error creating table {table_name}: {e}{Style.RESET_ALL}")
-                    raise
-            
-            conn.commit()
-            
-    except Exception as e:
-        logging.error(f"{Fore.RED}Database initialization error for indicator tables: {e}{Style.RESET_ALL}")
-        logging.error(traceback.format_exc())
-        raise
+    logging.warning(f"{Fore.YELLOW}DEPRECATED: init_indicator_tables is deprecated. "
+                   f"Technical indicators are now stored in market_data_* tables.{Style.RESET_ALL}")
+    
+    # No need to create separate tables anymore - the unified tables already have indicator columns
+    pass
 
 def load_ohlcv_data(symbol: str, timeframe: str) -> pd.DataFrame:
     """
@@ -210,32 +140,47 @@ def load_ohlcv_data(symbol: str, timeframe: str) -> pd.DataFrame:
     Returns:
         DataFrame with OHLCV data
     """
-    table_name = f"data_{timeframe}"
-    ta_table_name = f"ta_{timeframe}"
+    table_name = f"market_data_{timeframe}"
     
     try:
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
             
-            # Check indicator coverage first
-            cursor.execute(f"SELECT COUNT(*) FROM {ta_table_name} WHERE symbol = ?", (symbol,))
-            existing_indicators = cursor.fetchone()[0]
+            # Check indicator coverage first - now using same table
+            cursor.execute(f"""
+                SELECT 
+                    COUNT(*) as total_records,
+                    SUM(CASE WHEN rsi14 IS NOT NULL THEN 1 ELSE 0 END) as records_with_indicators
+                FROM {table_name} 
+                WHERE symbol = ?
+            """, (symbol,))
             
-            cursor.execute(f"SELECT COUNT(*) FROM {table_name} WHERE symbol = ?", (symbol,))
-            total_data = cursor.fetchone()[0]
+            result = cursor.fetchone()
+            total_data = result[0] if result else 0
+            existing_indicators = result[1] if result else 0
             
             if total_data == 0:
                 logging.info(f"No data available for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe})")
                 return pd.DataFrame()
             
-            coverage_ratio = existing_indicators / total_data
+            coverage_ratio = existing_indicators / total_data if total_data > 0 else 0
             
             # If coverage is very low, trigger full recalculation
             if coverage_ratio < 0.1:
                 logging.info(f"🔧 Low indicator coverage ({coverage_ratio:.1%}) detected for {symbol} ({timeframe}) - loading ALL data for recalculation")
                 
                 # Clear existing indicators
-                cursor.execute(f"DELETE FROM {ta_table_name} WHERE symbol = ?", (symbol,))
+                cursor.execute(f"""
+                    UPDATE {table_name}
+                    SET sma9 = NULL, sma20 = NULL, sma50 = NULL, 
+                        ema20 = NULL, ema50 = NULL, ema200 = NULL,
+                        rsi14 = NULL, stoch_k = NULL, stoch_d = NULL,
+                        macd = NULL, macd_signal = NULL, macd_hist = NULL,
+                        atr14 = NULL, bbands_upper = NULL, bbands_middle = NULL, bbands_lower = NULL,
+                        obv = NULL, vwap = NULL, volume_sma20 = NULL,
+                        adx14 = NULL
+                    WHERE symbol = ?
+                """, (symbol,))
                 conn.commit()
                 
                 # Load ALL data for complete recalculation
@@ -255,7 +200,10 @@ def load_ohlcv_data(symbol: str, timeframe: str) -> pd.DataFrame:
                 logging.debug(f"✅ Good coverage ({coverage_ratio:.1%}) - performing incremental update")
                 
                 # Get the latest timestamp with indicators
-                cursor.execute(f"SELECT MAX(timestamp) FROM {ta_table_name} WHERE symbol = ?", (symbol,))
+                cursor.execute(f"""
+                    SELECT MAX(timestamp) FROM {table_name} 
+                    WHERE symbol = ? AND rsi14 IS NOT NULL
+                """, (symbol,))
                 latest_indicator_ts = cursor.fetchone()[0]
                 
                 lookback = _get_longest_lookback_period()
@@ -281,11 +229,10 @@ def load_ohlcv_data(symbol: str, timeframe: str) -> pd.DataFrame:
                 else:
                     # Get all missing data
                     query = f"""
-                        SELECT d.timestamp, d.open, d.high, d.low, d.close, d.volume
-                        FROM {table_name} d
-                        LEFT JOIN {ta_table_name} t ON d.symbol = t.symbol AND d.timestamp = t.timestamp
-                        WHERE d.symbol = ? AND t.timestamp IS NULL
-                        ORDER BY d.timestamp ASC
+                        SELECT timestamp, open, high, low, close, volume
+                        FROM {table_name}
+                        WHERE symbol = ? AND rsi14 IS NULL
+                        ORDER BY timestamp ASC
                     """
                     df = pd.read_sql_query(query, conn, params=(symbol,))
             
@@ -647,7 +594,7 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 def save_indicators(symbol: str, timeframe: str, indicators_df: pd.DataFrame) -> bool:
     """
-    Save calculated indicators to the database.
+    Save calculated indicators to the unified market data table.
     Applies warmup period filtering to ensure only clean data is saved.
     
     Args:
@@ -670,44 +617,48 @@ def save_indicators(symbol: str, timeframe: str, indicators_df: pd.DataFrame) ->
             logging.warning(f"No data remaining after warmup filtering for {symbol} ({timeframe})")
             return False
         
-        table_name = f"ta_{timeframe}".replace('-', '_')
+        table_name = f"market_data_{timeframe}".replace('-', '_')
         
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
             
-            # Prepare data for insertion
+            # Prepare data for UPDATE
             records_saved = 0
             for _, row in filtered_df.iterrows():
                 try:
-                    # Prepare the insert statement
+                    # UPDATE only the indicator columns in the unified table
                     cursor.execute(f"""
-                        INSERT OR REPLACE INTO {table_name} (
-                            symbol, timestamp,
-                            sma9, sma20, sma50,
-                            ema20, ema50, ema200,
-                            rsi14, stoch_k, stoch_d,
-                            macd, macd_signal, macd_hist,
-                            atr14, bbands_upper, bbands_middle, bbands_lower,
-                            obv, vwap, volume_sma20,
-                            adx14
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        UPDATE {table_name}
+                        SET 
+                            sma9 = ?, sma20 = ?, sma50 = ?,
+                            ema20 = ?, ema50 = ?, ema200 = ?,
+                            rsi14 = ?, stoch_k = ?, stoch_d = ?,
+                            macd = ?, macd_signal = ?, macd_hist = ?,
+                            atr14 = ?, bbands_upper = ?, bbands_middle = ?, bbands_lower = ?,
+                            obv = ?, vwap = ?, volume_sma20 = ?,
+                            adx14 = ?
+                        WHERE symbol = ? AND timestamp = ?
                     """, (
-                        symbol, row['timestamp'].isoformat(),
                         row.get('sma9'), row.get('sma20'), row.get('sma50'),
                         row.get('ema20'), row.get('ema50'), row.get('ema200'),
                         row.get('rsi14'), row.get('stoch_k'), row.get('stoch_d'),
                         row.get('macd'), row.get('macd_signal'), row.get('macd_hist'),
                         row.get('atr14'), row.get('bbands_upper'), row.get('bbands_middle'), row.get('bbands_lower'),
                         row.get('obv'), row.get('vwap'), row.get('volume_sma20'),
-                        row.get('adx14')
+                        row.get('adx14'),
+                        symbol, row['timestamp'].isoformat()
                     ))
-                    records_saved += 1
+                    # Check if the update affected any rows
+                    if cursor.rowcount > 0:
+                        records_saved += 1
+                    else:
+                        logging.debug(f"No matching record found for {symbol} at {row['timestamp']} - indicator update skipped")
                 except Exception as e:
-                    logging.error(f"Error inserting indicator record for {symbol} at {row['timestamp']}: {e}")
+                    logging.error(f"Error updating indicator record for {symbol} at {row['timestamp']}: {e}")
                     continue
             
             conn.commit()
-            logging.info(f"💾 Saved {Fore.GREEN}{records_saved}{Style.RESET_ALL} indicator records for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe})")
+            logging.info(f"💾 Updated {Fore.GREEN}{records_saved}{Style.RESET_ALL} indicator records for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe})")
             return records_saved > 0
             
     except Exception as e:

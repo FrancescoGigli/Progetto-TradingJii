@@ -29,7 +29,7 @@ def load_close_series(symbol: str, timeframe: str) -> pd.DataFrame:
     Returns:
         A pandas DataFrame with timestamp and close columns, sorted chronologically
     """
-    table_name = f"data_{timeframe}"
+    table_name = f"market_data_{timeframe}"
     
     try:
         with sqlite3.connect(DB_FILE) as conn:
@@ -108,7 +108,7 @@ def clean_volatility(df: pd.DataFrame, clip_range: Tuple[int, int] = (-100, 100)
 
 def save_volatility(symbol: str, timeframe: str, df: pd.DataFrame) -> bool:
     """
-    Persist the computed volatility data to the SQLite database.
+    Update the volatility column in the unified market data table.
     
     Args:
         symbol: The cryptocurrency symbol
@@ -122,44 +122,42 @@ def save_volatility(symbol: str, timeframe: str, df: pd.DataFrame) -> bool:
         logging.warning(f"No volatility data to save for {symbol} ({timeframe})")
         return False
         
-    table_name = f"volatility_{timeframe}"
+    table_name = f"market_data_{timeframe}"
     
     try:
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
             
-            # Create the table if it doesn't exist
-            cursor.execute(f"""
-                CREATE TABLE IF NOT EXISTS {table_name} (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    symbol TEXT NOT NULL,
-                    timestamp TEXT NOT NULL,
-                    volatility REAL NOT NULL,
-                    UNIQUE(symbol, timestamp)
-                )
-            """)
+            # Verify the table exists
+            cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+            if not cursor.fetchone():
+                logging.warning(f"{Fore.YELLOW}Table {table_name} does not exist. Cannot save volatility data.{Style.RESET_ALL}")
+                return False
             
-            # Create index for faster lookups
-            cursor.execute(f"""
-                CREATE INDEX IF NOT EXISTS idx_{table_name}_symbol_timestamp
-                ON {table_name} (symbol, timestamp)
-            """)
-            
-            # Prepare data for insertion
-            records = [(symbol, row['timestamp'], row['volatility']) 
-                      for _, row in df.iterrows()]
-            
-            # Insert or replace records
-            cursor.executemany(f"""
-                INSERT OR REPLACE INTO {table_name}
-                (symbol, timestamp, volatility)
-                VALUES (?, ?, ?)
-            """, records)
+            # Prepare data for UPDATE
+            records_updated = 0
+            for _, row in df.iterrows():
+                try:
+                    # Update only the volatility column in the unified table
+                    cursor.execute(f"""
+                        UPDATE {table_name}
+                        SET volatility = ?
+                        WHERE symbol = ? AND timestamp = ?
+                    """, (row['volatility'], symbol, row['timestamp']))
+                    
+                    # Check if the update affected any rows
+                    if cursor.rowcount > 0:
+                        records_updated += 1
+                    else:
+                        logging.debug(f"No matching record found for {symbol} at {row['timestamp']} - volatility update skipped")
+                except Exception as e:
+                    logging.error(f"Error updating volatility for {symbol} at {row['timestamp']}: {e}")
+                    continue
             
             conn.commit()
             
-            logging.info(f"Saved {Fore.GREEN}{len(records)}{Style.RESET_ALL} volatility records for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe})")
-            return True
+            logging.info(f"Updated {Fore.GREEN}{records_updated}{Style.RESET_ALL} volatility values for {Fore.YELLOW}{symbol}{Style.RESET_ALL} ({timeframe})")
+            return records_updated > 0
             
     except Exception as e:
         logging.error(f"Error saving volatility data for {symbol} ({timeframe}): {e}")

@@ -94,7 +94,7 @@ async def check_table_exists(symbol, timeframe, report):
     """
     Check if the table exists and has data for the symbol.
     """
-    table_name = f"data_{timeframe}"
+    table_name = f"market_data_{timeframe}"
     
     try:
         with sqlite3.connect(DB_FILE) as conn:
@@ -131,7 +131,7 @@ async def check_temporal_gaps(symbol, timeframe, report):
     """
     try:
         expected_interval_ms = TIMEFRAME_CONFIG[timeframe]['ms']
-        table_name = f"data_{timeframe}"
+        table_name = f"market_data_{timeframe}"
         
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
@@ -188,7 +188,7 @@ async def validate_ohlcv_data(symbol, timeframe, report):
     Validate integrity of OHLCV data.
     """
     try:
-        table_name = f"data_{timeframe}"
+        table_name = f"market_data_{timeframe}"
         
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
@@ -243,7 +243,7 @@ async def calculate_completeness(symbol, timeframe, report):
     Calculate data completeness percentage.
     """
     try:
-        table_name = f"data_{timeframe}"
+        table_name = f"market_data_{timeframe}"
         
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
@@ -354,7 +354,7 @@ async def repair_invalid_ohlcv(symbol, timeframe):
     repairs_made = 0
     
     try:
-        table_name = f"data_{timeframe}"
+        table_name = f"market_data_{timeframe}"
         
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
