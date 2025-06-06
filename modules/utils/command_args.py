@@ -105,4 +105,19 @@ def parse_arguments():
         help='Genera grafici/heatmap della qualità dati (richiede matplotlib)'
     )
     
+    # Opzioni di visualizzazione e reporting
+    report_group = parser.add_argument_group('Visualizzazione e Reporting')
+    
+    report_group.add_argument(
+        '--show-days',
+        action='store_true',
+        help='Mostra il numero di giorni salvati nel database per ogni simbolo e timeframe'
+    )
+    
+    report_group.add_argument(
+        '--symbol',
+        type=str,
+        help='Filtra i risultati per un simbolo specifico (da usare con --show-days)'
+    )
+    
     return parser.parse_args()

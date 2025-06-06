@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
 """
-Real-Time Crypto Data Collector
+Simplified Crypto Data Collector
 ===============================
 
-Sistema di raccolta dati crypto real-time che integra:
+Sistema di raccolta dati crypto semplificato che integra:
 1. Download continuo dati OHLCV
 2. Calcolo indicatori tecnici
-3. Calcolo volatilità
-4. Validazione e riparazione dati
-5. Salvataggio persistente su database SQLite
+3. Salvataggio persistente su database SQLite
 
 Caratteristiche:
 - Monitoraggio continuo multi-timeframe
 - Calcolo automatico indicatori tecnici
-- Validazione qualità dati con riparazione automatica
-- Logging strutturato e dettagliato
-- Supporto modalità sequenziale e parallela
+- Logging strutturato
 """
 
 import sys
@@ -33,17 +29,9 @@ from modules.utils.config import DB_FILE, REALTIME_CONFIG
 from modules.core.exchange import create_exchange
 from modules.utils.symbol_manager import get_top_symbols
 from modules.core.download_orchestrator import process_timeframe
-from modules.data.db_manager import init_data_tables
-from modules.data.volatility_processor import process_and_save_volatility
+from modules.data.db_manager import init_market_data_tables, get_timestamp_range, cleanup_old_data, delete_warmup_data
 from modules.data.indicator_processor import init_indicator_tables, process_and_save_indicators
-from modules.data.data_integrity_checker import (
-    get_all_symbols_integrity_status, log_integrity_summary
-)
-from modules.data.data_validator import (
-    validate_and_repair_data, log_validation_results, log_validation_summary,
-    export_validation_report_csv, generate_validation_charts, DataQualityReport
-)
-
+import sqlite3
 
 # Inizializza colorama
 init(autoreset=True)
@@ -57,7 +45,7 @@ UPDATE_INTERVAL = REALTIME_CONFIG['update_interval_seconds']
 
 async def real_time_update(args):
     """
-    Aggiornamento dati real-time con elaborazione completa.
+    Aggiornamento dati real-time semplificato.
     
     Args:
         args: Command line arguments
@@ -101,15 +89,10 @@ async def real_time_update(args):
                 grand_total_symbols["falliti"] += results["falliti"]
                 total_records_saved += results["record_totali"]
                 
-                # Elabora la volatilità per i simboli completati
-                if results["completati"] > 0:
+                # Calcola e salva gli indicatori tecnici se non è specificato --no-ta
+                if results["completati"] > 0 and not args.no_ta:
                     for sym in top_symbols:
-                        # Calcola e salva la volatilità per ogni simbolo
-                        process_and_save_volatility(sym, timeframe)
-                        
-                        # Calcola e salva gli indicatori tecnici se non è specificato --no-ta
-                        if not args.no_ta:
-                            process_and_save_indicators(sym, timeframe)
+                        process_and_save_indicators(sym, timeframe)
         else:
             logging.info(f"{Fore.YELLOW}Modalità parallela attivata. Concorrenza massima per simbolo: {args.concurrency}{Style.RESET_ALL}")
             timeframe_tasks = []
@@ -127,85 +110,11 @@ async def real_time_update(args):
                 grand_total_symbols["falliti"] += res["falliti"]
                 total_records_saved += res["record_totali"]
         
-        # VALIDAZIONE DATI POST-DOWNLOAD (se non saltata)
-        # VERIFICA INTEGRITÀ DATI POST-DOWNLOAD
-        integrity_results = get_all_symbols_integrity_status(args.timeframes)
-        if integrity_results:
-            log_integrity_summary(integrity_results)
-        
-        validation_reports = []
-        validation_summary = {
-            "symbols_validated": 0,
-            "issues_found": 0,
-            "auto_repaired": 0,
-            "high_quality": 0,
-            "medium_quality": 0,
-            "low_quality": 0
-        }
-        
-        if not args.skip_validation:
-            # Valida dati per tutti i simboli e timeframe dove abbiamo scaricato dati
+        # Calcola gli indicatori tecnici per tutti i timeframe in parallelo
+        if not args.no_ta:
             for tf, res in all_timeframe_results.items():
                 if res["completati"] > 0:
                     for sym in top_symbols:
-                        try:
-                            validation_report = await validate_and_repair_data(sym, tf)
-                            validation_summary["symbols_validated"] += 1
-                            
-                            if validation_report:  # Issues found
-                                validation_summary["issues_found"] += len(validation_report.issues)
-                                log_validation_results(sym, tf, validation_report)
-                                validation_reports.append(validation_report)
-                                
-                                # Categorize by quality score
-                                if validation_report.score >= 95:
-                                    validation_summary["high_quality"] += 1
-                                elif validation_report.score >= 85:
-                                    validation_summary["medium_quality"] += 1
-                                else:
-                                    validation_summary["low_quality"] += 1
-                                
-                                if validation_report.can_repair:
-                                    validation_summary["auto_repaired"] += 1
-                            else:
-                                # No issues found - high quality - create clean report for export
-                                clean_report = DataQualityReport(sym, tf)
-                                clean_report.score = 100
-                                clean_report.total_records = 1  # Placeholder
-                                validation_reports.append(clean_report)
-                                validation_summary["high_quality"] += 1
-                                
-                        except Exception as e:
-                            logging.error(f"Validation error for {sym} ({tf}): {e}")
-            
-            # Log overall validation summary
-            log_validation_summary(validation_summary)
-            
-            # EXPORT REPORT CSV (se richiesto)
-            if args.export_validation_report and validation_reports:
-                try:
-                    export_validation_report_csv(validation_reports, validation_summary)
-                except Exception as e:
-                    logging.error(f"Error exporting validation report: {e}")
-            
-            # GENERA GRAFICI (se richiesto)
-            if args.generate_validation_charts and validation_reports:
-                try:
-                    generate_validation_charts(validation_reports)
-                except Exception as e:
-                    logging.error(f"Error generating validation charts: {e}")
-        else:
-            logging.info(f"{Fore.YELLOW}🔍 Data validation skipped (--skip-validation flag used){Style.RESET_ALL}")
-        
-        # Elabora la volatilità per i simboli completati in tutti i timeframe
-        for tf, res in all_timeframe_results.items():
-            if res["completati"] > 0:
-                for sym in top_symbols:
-                    # Calcola e salva la volatilità per ogni simbolo
-                    process_and_save_volatility(sym, tf)
-                    
-                    # Calcola e salva gli indicatori tecnici se non è specificato --no-ta
-                    if not args.no_ta:
                         process_and_save_indicators(sym, tf)
         
         # Calcola il tempo totale di esecuzione
@@ -219,7 +128,6 @@ async def real_time_update(args):
             "all_timeframe_results": all_timeframe_results,
             "total_records_saved": total_records_saved,
             "grand_total_symbols": grand_total_symbols,
-            "validation_summary": validation_summary,
             "start_time": start_time,
             "end_time": end_time,
             "execution_time": time_str
@@ -230,6 +138,82 @@ async def real_time_update(args):
         import traceback
         logging.error(traceback.format_exc())
         return None
+
+def display_days_saved(timeframes=None, symbol=None):
+    """
+    Visualizza il numero di giorni salvati nel database per ogni simbolo e timeframe.
+    
+    Args:
+        timeframes: Lista dei timeframe da controllare (opzionale)
+        symbol: Simbolo specifico da controllare (opzionale)
+    """
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            
+            # Ottieni tutti i timeframe disponibili se non specificati
+            if not timeframes:
+                cursor.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name LIKE 'market_data_%'
+                """)
+                available_tables = cursor.fetchall()
+                timeframes = [table[0].replace('market_data_', '') for table in available_tables]
+            
+            print("\n" + "="*80)
+            print(f"{Back.BLUE}{Fore.WHITE}  GIORNI DI DATI SALVATI NEL DATABASE  {Style.RESET_ALL}")
+            print("="*80)
+            
+            print(f"{'Simbolo':^15} | {'Timeframe':^10} | {'Primo Giorno':^20} | {'Ultimo Giorno':^20} | {'Giorni Totali':^12} | {'Candle':^10}")
+            print("-" * 100)
+            
+            total_results = 0
+            
+            for tf in sorted(timeframes):
+                table_name = f"market_data_{tf}"
+                
+                # Ottieni simboli per questo timeframe
+                if symbol:
+                    symbols = [symbol]
+                else:
+                    cursor.execute(f"SELECT DISTINCT symbol FROM {table_name}")
+                    symbols = [row[0] for row in cursor.fetchall()]
+                
+                for sym in sorted(symbols):
+                    # Ottieni prima e ultima data
+                    cursor.execute(f"""
+                        SELECT MIN(timestamp), MAX(timestamp), COUNT(DISTINCT date(timestamp)) 
+                        FROM {table_name}
+                        WHERE symbol = ?
+                    """, (sym,))
+                    
+                    row = cursor.fetchone()
+                    if row and row[0] and row[1]:
+                        first_date = row[0][:10]  # Solo la parte della data
+                        last_date = row[1][:10]   # Solo la parte della data
+                        days_count = row[2]
+                        
+                        # Conta il numero di candle
+                        cursor.execute(f"SELECT COUNT(*) FROM {table_name} WHERE symbol = ?", (sym,))
+                        candle_count = cursor.fetchone()[0]
+                        
+                        print(f"{Fore.YELLOW}{sym:^15}{Style.RESET_ALL} | " + 
+                              f"{Fore.CYAN}{tf:^10}{Style.RESET_ALL} | " + 
+                              f"{Fore.GREEN}{first_date:^20}{Style.RESET_ALL} | " + 
+                              f"{Fore.GREEN}{last_date:^20}{Style.RESET_ALL} | " + 
+                              f"{Fore.MAGENTA}{days_count:^12}{Style.RESET_ALL} | " +
+                              f"{Fore.BLUE}{candle_count:^10,}{Style.RESET_ALL}")
+                        
+                        total_results += 1
+            
+            print("-" * 100)
+            print(f"\nTotale risultati: {Fore.GREEN}{total_results}{Style.RESET_ALL}")
+            print("="*80 + "\n")
+            
+    except Exception as e:
+        logging.error(f"Errore nel visualizzare i giorni salvati: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
 
 def display_results(results):
     """
@@ -244,7 +228,6 @@ def display_results(results):
     all_timeframe_results = results["all_timeframe_results"]
     total_records_saved = results["total_records_saved"]
     grand_total_symbols = results["grand_total_symbols"]
-    validation_summary = results["validation_summary"]
     start_time = results["start_time"]
     end_time = results["end_time"]
     time_str = results["execution_time"]
@@ -276,16 +259,6 @@ def display_results(results):
           f"{Fore.RED}{grand_total_symbols['falliti']:^12}{Style.RESET_ALL} | " + 
           f"{Fore.YELLOW}{total_records_saved:^15,}{Style.RESET_ALL}")
     
-    # Validazione summary
-    if validation_summary["symbols_validated"] > 0:
-        print(f"\n{Back.CYAN}{Fore.BLACK}  VALIDAZIONE DATI  {Style.RESET_ALL}")
-        print(f"  • Simboli validati: {Fore.GREEN}{validation_summary['symbols_validated']}{Style.RESET_ALL}")
-        print(f"  • Problemi trovati: {Fore.YELLOW}{validation_summary['issues_found']}{Style.RESET_ALL}")
-        print(f"  • Riparazioni automatiche: {Fore.GREEN}{validation_summary['auto_repaired']}{Style.RESET_ALL}")
-        print(f"  • Qualità alta: {Fore.GREEN}{validation_summary['high_quality']}{Style.RESET_ALL}")
-        print(f"  • Qualità media: {Fore.YELLOW}{validation_summary['medium_quality']}{Style.RESET_ALL}")
-        print(f"  • Qualità bassa: {Fore.RED}{validation_summary['low_quality']}{Style.RESET_ALL}")
-    
     print(f"\nInizio: {Fore.CYAN}{start_time.strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
     print(f"Fine:   {Fore.CYAN}{end_time.strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
     print("="*80 + "\n")
@@ -299,11 +272,17 @@ async def main():
     
     # Analizza gli argomenti da linea di comando
     args = parse_arguments()
+    
+    # Mostra i giorni salvati se richiesto
+    if hasattr(args, 'show_days') and args.show_days:
+        display_days_saved(args.timeframes, getattr(args, 'symbol', None))
+        return
+        
     mode = "SEQUENZIALE" if args.sequential else "PARALLELA"
     
     # Header generale
     print("\n" + "="*80)
-    print(f"{Back.BLUE}{Fore.WHITE}  CRYPTO DATA COLLECTOR (MODALITÀ {mode})  {Style.RESET_ALL}")
+    print(f"{Back.BLUE}{Fore.WHITE}  CRYPTO DATA COLLECTOR SEMPLIFICATO (MODALITÀ {mode})  {Style.RESET_ALL}")
     print("="*80)
     print(f"  • Criptovalute da monitorare: {Fore.YELLOW}{args.num_symbols}{Style.RESET_ALL}")
     print(f"  • Timeframes monitorati: {Fore.GREEN}{', '.join(args.timeframes)}{Style.RESET_ALL}")
@@ -319,22 +298,36 @@ async def main():
     ta_color = Fore.RED if args.no_ta else Fore.GREEN
     print(f"  • Indicatori tecnici: {ta_color}{ta_status}{Style.RESET_ALL}")
     
-    # Status validazione
-    validation_status = "Disabilitata (--skip-validation)" if args.skip_validation else "Abilitata"
-    validation_color = Fore.RED if args.skip_validation else Fore.GREEN
-    print(f"  • Validazione dati: {validation_color}{validation_status}{Style.RESET_ALL}")
-    
     print(f"  • Data e ora inizio: {Fore.CYAN}{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
     print("="*80 + "\n")
 
     # Inizializza il database
-    init_data_tables(args.timeframes)
+    init_market_data_tables(args.timeframes)
     logging.info(f"Database inizializzato con tabelle per i timeframe: {Fore.GREEN}{', '.join(args.timeframes)}{Style.RESET_ALL}")
+    
+    # Pulisci i dati precedenti al 1° gennaio 2024
+    cleanup_old_data()
     
     # Inizializza le tabelle degli indicatori tecnici se non è specificato --no-ta
     if not args.no_ta:
         init_indicator_tables(args.timeframes)
         logging.info(f"Tabelle degli indicatori tecnici inizializzate per i timeframe: {Fore.GREEN}{', '.join(args.timeframes)}{Style.RESET_ALL}")
+        
+        # Ricalcola gli indicatori tecnici per tutti i dati esistenti nel database
+        logging.info(f"{Fore.CYAN}Ricalcolo di tutti gli indicatori tecnici per i dati esistenti...{Style.RESET_ALL}")
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            for tf in args.timeframes:
+                table_name = f"market_data_{tf}"
+                cursor.execute(f"SELECT DISTINCT symbol FROM {table_name}")
+                symbols = [row[0] for row in cursor.fetchall()]
+                
+                if symbols:
+                    logging.info(f"Ricalcolo indicatori per timeframe {Fore.GREEN}{tf}{Style.RESET_ALL} - {len(symbols)} simboli")
+                    for sym in symbols:
+                        process_and_save_indicators(sym, tf)
+                        logging.info(f"Indicatori aggiornati per {Fore.YELLOW}{sym}{Style.RESET_ALL} ({tf})")
+        logging.info(f"{Fore.GREEN}Ricalcolo indicatori completato!{Style.RESET_ALL}")
     else:
         logging.info(f"{Fore.YELLOW}Calcolo degli indicatori tecnici disabilitato (--no-ta){Style.RESET_ALL}")
 
@@ -352,6 +345,9 @@ async def main():
             # Visualizza i risultati
             if results:
                 display_results(results)
+                
+            # Elimina i dati di warmup dopo aver completato il ciclo
+            delete_warmup_data()
             
             # Calcola il prossimo orario di aggiornamento
             next_update = datetime.now() + timedelta(seconds=UPDATE_INTERVAL)
