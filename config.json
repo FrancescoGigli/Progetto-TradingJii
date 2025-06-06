@@ -1,0 +1,46 @@
+{
+  "binary_prediction_config": {
+    "confidence_threshold": 0.7,
+    "confidence_improvement_threshold": 0.05,
+    "model_path": "ml_system/models/binary_models/best_binary_model.pkl",
+    "enable_predictions": true,
+    "prediction_symbols": ["BTC_USDTUSDT", "ETH_USDTUSDT", "DOGE_USDTUSDT", "SOL_USDTUSDT"],
+    "prediction_timeframes": ["1h", "4h"],
+    "log_all_predictions": true,
+    "signal_state_file": "ml_system/logs/predictions/signal_state.json"
+  },
+  "model_training_config": {
+    "remove_hold_labels": true,
+    "label_mapping": {
+      "BUY": 1,
+      "SELL": 0
+    },
+    "balance_dataset": true,
+    "use_smote": true,
+    "test_size": 0.2,
+    "random_state": 42,
+    "models_to_train": [
+      "RandomForest",
+      "XGBoost",
+      "LightGBM",
+      "LogisticRegression"
+    ],
+    "enable_hyperparameter_tuning": true,
+    "cv_folds": 5
+  },
+  "real_time_config": {
+    "update_interval_seconds": 300,
+    "max_symbols": 20,
+    "default_timeframes": ["1h"],
+    "enable_validation": true,
+    "generate_ml_datasets": true,
+    "auto_retrain_threshold_days": 7
+  },
+  "logging_config": {
+    "signal_log_file": "signal_log.json",
+    "prediction_log_level": "INFO",
+    "enable_detailed_logging": true,
+    "save_feature_importance": true,
+    "save_prediction_explanations": false
+  }
+}

@@ -1,22 +1,63 @@
-# File di configurazione sensibili (es. chiavi API, variabili d'ambiente)
-.env
-config/config.json
-
-# File Python generati
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
+*$py.class
 
-# File di log
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Logs and databases
 *.log
-
-# File di database
 *.db
+*.sqlite3
+crypto_data.db
 
-# File dei modelli salvati
-*.h5
-*.pkl
+# Environment and local configuration
+.env
+.venv
+env/
+venv/
+ENV/
 
-# Cartelle temporanee o di tuning
-lstm_tuning/
+# VS Code files
+.vscode/
+*.code-workspace
+.history/
 
-*.txt
+# Output files and temporary files
+plots/
+output/
+datasets/
+models/
+ml_datasets/
+validation_reports/
+ohlcv_validation_reports/
+fetch_progress.json
+*.tmp
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# dotenv
+.env
