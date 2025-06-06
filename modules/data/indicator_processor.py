@@ -179,6 +179,11 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
         tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
         result_df['atr14'] = tr.rolling(window=14).mean()
         
+        # Volatilità - calcolata come deviazione standard dei rendimenti percentuali su 20 periodi
+        # Questo è un indicatore comune di volatilità del mercato
+        returns = close.pct_change(1).fillna(0)  # Rendimenti percentuali
+        result_df['volatility'] = returns.rolling(window=20).std() * 100  # Convertita in percentuale
+        
         # Bollinger Bands
         # Middle Band = SMA(20)
         # Upper Band = Middle Band + (2 * Deviazione standard di 20 periodi)
@@ -262,7 +267,7 @@ def save_indicators(symbol: str, timeframe: str, indicators_df: pd.DataFrame) ->
                         macd = ?, macd_signal = ?, macd_hist = ?,
                         atr14 = ?, bbands_upper = ?, bbands_middle = ?, bbands_lower = ?,
                         obv = ?, vwap = ?, volume_sma20 = ?,
-                        adx14 = ?
+                        adx14 = ?, volatility = ?
                     WHERE symbol = ? AND timestamp = ? AND (warmup_data IS NULL OR warmup_data = 0)
                 """
             else:
@@ -275,7 +280,7 @@ def save_indicators(symbol: str, timeframe: str, indicators_df: pd.DataFrame) ->
                         macd = ?, macd_signal = ?, macd_hist = ?,
                         atr14 = ?, bbands_upper = ?, bbands_middle = ?, bbands_lower = ?,
                         obv = ?, vwap = ?, volume_sma20 = ?,
-                        adx14 = ?
+                        adx14 = ?, volatility = ?
                     WHERE symbol = ? AND timestamp = ? AND timestamp >= ?
                 """
             
@@ -307,7 +312,7 @@ def save_indicators(symbol: str, timeframe: str, indicators_df: pd.DataFrame) ->
                         row.get('macd'), row.get('macd_signal'), row.get('macd_hist'),
                         row.get('atr14'), row.get('bbands_upper'), row.get('bbands_middle'), row.get('bbands_lower'),
                         row.get('obv'), row.get('vwap'), row.get('volume_sma20'),
-                        row.get('adx14'),
+                        row.get('adx14'), row.get('volatility'),
                         symbol, timestamp_str
                     ]
                     
