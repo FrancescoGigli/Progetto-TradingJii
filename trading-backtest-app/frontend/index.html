@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradingJii - Backtest Suite</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Load a specific version of the chart library for better stability -->
+    <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
+    
+    <!-- Fallback script in case the CDN fails -->
+    <script>
+        // Check if library loaded correctly
+        window.addEventListener('DOMContentLoaded', function() {
+            if (typeof LightweightCharts === 'undefined' || typeof LightweightCharts.createChart !== 'function') {
+                console.error('Primary chart library not loaded correctly, trying fallback CDN...');
+                
+                // Create fallback script from alternative CDN
+                var fallbackScript = document.createElement('script');
+                fallbackScript.src = 'https://cdn.jsdelivr.net/npm/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.min.js';
+                fallbackScript.async = true;
+                
+                // Show loading indicator
+                document.getElementById('loading').classList.add('active');
+                document.getElementById('loading').querySelector('p').textContent = 'Loading chart library...';
+                
+                // Check if fallback CDN worked
+                fallbackScript.onload = function() {
+                    console.log('Fallback CDN loaded successfully');
+                    document.getElementById('loading').classList.remove('active');
+                };
+                
+                fallbackScript.onerror = function() {
+                    console.error('Fallback CDN failed, trying local file...');
+                    
+                    // Try local file as last resort
+                    var localScript = document.createElement('script');
+                    localScript.src = 'lightweight-charts.min.js';
+                    localScript.async = true;
+                    
+                    localScript.onload = function() {
+                        console.log('Local chart library loaded successfully');
+                        document.getElementById('loading').classList.remove('active');
+                    };
+                    
+                    localScript.onerror = function() {
+                        console.error('All chart library sources failed');
+                        alert('Failed to load chart library from all sources. Please check your internet connection and refresh the page.');
+                    };
+                    
+                    document.head.appendChild(localScript);
+                };
+                
+                document.head.appendChild(fallbackScript);
+            }
+        });
+    </script>
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <h1>TradingJii Backtest Suite</h1>
+            <div class="header-info">
+                <span>Capital: $1,000</span>
+                <span id="current-symbol">BTC/USDT:USDT</span>
+            </div>
+        </header>
+
+        <!-- Controls -->
+        <div class="controls">
+            <div class="control-group">
+                <label>Symbol</label>
+                <select id="symbol-select">
+                    <option value="BTC/USDT:USDT">BTC/USDT</option>
+                    <option value="ETH/USDT:USDT">ETH/USDT</option>
+                    <option value="SOL/USDT:USDT">SOL/USDT</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label>Leverage</label>
+                <div class="button-group" id="leverage-buttons">
+                    <button class="leverage-btn active" data-leverage="1">1x</button>
+                    <button class="leverage-btn" data-leverage="2">2x</button>
+                    <button class="leverage-btn" data-leverage="5">5x</button>
+                    <button class="leverage-btn" data-leverage="10">10x</button>
+                    <button class="leverage-btn" data-leverage="20">20x</button>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label>Take Profit</label>
+                <div class="button-group" id="tp-buttons">
+                    <button class="tp-btn" data-tp="0.01">1%</button>
+                    <button class="tp-btn active" data-tp="0.02">2%</button>
+                    <button class="tp-btn" data-tp="0.03">3%</button>
+                    <button class="tp-btn" data-tp="0.05">5%</button>
+                    <button class="tp-btn" data-tp="0.10">10%</button>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label>Stop Loss</label>
+                <div class="button-group" id="sl-buttons">
+                    <button class="sl-btn active" data-sl="0.02">2%</button>
+                    <button class="sl-btn" data-sl="0.10">10%</button>
+                    <button class="sl-btn" data-sl="0.15">15%</button>
+                    <button class="sl-btn" data-sl="0.25">25%</button>
+                    <button class="sl-btn" data-sl="0.30">30%</button>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label>Date Range</label>
+                <input type="date" id="start-date" value="2024-01-01">
+                <span>to</span>
+                <input type="date" id="end-date" value="2024-12-31">
+            </div>
+
+            <button id="compare-all-btn" class="compare-btn">
+                <span>⚡</span> Compare All Strategies
+            </button>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Strategy Cards -->
+            <div class="strategies-section">
+                <h2>Select Strategy</h2>
+                <div class="strategy-cards" id="strategy-cards">
+                    <!-- Strategy cards will be generated dynamically -->
+                </div>
+            </div>
+
+            <!-- Chart Section -->
+            <div class="chart-section">
+                <div class="chart-header">
+                    <h2 id="chart-title">Select a strategy to begin</h2>
+                    <div class="chart-stats" id="chart-stats"></div>
+                </div>
+                <div class="chart-container" id="chart-container"></div>
+                <div class="trades-timeline" id="trades-timeline"></div>
+            </div>
+        </div>
+
+        <!-- Comparison Modal -->
+        <div class="modal" id="comparison-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Strategy Comparison</h2>
+                    <button class="close-btn" onclick="closeComparisonModal()">×</button>
+                </div>
+                <div class="modal-body">
+                    <div id="comparison-table"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Running backtest...</p>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
