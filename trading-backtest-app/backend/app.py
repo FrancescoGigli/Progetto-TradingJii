@@ -18,6 +18,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from backtest_engine import BacktestEngine
 from strategies import STRATEGIES
+from strategy_indicators import STRATEGY_INDICATORS
 
 app = FastAPI(title="TradingJii Backtest API")
 
@@ -174,12 +175,45 @@ async def run_backtest(request: BacktestRequest):
                 "value": value
             })
         
+        # Get indicator info for this strategy
+        indicator_info = STRATEGY_INDICATORS.get(request.strategy, {})
+        print(f"Strategy: {request.strategy}")
+        print(f"Indicator info: {indicator_info}")
+        print(f"DataFrame columns: {df.columns.tolist()}")
+        
+        # Prepare indicator data
+        indicator_data = {}
+        if indicator_info and 'indicators' in indicator_info:
+            for indicator_name, indicator_config in indicator_info['indicators'].items():
+                field = indicator_config.get('field')
+                print(f"Looking for field '{field}' for indicator '{indicator_name}'")
+                if field in df.columns:
+                    print(f"Found field '{field}' in columns")
+                    # Convert indicator data to time series format
+                    indicator_values = []
+                    for idx, row in df.iterrows():
+                        if pd.notna(row[field]):
+                            indicator_values.append({
+                                "time": int(pd.to_datetime(row['timestamp']).timestamp()),
+                                "value": float(row[field])
+                            })
+                    indicator_data[indicator_name] = {
+                        "config": indicator_config,
+                        "data": indicator_values
+                    }
+                    print(f"Added {len(indicator_values)} values for {indicator_name}")
+                else:
+                    print(f"Field '{field}' not found in columns")
+        
+        print(f"Final indicator_data: {list(indicator_data.keys())}")
+        
         return {
             "strategy": request.strategy,
             "symbol": request.symbol,
             "metrics": results['metrics'],
             "trades": trades,
-            "equity_curve": equity_data
+            "equity_curve": equity_data,
+            "indicators": indicator_data
         }
         
     except Exception as e:

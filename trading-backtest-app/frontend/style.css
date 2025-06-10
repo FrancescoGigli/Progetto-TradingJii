@@ -281,6 +281,34 @@ body {
     position: relative;
 }
 
+/* Oscillator Panel Styles */
+.oscillator-panel {
+    position: relative;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    margin-top: 10px;
+}
+
+.oscillator-title {
+    position: absolute;
+    top: 5px;
+    left: 10px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    z-index: 10;
+    letter-spacing: 0.5px;
+}
+
+/* Chart Area Container */
+.chart-area {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
 /* Trades Timeline */
 .trades-timeline {
     margin-top: 1.5rem;

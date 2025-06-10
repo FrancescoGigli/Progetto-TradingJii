@@ -16,6 +16,11 @@ let candleSeries = null;
 let volumeSeries = null;
 let markers = [];
 
+// Indicator Management
+let indicatorSeries = {};  // Store indicator series
+let oscillatorCharts = {}; // Store separate charts for oscillators
+let indicatorPanels = {};  // Store panel references
+
 // Strategy Information
 const STRATEGY_INFO = {
     'rsi_mean_reversion': {
@@ -158,6 +163,7 @@ function createStrategyCard(strategyKey) {
     `;
     
     card.addEventListener('click', () => {
+        console.log('Strategy clicked:', strategyKey);
         document.querySelectorAll('.strategy-card').forEach(c => c.classList.remove('active'));
         card.classList.add('active');
         currentStrategy = strategyKey;
@@ -322,6 +328,7 @@ async function runBacktest(strategy) {
         
         const backtestData = await backtestResponse.json();
         console.log('Backtest data:', backtestData);
+        console.log('Indicators received:', backtestData.indicators);
         
         // Check if data is valid
         if (!backtestData.trades || !backtestData.metrics) {
@@ -333,6 +340,14 @@ async function runBacktest(strategy) {
         updateStats(backtestData.metrics);
         updateTradesList(backtestData.trades);
         updateStrategyPreview(strategy, backtestData.metrics);
+        
+        // Add indicators to chart
+        if (backtestData.indicators) {
+            console.log('Updating indicators...');
+            updateIndicators(backtestData.indicators);
+        } else {
+            console.log('No indicators data received');
+        }
         
         // Update chart title
         document.getElementById('chart-title').textContent = 
@@ -367,6 +382,9 @@ function updateChart(data, trades) {
         return;
     }
     
+    console.log('Chart data range:', new Date(data[0].time * 1000), 'to', new Date(data[data.length-1].time * 1000));
+    console.log('Number of trades:', trades.length);
+    
     try {
         // Set candlestick data
         candleSeries.setData(data);
@@ -396,11 +414,13 @@ function updateChart(data, trades) {
         }
         
         const newMarkers = [];
-        trades.forEach(trade => {
+        trades.forEach((trade, index) => {
             if (!trade.entry_time || !trade.exit_time) {
                 console.warn("Invalid trade data:", trade);
                 return; // Skip this trade
             }
+            
+            console.log(`Trade ${index}:`, new Date(trade.entry_time * 1000), trade.signal === 1 ? 'LONG' : 'SHORT');
             
             // Entry marker
             newMarkers.push({
@@ -408,24 +428,28 @@ function updateChart(data, trades) {
                 position: trade.signal === 1 ? 'belowBar' : 'aboveBar',
                 color: trade.signal === 1 ? '#00ff88' : '#ff3b3b',
                 shape: trade.signal === 1 ? 'arrowUp' : 'arrowDown',
-                text: trade.signal === 1 ? 'L' : 'S'
+                text: trade.signal === 1 ? 'BUY' : 'SELL'
             });
             
             // Exit marker
             const exitColor = trade.pnl > 0 ? '#00ff88' : '#ff3b3b';
             newMarkers.push({
                 time: trade.exit_time,
-                position: 'aboveBar',
+                position: trade.signal === 1 ? 'aboveBar' : 'belowBar',
                 color: exitColor,
                 shape: 'circle',
-                text: trade.pnl > 0 ? '+' : '-'
+                text: 'EXIT'
             });
         });
         
+        console.log('Setting markers:', newMarkers.length);
         candleSeries.setMarkers(newMarkers);
         
-        // Fit content
-        chart.timeScale().fitContent();
+        // Ensure we show the full data range
+        setTimeout(() => {
+            chart.timeScale().fitContent();
+        }, 100);
+        
     } catch (error) {
         console.error("Error setting markers:", error);
         // Don't show error to user here as the chart data is already displayed
@@ -578,6 +602,188 @@ function showLoading(show) {
 // Show Error
 function showError(message) {
     alert(message); // TODO: Implement better error handling
+}
+
+// Update Indicators
+function updateIndicators(indicators) {
+    console.log('updateIndicators called with:', indicators);
+    
+    // Clear previous indicators
+    clearIndicators();
+    
+    // Process each indicator
+    Object.entries(indicators).forEach(([name, indicatorData]) => {
+        console.log(`Processing indicator ${name}:`, indicatorData);
+        const config = indicatorData.config;
+        const data = indicatorData.data;
+        
+        if (config.panel === 'main') {
+            console.log(`Adding overlay indicator ${name} to main chart`);
+            // Add overlay indicators to main chart
+            addOverlayIndicator(name, data, config);
+        } else if (config.panel === 'separate') {
+            console.log(`Adding oscillator indicator ${name} to separate panel`);
+            // Add oscillator indicators to separate panel
+            addOscillatorIndicator(name, data, config);
+        }
+    });
+}
+
+// Clear all indicators
+function clearIndicators() {
+    // Remove overlay indicators from main chart
+    Object.values(indicatorSeries).forEach(series => {
+        if (chart && series) {
+            chart.removeSeries(series);
+        }
+    });
+    indicatorSeries = {};
+    
+    // Remove oscillator charts
+    Object.entries(oscillatorCharts).forEach(([name, oscChart]) => {
+        if (oscChart) {
+            oscChart.remove();
+            const panel = document.getElementById(`oscillator-${name}`);
+            if (panel) {
+                panel.remove();
+            }
+        }
+    });
+    oscillatorCharts = {};
+    indicatorPanels = {};
+}
+
+// Add overlay indicator to main chart
+function addOverlayIndicator(name, data, config) {
+    if (!chart) return;
+    
+    try {
+        // Create line series with proper configuration
+        const seriesOptions = {
+            color: config.color || '#2196f3',
+            lineWidth: config.lineWidth || 2,
+            priceLineVisible: false,
+            lastValueVisible: false
+        };
+        
+        // Add line style if specified
+        if (config.dashStyle === 'dash') {
+            seriesOptions.lineStyle = 2; // Dashed line
+        }
+        
+        const series = chart.addLineSeries(seriesOptions);
+        
+        // Set opacity if specified
+        if (config.opacity) {
+            series.applyOptions({
+                color: config.color + Math.round(config.opacity * 255).toString(16).padStart(2, '0')
+            });
+        }
+        
+        // Set the data
+        series.setData(data);
+        
+        // Store the series reference
+        indicatorSeries[name] = series;
+    } catch (error) {
+        console.error(`Error adding overlay indicator ${name}:`, error);
+    }
+}
+
+// Add oscillator indicator to separate panel
+function addOscillatorIndicator(name, data, config) {
+    try {
+        // Create container for oscillator
+        const container = document.createElement('div');
+        container.id = `oscillator-${name}`;
+        container.className = 'oscillator-panel';
+        container.style.height = '150px';
+        container.style.marginTop = '10px';
+        
+        // Add to chart area
+        const chartArea = document.querySelector('.chart-area');
+        chartArea.appendChild(container);
+        
+        // Create oscillator chart
+        const oscChart = LightweightCharts.createChart(container, {
+            layout: {
+                background: { color: '#141414' },
+                textColor: '#ffffff',
+            },
+            grid: {
+                vertLines: { color: '#2a2a2a' },
+                horzLines: { color: '#2a2a2a' },
+            },
+            timeScale: {
+                visible: false,
+            },
+            rightPriceScale: {
+                borderColor: '#2a2a2a',
+            }
+        });
+        
+        // Sync time scale with main chart
+        chart.timeScale().subscribeVisibleTimeRangeChange(timeRange => {
+            oscChart.timeScale().setVisibleRange(timeRange);
+        });
+        
+        oscChart.timeScale().subscribeVisibleTimeRangeChange(timeRange => {
+            chart.timeScale().setVisibleRange(timeRange);
+        });
+        
+        // Add appropriate series based on style
+        let series;
+        if (config.style === 'histogram') {
+            series = oscChart.addHistogramSeries({
+                color: config.color || '#4caf50',
+                priceLineVisible: false,
+            });
+        } else {
+            series = oscChart.addLineSeries({
+                color: config.color || '#2196f3',
+                lineWidth: config.lineWidth || 2,
+                priceLineVisible: false,
+            });
+        }
+        
+        // Set the data
+        series.setData(data);
+        
+        // Add levels if specified (e.g., RSI 30/70 levels)
+        if (config.levels && config.levels.length > 0) {
+            config.levels.forEach((level, index) => {
+                series.createPriceLine({
+                    price: level,
+                    color: config.level_colors ? config.level_colors[index] : '#666',
+                    lineWidth: 1,
+                    lineStyle: 2, // Dashed
+                    axisLabelVisible: true,
+                });
+            });
+        }
+        
+        // Add title to panel
+        const title = document.createElement('div');
+        title.className = 'oscillator-title';
+        title.style.position = 'absolute';
+        title.style.top = '5px';
+        title.style.left = '10px';
+        title.style.color = '#999';
+        title.style.fontSize = '12px';
+        title.style.zIndex = '10';
+        title.textContent = name.toUpperCase();
+        container.appendChild(title);
+        
+        // Store references
+        oscillatorCharts[name] = oscChart;
+        indicatorPanels[name] = container;
+        
+        // Fit content
+        oscChart.timeScale().fitContent();
+        
+    } catch (error) {
+        console.error(`Error adding oscillator indicator ${name}:`, error);
+    }
 }
 
 // Make closeComparisonModal available globally
