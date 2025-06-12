@@ -7,6 +7,7 @@ Contains custom logging configuration, including colored console output and file
 
 import logging
 import os
+import sys
 from pathlib import Path
 from datetime import datetime
 from colorama import init, Fore, Style, Back
@@ -48,9 +49,80 @@ class FileFormatter(logging.Formatter):
             datefmt="%Y-%m-%d %H:%M:%S"
         )
 
+class SplitStreamHandler(logging.Handler):
+    """
+    Custom handler that sends INFO and DEBUG to stdout, 
+    and WARNING, ERROR, CRITICAL to stderr.
+    Also handles emoji characters safely on Windows.
+    """
+    def __init__(self):
+        super().__init__()
+        self.formatter = ColoredFormatter()
+        
+    def emit(self, record):
+        try:
+            # Format the message
+            msg = self.formatter.format(record)
+            
+            # Replace emoji characters with text alternatives if on Windows
+            # This prevents encoding errors with Windows terminal
+            if os.name == 'nt':  # Windows
+                # Common emoji replacements
+                emoji_replacements = {
+                    '\U0001f527': '[TOOL]',       # 🔧
+                    '\U0001f4be': '[SAVE]',       # 💾
+                    '\u2705': '[CHECK]',          # ✅
+                    '\U0001f680': '[ROCKET]',     # 🚀
+                    '\U0001f4c8': '[CHART]',      # 📈
+                    '\U0001f4c9': '[CHART_DOWN]', # 📉
+                    '\U0001f50d': '[SEARCH]',     # 🔍
+                    '\U0001f4c1': '[FOLDER]',     # 📁
+                    '\U0001f4c2': '[FOLDER_OPEN]',# 📂
+                    '\U0001f4c4': '[DOCUMENT]',   # 📄
+                    '\U0001f4cb': '[CLIPBOARD]',  # 📋
+                    '\U0001f4ca': '[BAR_CHART]',  # 📊
+                    '\U0001f514': '[BELL]',       # 🔔
+                    '\U0001f512': '[LOCK]',       # 🔒
+                    '\U0001f513': '[UNLOCK]',     # 🔓
+                    '\U0001f4ac': '[SPEECH]',     # 💬
+                    '\U0001f3af': '[TARGET]',     # 🎯
+                }
+                
+                # Replace all emoji in the message
+                for emoji, replacement in emoji_replacements.items():
+                    if emoji in msg:
+                        msg = msg.replace(emoji, replacement)
+            
+            # Create appropriate stream based on log level
+            if record.levelno <= logging.INFO:
+                stream = sys.stdout
+            else:
+                stream = sys.stderr
+            
+            # Write the message directly to the stream
+            stream.write(msg + '\n')
+            stream.flush()
+            
+        except Exception as e:
+            # Fallback for any encoding or other errors
+            try:
+                # Try plain text without colors or special characters
+                plain_msg = f"{record.levelname}: {record.getMessage()}"
+                if record.levelno <= logging.INFO:
+                    sys.stdout.write(plain_msg + '\n')
+                    sys.stdout.flush()
+                else:
+                    sys.stderr.write(plain_msg + '\n')
+                    sys.stderr.flush()
+            except:
+                # Last resort - skip this log message
+                pass
+
+
 def setup_logging(level=logging.INFO, log_to_file=False, log_dir="logs", script_name=None):
     """
     Set up logging with colored console output and optional file logging.
+    INFO and DEBUG messages go to stdout, WARNING/ERROR/CRITICAL go to stderr.
     
     Args:
         level: The logging level (default: INFO)
@@ -66,10 +138,9 @@ def setup_logging(level=logging.INFO, log_to_file=False, log_dir="logs", script_
     logger.setLevel(level)
     logger.handlers.clear()
     
-    # Console handler with colors
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(ColoredFormatter())
-    logger.addHandler(console_handler)
+    # Use our custom split stream handler
+    split_handler = SplitStreamHandler()
+    logger.addHandler(split_handler)
     
     # File handler (if requested)
     if log_to_file:
@@ -130,10 +201,9 @@ def setup_training_logging(level=logging.INFO, timeframe=None, symbol=None):
     logger.setLevel(level)
     logger.handlers.clear()
     
-    # Console handler with colors
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(ColoredFormatter())
-    logger.addHandler(console_handler)
+    # Use our custom split stream handler
+    split_handler = SplitStreamHandler()
+    logger.addHandler(split_handler)
     
     # File handler without colors
     file_handler = logging.FileHandler(log_file, encoding='utf-8')

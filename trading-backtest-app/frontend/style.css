@@ -66,6 +66,31 @@ body {
     gap: 0.5rem;
 }
 
+/* Update Data Button */
+.update-data-btn {
+    background: #4CAF50;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s;
+}
+
+.update-data-btn:hover {
+    background: #45a049;
+    transform: translateY(-1px);
+}
+
+.update-data-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
 /* Controls */
 .controls {
     background: var(--bg-secondary);
@@ -423,6 +448,9 @@ body {
 .modal-body {
     padding: 1.5rem;
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    max-height: 60vh;
 }
 
 /* Comparison Table */
@@ -462,6 +490,210 @@ body {
 
 .comparison-table .negative {
     color: var(--accent-red);
+}
+
+/* Update Modal Styles */
+.update-modal {
+    max-width: 600px;
+    display: flex;
+    flex-direction: column;
+    max-height: 80vh;
+}
+
+.option-description {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    font-style: italic;
+    margin-top: 0.25rem;
+}
+
+.update-options {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.option-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.option-group label {
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-left: 1rem;
+}
+
+.checkbox-group label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: normal;
+    cursor: pointer;
+}
+
+.option-group input[type="number"] {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    width: 200px;
+}
+
+.update-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    position: sticky;
+    bottom: 0;
+    background: var(--bg-card);
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+    z-index: 10;
+}
+
+.btn-primary {
+    background: var(--accent-blue);
+    color: white;
+    border: none;
+    padding: 0.75rem 2rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.btn-primary:hover {
+    background: #0056b3;
+}
+
+.btn-secondary {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    padding: 0.75rem 2rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+/* Update Progress */
+.update-progress {
+    margin-top: 2rem;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 20px;
+    background: var(--bg-secondary);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+.progress-status {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+}
+
+.progress-logs {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 1rem;
+    max-height: 500px; /* Aumentato per mostrare più log */
+    overflow-y: auto;
+    font-family: monospace;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    line-height: 1.4;
+}
+
+/* Stili per i colori ANSI nei log */
+.progress-logs .ansi-black { color: #000000; }
+.progress-logs .ansi-red { color: #ff3b3b; }
+.progress-logs .ansi-green { color: #00ff88; }
+.progress-logs .ansi-yellow { color: #ffb800; }
+.progress-logs .ansi-blue { color: #007bff; }
+.progress-logs .ansi-magenta { color: #ff00ff; }
+.progress-logs .ansi-cyan { color: #00ffff; }
+.progress-logs .ansi-white { color: #ffffff; }
+.progress-logs .ansi-bright-black { color: #686868; }
+.progress-logs .ansi-bright-red { color: #ff5555; }
+.progress-logs .ansi-bright-green { color: #55ff55; }
+.progress-logs .ansi-bright-yellow { color: #ffff55; }
+.progress-logs .ansi-bright-blue { color: #5555ff; }
+.progress-logs .ansi-bright-magenta { color: #ff55ff; }
+.progress-logs .ansi-bright-cyan { color: #55ffff; }
+.progress-logs .ansi-bright-white { color: #ffffff; }
+.progress-logs .ansi-bg-black { background-color: #000000; }
+.progress-logs .ansi-bg-red { background-color: #ff3b3b; }
+.progress-logs .ansi-bg-green { background-color: #00ff88; }
+.progress-logs .ansi-bg-yellow { background-color: #ffb800; }
+.progress-logs .ansi-bg-blue { background-color: #007bff; }
+.progress-logs .ansi-bg-magenta { background-color: #ff00ff; }
+.progress-logs .ansi-bg-cyan { background-color: #00ffff; }
+.progress-logs .ansi-bg-white { background-color: #ffffff; }
+
+/* Stili per tabelle nei log */
+.progress-logs .log-table {
+    margin: 10px 0;
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.progress-logs .log-table-header {
+    font-weight: bold;
+    text-align: center;
+    background-color: #2a2a2a;
+    padding: 5px;
+}
+
+.progress-logs .log-table-row {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.progress-logs .log-table-cell {
+    padding: 4px 8px;
+}
+
+/* Stili per sezioni nei log */
+.progress-logs .log-section {
+    margin: 10px 0;
+    padding: 8px;
+    border-radius: 4px;
+    border-left: 4px solid var(--accent-blue);
+    background-color: rgba(0, 123, 255, 0.1);
+}
+
+.progress-logs .log-section-title {
+    font-weight: bold;
+    margin-bottom: 5px;
 }
 
 /* Loading */

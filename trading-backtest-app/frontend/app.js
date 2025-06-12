@@ -67,6 +67,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error("Failed to initialize chart during startup");
         }
         
+        // Initialize update data button
+        initializeUpdateDataButton();
+        
+        // Aggiorna il date range in base ai dati presenti nel database
+        await updateDateRangeFromDatabase();
+        
         console.log("Application initialized successfully");
     } catch (error) {
         console.error("Error initializing application:", error);
@@ -124,8 +130,7 @@ function initializeEventListeners() {
     // Compare all button
     document.getElementById('compare-all-btn').addEventListener('click', compareAllStrategies);
     
-    // Update end date to match database
-    document.getElementById('end-date').value = '2025-06-09';
+    // Le date verranno impostate automaticamente dalla funzione updateDateRangeFromDatabase()
 }
 
 // Load Strategies
@@ -336,7 +341,7 @@ async function runBacktest(strategy) {
         }
         
         // Update UI
-        updateChart(marketData.data, backtestData.trades);
+        updateChart(marketData.data, backtestData.trades, strategy);
         updateStats(backtestData.metrics);
         updateTradesList(backtestData.trades);
         updateStrategyPreview(strategy, backtestData.metrics);
@@ -361,8 +366,44 @@ async function runBacktest(strategy) {
     }
 }
 
+// Create a description of the indicators involved in a trade
+function createTradeDescription(strategy, signal) {
+    // Definizioni per ogni strategia in base agli indicatori usati
+    const descriptions = {
+        'rsi_mean_reversion': signal === 1 
+            ? "RSI < 30 in risalita" 
+            : "RSI > 70 in discesa",
+            
+        'ema_crossover': signal === 1 
+            ? "EMA20 sopra EMA50" 
+            : "EMA20 sotto EMA50",
+            
+        'breakout_range': signal === 1 
+            ? "Breakout sopra max 20 periodi" 
+            : "Breakdown sotto min 20 periodi",
+            
+        'bollinger_rebound': signal === 1 
+            ? "Rimbalzo banda inferiore" 
+            : "Rimbalzo banda superiore",
+            
+        'macd_histogram': signal === 1 
+            ? "MACD istogramma positivo" 
+            : "MACD istogramma negativo",
+            
+        'donchian_breakout': signal === 1 
+            ? "Breakout canale Donchian sup" 
+            : "Breakdown canale Donchian inf",
+            
+        'adx_filter_crossover': signal === 1 
+            ? "ADX>20 + EMA20 sopra EMA50" 
+            : "ADX>20 + EMA20 sotto EMA50"
+    };
+    
+    return descriptions[strategy] || `${strategy.replace('_', ' ')}`;
+}
+
 // Update Chart
-function updateChart(data, trades) {
+function updateChart(data, trades, strategy) {
     // Check if chart is initialized properly
     if (!chart || !candleSeries || !volumeSeries) {
         console.error("Chart not properly initialized");
@@ -422,13 +463,16 @@ function updateChart(data, trades) {
             
             console.log(`Trade ${index}:`, new Date(trade.entry_time * 1000), trade.signal === 1 ? 'LONG' : 'SHORT');
             
-            // Entry marker
+            // Create descriptive text based on strategy
+            const strategyInfo = createTradeDescription(strategy, trade.signal);
+            
+            // Entry marker with indicator info
             newMarkers.push({
                 time: trade.entry_time,
                 position: trade.signal === 1 ? 'belowBar' : 'aboveBar',
                 color: trade.signal === 1 ? '#00ff88' : '#ff3b3b',
                 shape: trade.signal === 1 ? 'arrowUp' : 'arrowDown',
-                text: trade.signal === 1 ? 'BUY' : 'SELL'
+                text: (trade.signal === 1 ? 'BUY' : 'SELL') + ` (${strategyInfo})`
             });
             
             // Exit marker
@@ -788,3 +832,437 @@ function addOscillatorIndicator(name, data, config) {
 
 // Make closeComparisonModal available globally
 window.closeComparisonModal = closeComparisonModal;
+
+// Initialize Update Data Button
+function initializeUpdateDataButton() {
+    const updateBtn = document.getElementById('updateDataBtn');
+    if (updateBtn) {
+        updateBtn.addEventListener('click', showUpdateModal);
+    }
+}
+
+// Show Update Modal
+function showUpdateModal() {
+    document.getElementById('update-modal').classList.add('active');
+    
+    // Ensure download start date is set to 2024-01-01 by default
+    const downloadStartDate = document.getElementById('download-start-date');
+    if (downloadStartDate && (!downloadStartDate.value || downloadStartDate.value === "")) {
+        downloadStartDate.value = "2024-01-01";
+    }
+    
+    // Resize modal to give more space to logs
+    resizeUpdateModal();
+    
+    // Assicuriamoci che i pulsanti "Start Update" e "Cancel" siano visibili subito
+    const updateActionsDiv = document.querySelector('.update-actions');
+    if (updateActionsDiv) {
+        updateActionsDiv.style.display = 'flex';
+        updateActionsDiv.style.justifyContent = 'center';
+        updateActionsDiv.style.marginTop = '20px';
+        updateActionsDiv.style.marginBottom = '20px';
+    }
+    
+    // Assicurarsi che il contenuto della modale sia visualizzato correttamente
+    setTimeout(() => {
+        // Scorri automaticamente verso il basso per mostrare i pulsanti
+        const modalBody = document.querySelector('.modal-body');
+        if (modalBody) {
+            modalBody.scrollTop = 0; // Prima resettiamo lo scroll
+            
+            // Dopo un breve delay, scorri fino a visualizzare i pulsanti
+            setTimeout(() => {
+                const updateOptions = document.querySelector('.update-options');
+                if (updateOptions) {
+                    const optionsHeight = updateOptions.offsetHeight;
+                    modalBody.scrollTop = optionsHeight - 50; // Scroll sufficiente per vedere i pulsanti
+                }
+            }, 100);
+        }
+    }, 50);
+}
+
+// Close Update Modal
+function closeUpdateModal() {
+    document.getElementById('update-modal').classList.remove('active');
+    
+    // Se l'aggiornamento è stato completato con successo, aggiorna il date range
+    const progressStatus = document.getElementById('progress-status');
+    if (progressStatus && progressStatus.textContent.includes("completed successfully")) {
+        updateDateRangeFromDatabase();
+    }
+}
+
+// Aggiorna il date range in base ai dati più recenti nel database
+async function updateDateRangeFromDatabase() {
+    try {
+        const response = await fetch(`${API_URL}/api/data-info`);
+        if (!response.ok) {
+            throw new Error('Failed to fetch data info');
+        }
+        
+        const data = await response.json();
+        if (!data || !data.data_info || !data.data_info['1h']) {
+            console.log('No 1h data found in database');
+            return;
+        }
+        
+        // Trova la data più recente disponibile
+        let latestDate = "2024-01-01"; // Default
+        let earliestDate = "2024-01-01"; // Default
+        
+        // Utilizza i dati del timeframe 1h (il più comune)
+        const symbolsData = data.data_info['1h'].symbols;
+        
+        for (const symbolData of symbolsData) {
+            if (symbolData.last_date && symbolData.last_date > latestDate) {
+                latestDate = symbolData.last_date.substring(0, 10); // Solo la parte della data
+            }
+            
+            if (symbolData.first_date && (!earliestDate || symbolData.first_date < earliestDate)) {
+                earliestDate = symbolData.first_date.substring(0, 10); // Solo la parte della data
+            }
+        }
+        
+        console.log(`Updating date range from database: ${earliestDate} to ${latestDate}`);
+        
+        // Aggiorna i campi data nell'interfaccia
+        const startDateInput = document.getElementById('start-date');
+        const endDateInput = document.getElementById('end-date');
+        
+        if (startDateInput && earliestDate) {
+            startDateInput.value = earliestDate;
+            startDateInput.min = earliestDate;
+        }
+        
+        if (endDateInput && latestDate) {
+            endDateInput.value = latestDate;
+            endDateInput.max = latestDate;
+        }
+        
+    } catch (error) {
+        console.error('Error updating date range:', error);
+    }
+}
+
+// Start Data Update
+async function startDataUpdate() {
+    // Get selected timeframes only (only checkboxes with name="timeframe")
+    const timeframes = [];
+    document.querySelectorAll('#update-modal .checkbox-group input[name="timeframe"]:checked').forEach(cb => {
+        if (cb.value && ['1m', '5m', '15m', '30m', '1h', '4h', '1d'].includes(cb.value)) {
+            timeframes.push(cb.value);
+        }
+    });
+    
+    // Logging for debugging
+    console.log("Selected timeframes:", timeframes);
+    
+    // Calculate days from the selected download start date until today
+    const startDate = new Date(document.getElementById('download-start-date').value);
+    const today = new Date();
+    const diffTime = Math.abs(today - startDate);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    const numSymbols = parseInt(document.getElementById('num-symbols').value);
+    // Use calculated days from the download start date
+    const days = diffDays;
+    const sequential = document.getElementById('sequential').checked;
+    const noTa = document.getElementById('no-ta').checked;
+    
+    console.log(`Downloading data from ${startDate.toLocaleDateString()} to today (${diffDays} days)`);
+    
+    // Hide options and show progress
+    document.querySelector('.update-options').style.display = 'none';
+    document.querySelector('.update-actions').style.display = 'none';
+    document.getElementById('update-progress').style.display = 'block';
+    
+    try {
+        // Start update
+        const response = await fetch(`${API_URL}/api/update-data`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                timeframes: timeframes,
+                num_symbols: numSymbols,
+                days: days,
+                sequential: sequential,
+                no_ta: noTa
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            console.error('Update failed:', errorData);
+            
+            // If update is already in progress, try to reset and retry
+            if (response.status === 400 && errorData.detail === "Update already in progress") {
+                console.log('Update already in progress, trying to reset...');
+                
+                // Try to reset the state
+                const resetResponse = await fetch(`${API_URL}/api/reset-update-state`, {
+                    method: 'POST'
+                });
+                
+                if (resetResponse.ok) {
+                    console.log('State reset successful, retrying update...');
+                    
+                    // Retry the update
+                    const retryResponse = await fetch(`${API_URL}/api/update-data`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            timeframes: timeframes,
+                            num_symbols: numSymbols,
+                            days: days,
+                            sequential: sequential,
+                            no_ta: noTa
+                        })
+                    });
+                    
+                    if (!retryResponse.ok) {
+                        throw new Error('Failed to start update after reset');
+                    }
+                } else {
+                    throw new Error('Failed to reset update state');
+                }
+            } else {
+                throw new Error(errorData.detail || 'Failed to start update');
+            }
+        }
+        
+        // Start polling for status
+        pollUpdateStatus();
+        
+    } catch (error) {
+        console.error('Error starting update:', error);
+        
+        // Show error in progress area instead of closing modal
+        const progressStatus = document.getElementById('progress-status');
+        progressStatus.innerHTML = `<span style="color: #ff3b3b;">✗ ${error.message}</span>`;
+        
+        // Add retry button
+        setTimeout(() => {
+            const retryBtn = document.createElement('button');
+            retryBtn.className = 'btn-primary';
+            retryBtn.textContent = 'Retry';
+            retryBtn.onclick = () => {
+                // Reset UI
+                document.querySelector('.update-options').style.display = 'block';
+                document.querySelector('.update-actions').style.display = 'flex';
+                document.getElementById('update-progress').style.display = 'none';
+                document.getElementById('progress-fill').style.width = '0%';
+                document.getElementById('progress-logs').textContent = '';
+            };
+            document.getElementById('update-progress').appendChild(retryBtn);
+        }, 500);
+    }
+}
+
+// Poll Update Status
+let updatePollInterval = null;
+
+async function pollUpdateStatus() {
+    // Clear any existing interval
+    if (updatePollInterval) {
+        clearInterval(updatePollInterval);
+    }
+    
+    const progressFill = document.getElementById('progress-fill');
+    const progressStatus = document.getElementById('progress-status');
+    const progressLogs = document.getElementById('progress-logs');
+    
+    updatePollInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`${API_URL}/api/update-status`);
+            const status = await response.json();
+            
+            // Update progress bar
+            progressFill.style.width = `${status.progress}%`;
+            
+            // Update status text
+            progressStatus.textContent = status.status;
+            
+            // Update logs (show all lines with ANSI color support)
+            if (status.logs && status.logs.length > 0) {
+                // Convert logs to HTML with ANSI color support
+                const formattedLogs = formatLogsWithAnsiColors(status.logs);
+                progressLogs.innerHTML = formattedLogs;
+                progressLogs.scrollTop = progressLogs.scrollHeight;
+            }
+            
+            // Check if completed
+            if (!status.is_running && status.progress === 100) {
+                clearInterval(updatePollInterval);
+                updatePollInterval = null;
+                
+                // Show success message
+                progressStatus.innerHTML = '<span style="color: #00ff88;">✓ Update completed successfully!</span>';
+                
+                // Add close button
+                setTimeout(() => {
+                    const closeBtn = document.createElement('button');
+                    closeBtn.className = 'btn-primary';
+                    closeBtn.textContent = 'Close';
+                    closeBtn.onclick = () => {
+                        closeUpdateModal();
+                        // Reset modal state
+                        document.querySelector('.update-options').style.display = 'block';
+                        document.querySelector('.update-actions').style.display = 'flex';
+                        document.getElementById('update-progress').style.display = 'none';
+                        progressFill.style.width = '0%';
+                        progressLogs.textContent = '';
+                    };
+                    document.getElementById('update-progress').appendChild(closeBtn);
+                }, 1000);
+            } else if (!status.is_running && status.status.includes('Error')) {
+                // Handle error
+                clearInterval(updatePollInterval);
+                updatePollInterval = null;
+                progressStatus.innerHTML = '<span style="color: #ff3b3b;">✗ ' + status.status + '</span>';
+            }
+            
+        } catch (error) {
+            console.error('Error polling status:', error);
+        }
+    }, 1000); // Poll every second
+}
+
+/**
+ * Format logs with ANSI color support and detect tables/sections
+ * @param {string[]} logs - Array of log lines
+ * @return {string} HTML formatted logs
+ */
+function formatLogsWithAnsiColors(logs) {
+    // Join all logs into a single string
+    let logText = logs.join('\n');
+    
+    // Replace ANSI color codes with span elements with appropriate CSS classes
+    const ansiColorMap = {
+        // Regular colors
+        '\u001b[30m': '<span class="ansi-black">',    // Black
+        '\u001b[31m': '<span class="ansi-red">',      // Red
+        '\u001b[32m': '<span class="ansi-green">',    // Green
+        '\u001b[33m': '<span class="ansi-yellow">',   // Yellow
+        '\u001b[34m': '<span class="ansi-blue">',     // Blue
+        '\u001b[35m': '<span class="ansi-magenta">',  // Magenta
+        '\u001b[36m': '<span class="ansi-cyan">',     // Cyan
+        '\u001b[37m': '<span class="ansi-white">',    // White
+        
+        // Bright colors
+        '\u001b[90m': '<span class="ansi-bright-black">',    // Bright Black
+        '\u001b[91m': '<span class="ansi-bright-red">',      // Bright Red
+        '\u001b[92m': '<span class="ansi-bright-green">',    // Bright Green
+        '\u001b[93m': '<span class="ansi-bright-yellow">',   // Bright Yellow
+        '\u001b[94m': '<span class="ansi-bright-blue">',     // Bright Blue
+        '\u001b[95m': '<span class="ansi-bright-magenta">',  // Bright Magenta
+        '\u001b[96m': '<span class="ansi-bright-cyan">',     // Bright Cyan
+        '\u001b[97m': '<span class="ansi-bright-white">',    // Bright White
+        
+        // Background colors
+        '\u001b[40m': '<span class="ansi-bg-black">',   // Background Black
+        '\u001b[41m': '<span class="ansi-bg-red">',     // Background Red
+        '\u001b[42m': '<span class="ansi-bg-green">',   // Background Green
+        '\u001b[43m': '<span class="ansi-bg-yellow">',  // Background Yellow
+        '\u001b[44m': '<span class="ansi-bg-blue">',    // Background Blue
+        '\u001b[45m': '<span class="ansi-bg-magenta">', // Background Magenta
+        '\u001b[46m': '<span class="ansi-bg-cyan">',    // Background Cyan
+        '\u001b[47m': '<span class="ansi-bg-white">',   // Background White
+        
+        // Reset
+        '\u001b[0m': '</span>'
+    };
+    
+    // Replace all ANSI codes with their HTML equivalents
+    for (const [ansiCode, htmlTag] of Object.entries(ansiColorMap)) {
+        // Escape special characters in the ANSI code for use in regex
+        const escapedCode = ansiCode.replace(/[\[\]]/g, '\\$&');
+        const regex = new RegExp(escapedCode, 'g');
+        logText = logText.replace(regex, htmlTag);
+    }
+    
+    // Detect and format section headers (lines with ======)
+    logText = logText.replace(/^(=+)([^=]+)(=+)$/gm, '<div class="log-section-title">$2</div>');
+    
+    // Detect and format tables
+    // First, look for lines with multiple | characters which indicates a table structure
+    let lines = logText.split('\n');
+    let inTable = false;
+    let tableContent = '';
+    let formattedLines = [];
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // Check if this line could be part of a table (contains multiple | or has many - characters)
+        if (line.includes('|') && line.split('|').length > 2) {
+            // If we weren't in a table before, start a new table
+            if (!inTable) {
+                inTable = true;
+                tableContent = '<div class="log-table">';
+            }
+            
+            // Check if this is a header separator line (---+---+---)
+            if (line.match(/^[\s\-\+]+$/)) {
+                // Skip separator lines
+                continue;
+            }
+            
+            // Add this line as a table row
+            tableContent += '<div class="log-table-row">';
+            const cells = line.split('|').filter(Boolean);
+            
+            for (const cell of cells) {
+                tableContent += `<span class="log-table-cell">${cell.trim()}</span>`;
+            }
+            
+            tableContent += '</div>';
+        } else if (inTable) {
+            // We were in a table but this line is not a table row, so end the table
+            inTable = false;
+            tableContent += '</div>';
+            formattedLines.push(tableContent);
+            formattedLines.push(line);
+        } else {
+            // Not a table line and not in a table
+            formattedLines.push(line);
+        }
+    }
+    
+    // If we were still in a table at the end, close it
+    if (inTable) {
+        tableContent += '</div>';
+        formattedLines.push(tableContent);
+    }
+    
+    // Detect and format special sections like "RESOCONTO AGGIORNAMENTO DATI COMPLETATO"
+    let finalHtml = formattedLines.join('\n');
+    finalHtml = finalHtml.replace(/(RESOCONTO[\s\S]*?DATI[\s\S]*?COMPLETATO)/g, '<div class="log-section">$1</div>');
+    finalHtml = finalHtml.replace(/(STATISTICHE PER TIMEFRAME)/g, '<div class="log-section-title">$1</div>');
+    
+    // Ensure all ANSI spans are properly closed
+    let openSpans = (finalHtml.match(/<span class="ansi-[^"]+?">/g) || []).length;
+    let closeSpans = (finalHtml.match(/<\/span>/g) || []).length;
+    let spanDiff = openSpans - closeSpans;
+    
+    if (spanDiff > 0) {
+        finalHtml += '</span>'.repeat(spanDiff);
+    }
+    
+    return finalHtml;
+}
+
+// Resize the update modal to give more space to logs
+function resizeUpdateModal() {
+    const updateModal = document.querySelector('.update-modal');
+    if (updateModal) {
+        updateModal.style.maxWidth = '90%';
+        updateModal.style.width = '90%';
+        updateModal.style.maxHeight = '90vh';
+    }
+}
+
+// Make functions available globally
+window.closeUpdateModal = closeUpdateModal;
+window.startDataUpdate = startDataUpdate;
+window.resizeUpdateModal = resizeUpdateModal;
