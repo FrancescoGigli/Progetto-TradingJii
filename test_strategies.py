@@ -16,7 +16,6 @@ from strategies.breakout_range import generate_signals as breakout_signals
 from strategies.bollinger_rebound import generate_signals as bollinger_signals
 from strategies.macd_histogram import generate_signals as macd_signals
 from strategies.donchian_breakout import generate_signals as donchian_signals
-from strategies.adx_filter_crossover import generate_signals as adx_filter_signals
 
 
 def test_strategy_on_symbol(symbol, timeframe='1h'):
@@ -55,8 +54,7 @@ def test_strategy_on_symbol(symbol, timeframe='1h'):
             'Breakout Range': breakout_signals,
             'Bollinger Rebound': bollinger_signals,
             'MACD Histogram': macd_signals,
-            'Donchian Breakout': donchian_signals,
-            'ADX Filter Crossover': adx_filter_signals
+            'Donchian Breakout': donchian_signals
         }
         
         print(f"\n{Fore.CYAN}Risultati delle strategie:{Style.RESET_ALL}")

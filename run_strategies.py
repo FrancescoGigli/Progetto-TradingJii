@@ -19,7 +19,6 @@ from strategies.breakout_range import generate_signals as breakout_signals
 from strategies.bollinger_rebound import generate_signals as bollinger_signals
 from strategies.macd_histogram import generate_signals as macd_signals
 from strategies.donchian_breakout import generate_signals as donchian_signals
-from strategies.adx_filter_crossover import generate_signals as adx_filter_signals
 
 
 def analyze_symbol(symbol, timeframe='1h', lookback_days=30):

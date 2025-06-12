@@ -18,7 +18,6 @@ Available strategies:
 - bollinger_rebound: Price rebound from Bollinger Bands
 - macd_histogram: MACD histogram zero-line crossover
 - donchian_breakout: Donchian channel breakout strategy
-- adx_filter_crossover: EMA crossover filtered by ADX strength
 """
 
 __all__ = [
@@ -27,6 +26,5 @@ __all__ = [
     'breakout_range',
     'bollinger_rebound',
     'macd_histogram',
-    'donchian_breakout',
-    'adx_filter_crossover'
+    'donchian_breakout'
 ]

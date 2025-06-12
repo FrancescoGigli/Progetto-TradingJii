@@ -176,57 +176,6 @@ def donchian_breakout(df: pd.DataFrame, period: int = 20) -> pd.DataFrame:
     return df
 
 
-def adx_filter_crossover(df: pd.DataFrame, adx_threshold: int = 20) -> pd.DataFrame:
-    """
-    ADX Filtered EMA Crossover Strategy
-    - Same as EMA crossover but only when ADX > 20 (trending market)
-    """
-    df = df.copy()
-    
-    # Calculate EMAs if not present
-    if 'ema20' not in df.columns:
-        df['ema20'] = df['close'].ewm(span=20, adjust=False).mean()
-    if 'ema50' not in df.columns:
-        df['ema50'] = df['close'].ewm(span=50, adjust=False).mean()
-    
-    # Calculate ADX if not present
-    if 'adx' not in df.columns:
-        # Simplified ADX calculation
-        high_low = df['high'] - df['low']
-        high_close = np.abs(df['high'] - df['close'].shift())
-        low_close = np.abs(df['low'] - df['close'].shift())
-        
-        ranges = pd.concat([high_low, high_close, low_close], axis=1)
-        true_range = np.max(ranges, axis=1)
-        atr14 = true_range.rolling(14).mean()
-        
-        # Directional indicators
-        up_move = df['high'] - df['high'].shift()
-        down_move = df['low'].shift() - df['low']
-        
-        pos_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
-        neg_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
-        
-        pos_di = 100 * pd.Series(pos_dm).rolling(14).mean() / atr14
-        neg_di = 100 * pd.Series(neg_dm).rolling(14).mean() / atr14
-        
-        dx = 100 * np.abs(pos_di - neg_di) / (pos_di + neg_di)
-        df['adx'] = dx.rolling(14).mean()
-    
-    # Initialize signal column
-    df['signal'] = 0
-    
-    # Previous values
-    ema20_prev = df['ema20'].shift(1)
-    ema50_prev = df['ema50'].shift(1)
-    
-    # Long signal: EMA20 crosses above EMA50 AND ADX > threshold
-    df.loc[(df['ema20'] > df['ema50']) & (ema20_prev <= ema50_prev) & (df['adx'] > adx_threshold), 'signal'] = 1
-    
-    # Short signal: EMA20 crosses below EMA50 AND ADX > threshold
-    df.loc[(df['ema20'] < df['ema50']) & (ema20_prev >= ema50_prev) & (df['adx'] > adx_threshold), 'signal'] = -1
-    
-    return df
 
 
 # Strategy mapping
@@ -236,6 +185,5 @@ STRATEGIES = {
     'breakout_range': breakout_range,
     'bollinger_rebound': bollinger_rebound,
     'macd_histogram': macd_histogram,
-    'donchian_breakout': donchian_breakout,
-    'adx_filter_crossover': adx_filter_crossover
+    'donchian_breakout': donchian_breakout
 }

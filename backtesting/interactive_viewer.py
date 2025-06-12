@@ -57,8 +57,7 @@ class BacktestViewer:
         self.strategy_combo = ttk.Combobox(control_frame, textvariable=self.strategy_var,
                                           values=["rsi_mean_reversion", "ema_crossover", 
                                                  "breakout_range", "bollinger_rebound",
-                                                 "macd_histogram", "donchian_breakout",
-                                                 "adx_filter_crossover"],
+                                                 "macd_histogram", "donchian_breakout"],
                                           width=25)
         self.strategy_combo.grid(row=0, column=3, padx=5)
         
@@ -229,18 +228,11 @@ class BacktestViewer:
         self._plot_candlesticks(ax1, df)
         
         # Plot strategy-specific indicators
-        if self.current_strategy == 'ema_crossover' or self.current_strategy == 'adx_filter_crossover':
+        if self.current_strategy == 'ema_crossover':
             # Plot EMAs on price chart
             ax1.plot(df.index, df['ema20'], 'b-', label='EMA 20', linewidth=1.5)
             ax1.plot(df.index, df['ema50'], 'r-', label='EMA 50', linewidth=1.5)
             ax1.legend(loc='upper left')
-            
-            # Plot ADX if filter strategy
-            if self.current_strategy == 'adx_filter_crossover':
-                ax2.plot(df.index, df['adx'], 'g-', label='ADX', linewidth=1.5)
-                ax2.axhline(y=20, color='r', linestyle='--', alpha=0.5)
-                ax2.set_ylabel('ADX')
-                ax2.legend(loc='upper left')
         
         elif self.current_strategy == 'rsi_mean_reversion':
             # Plot RSI

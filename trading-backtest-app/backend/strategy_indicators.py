@@ -160,37 +160,5 @@ STRATEGY_INDICATORS = {
                 'lineWidth': 2
             }
         }
-    },
-    
-    'adx_filter_crossover': {
-        'name': 'ADX Filtered Crossover',
-        'indicators': {
-            'ema20': {
-                'type': 'overlay',
-                'field': 'ema20',
-                'panel': 'main',
-                'color': '#2196f3',
-                'style': 'line',
-                'lineWidth': 2
-            },
-            'ema50': {
-                'type': 'overlay',
-                'field': 'ema50',
-                'panel': 'main',
-                'color': '#ff5722',
-                'style': 'line',
-                'lineWidth': 2
-            },
-            'adx': {
-                'type': 'oscillator',
-                'field': 'adx14',
-                'panel': 'separate',
-                'color': '#795548',
-                'style': 'line',
-                'lineWidth': 2,
-                'levels': [20],  # ADX threshold for trending market
-                'level_colors': ['#ffffff']
-            }
-        }
     }
 }
