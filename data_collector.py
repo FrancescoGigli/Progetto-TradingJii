@@ -331,7 +331,7 @@ async def main():
     else:
         logging.info(f"{Fore.YELLOW}Calcolo degli indicatori tecnici disabilitato (--no-ta){Style.RESET_ALL}")
 
-    # Loop infinito per aggiornamenti continui
+    # Loop infinito per aggiornamenti continui (se non è single-run)
     iteration = 1
     
     try:
@@ -348,6 +348,12 @@ async def main():
                 
             # Elimina i dati di warmup dopo aver completato il ciclo
             delete_warmup_data()
+            
+            # Se è single-run, esci dopo il primo ciclo
+            if args.single_run:
+                logging.info(f"{Fore.GREEN}Singolo ciclo completato. Terminazione del data collector.{Style.RESET_ALL}")
+                print(f"\n{Fore.GREEN}✓ Aggiornamento dati completato con successo!{Style.RESET_ALL}")
+                break
             
             # Calcola il prossimo orario di aggiornamento
             next_update = datetime.now() + timedelta(seconds=UPDATE_INTERVAL)

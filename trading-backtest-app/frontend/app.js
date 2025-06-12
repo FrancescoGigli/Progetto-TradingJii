@@ -902,25 +902,40 @@ async function updateDateRangeFromDatabase() {
         }
         
         const data = await response.json();
-        if (!data || !data.data_info || !data.data_info['1h']) {
-            console.log('No 1h data found in database');
+        if (!data || !data.data_info) {
+            console.log('No data found in database');
             return;
         }
         
-        // Trova la data più recente disponibile
+        // Trova la data più recente disponibile per ogni timeframe
         let latestDate = "2024-01-01"; // Default
         let earliestDate = "2024-01-01"; // Default
+        let dataStatusInfo = [];
         
-        // Utilizza i dati del timeframe 1h (il più comune)
-        const symbolsData = data.data_info['1h'].symbols;
-        
-        for (const symbolData of symbolsData) {
-            if (symbolData.last_date && symbolData.last_date > latestDate) {
-                latestDate = symbolData.last_date.substring(0, 10); // Solo la parte della data
-            }
-            
-            if (symbolData.first_date && (!earliestDate || symbolData.first_date < earliestDate)) {
-                earliestDate = symbolData.first_date.substring(0, 10); // Solo la parte della data
+        // Controlla tutti i timeframe disponibili
+        for (const [timeframe, tfData] of Object.entries(data.data_info)) {
+            if (tfData.symbols && tfData.symbols.length > 0) {
+                let tfLatestDate = null;
+                
+                // Trova la data più recente per questo timeframe
+                for (const symbolData of tfData.symbols) {
+                    if (symbolData.last_date && (!tfLatestDate || symbolData.last_date > tfLatestDate)) {
+                        tfLatestDate = symbolData.last_date.substring(0, 10);
+                    }
+                    
+                    // Aggiorna anche le date globali
+                    if (symbolData.last_date && symbolData.last_date > latestDate) {
+                        latestDate = symbolData.last_date.substring(0, 10);
+                    }
+                    
+                    if (symbolData.first_date && (!earliestDate || symbolData.first_date < earliestDate)) {
+                        earliestDate = symbolData.first_date.substring(0, 10);
+                    }
+                }
+                
+                if (tfLatestDate) {
+                    dataStatusInfo.push(`${timeframe.toUpperCase()}: ${tfLatestDate}`);
+                }
             }
         }
         
@@ -940,8 +955,25 @@ async function updateDateRangeFromDatabase() {
             endDateInput.max = latestDate;
         }
         
+        // Aggiorna lo stato dei dati
+        const dataStatusInfoElement = document.getElementById('data-status-info');
+        if (dataStatusInfoElement) {
+            if (dataStatusInfo.length > 0) {
+                dataStatusInfoElement.textContent = dataStatusInfo.join(' | ');
+            } else {
+                dataStatusInfoElement.textContent = 'No data available';
+            }
+        }
+        
     } catch (error) {
         console.error('Error updating date range:', error);
+        
+        // Mostra errore nello stato
+        const dataStatusInfoElement = document.getElementById('data-status-info');
+        if (dataStatusInfoElement) {
+            dataStatusInfoElement.textContent = 'Error loading data info';
+            dataStatusInfoElement.style.color = 'var(--accent-red)';
+        }
     }
 }
 
@@ -1098,6 +1130,9 @@ async function pollUpdateStatus() {
                 
                 // Show success message
                 progressStatus.innerHTML = '<span style="color: #00ff88;">✓ Update completed successfully!</span>';
+                
+                // Update date range with the new data
+                await updateDateRangeFromDatabase();
                 
                 // Add close button
                 setTimeout(() => {

@@ -131,6 +131,25 @@ body {
     border-color: var(--accent-blue);
 }
 
+/* Data Status Display */
+.data-status {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.data-status-label {
+    color: var(--text-secondary);
+    margin-right: 0.5rem;
+}
+
+.data-status-info {
+    color: var(--accent-green);
+    font-weight: 500;
+}
+
 .button-group {
     display: flex;
     gap: 0.5rem;

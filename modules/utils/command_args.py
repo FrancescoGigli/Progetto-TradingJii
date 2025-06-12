@@ -120,4 +120,11 @@ def parse_arguments():
         help='Filtra i risultati per un simbolo specifico (da usare con --show-days)'
     )
     
+    # Opzione per singola esecuzione
+    parser.add_argument(
+        '--single-run',
+        action='store_true',
+        help='Esegui un singolo ciclo di aggiornamento e termina'
+    )
+    
     return parser.parse_args()

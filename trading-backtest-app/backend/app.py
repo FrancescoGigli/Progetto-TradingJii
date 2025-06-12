@@ -82,8 +82,13 @@ async def get_symbols():
     """Get available symbols from database"""
     try:
         conn = sqlite3.connect("../../crypto_data.db")
-        query = "SELECT DISTINCT symbol FROM market_data_1h ORDER BY symbol"
-        symbols = pd.read_sql_query(query, conn)['symbol'].tolist()
+        # Try 1h first, fallback to 4h if not available
+        try:
+            query = "SELECT DISTINCT symbol FROM market_data_1h ORDER BY symbol"
+            symbols = pd.read_sql_query(query, conn)['symbol'].tolist()
+        except:
+            query = "SELECT DISTINCT symbol FROM market_data_4h ORDER BY symbol"
+            symbols = pd.read_sql_query(query, conn)['symbol'].tolist()
         conn.close()
         return {"symbols": symbols}
     except Exception as e:
@@ -101,9 +106,16 @@ async def get_market_data(symbol: str, start_date: str = "2024-01-01", end_date:
     """Get market data for a symbol"""
     try:
         conn = sqlite3.connect("../../crypto_data.db")
-        query = """
+        # Try 1h first, fallback to 4h if not available
+        table_name = "market_data_1h"
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='market_data_1h'")
+        if not cursor.fetchone():
+            table_name = "market_data_4h"
+        
+        query = f"""
         SELECT timestamp, symbol, open, high, low, close, volume 
-        FROM market_data_1h
+        FROM {table_name}
         WHERE symbol = ? AND timestamp >= ? AND timestamp <= ?
         ORDER BY timestamp
         """
@@ -143,11 +155,16 @@ async def run_backtest(request: BacktestRequest):
             stop_loss_pct=request.stop_loss_pct
         )
         
-        # Load data with indicators (all in market_data_1h table)
+        # Load data with indicators - check which table exists
         conn = sqlite3.connect("../../crypto_data.db")
+        cursor = conn.cursor()
         
-        query = """
-        SELECT * FROM market_data_1h
+        # Check which table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='market_data_1h'")
+        table_name = "market_data_1h" if cursor.fetchone() else "market_data_4h"
+        
+        query = f"""
+        SELECT * FROM {table_name}
         WHERE symbol = ? AND timestamp >= ? AND timestamp <= ?
         ORDER BY timestamp
         """
@@ -253,11 +270,16 @@ async def compare_strategies(request: CompareRequest):
             stop_loss_pct=request.stop_loss_pct
         )
         
-        # Load data with indicators (all in market_data_1h table)
+        # Load data with indicators - check which table exists
         conn = sqlite3.connect("../../crypto_data.db")
+        cursor = conn.cursor()
         
-        query = """
-        SELECT * FROM market_data_1h
+        # Check which table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='market_data_1h'")
+        table_name = "market_data_1h" if cursor.fetchone() else "market_data_4h"
+        
+        query = f"""
+        SELECT * FROM {table_name}
         WHERE symbol = ? AND timestamp >= ? AND timestamp <= ?
         ORDER BY timestamp
         """
@@ -367,6 +389,9 @@ def run_data_collector(request: UpdateDataRequest):
         
         if request.no_ta:
             cmd.append("--no-ta")
+        
+        # Add single-run flag to execute only one cycle
+        cmd.append("--single-run")
         
         # Log command for debugging
         update_state["logs"].append(f"Command: {' '.join(cmd)}")
