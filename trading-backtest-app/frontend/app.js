@@ -599,6 +599,12 @@ async function compareAllStrategies() {
 // Show Comparison Modal
 function showComparisonModal(data) {
     const tableHtml = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3>Current Parameters Comparison</h3>
+            <button id="optimize-params-btn" class="btn-primary" style="display: flex; align-items: center; gap: 0.5rem;">
+                <span>🎯</span> Optimize Parameters
+            </button>
+        </div>
         <table class="comparison-table">
             <thead>
                 <tr>
@@ -631,6 +637,14 @@ function showComparisonModal(data) {
     
     document.getElementById('comparison-table').innerHTML = tableHtml;
     document.getElementById('comparison-modal').classList.add('active');
+    
+    // Add event listener for optimize button
+    setTimeout(() => {
+        const optimizeBtn = document.getElementById('optimize-params-btn');
+        if (optimizeBtn) {
+            optimizeBtn.addEventListener('click', startParameterOptimization);
+        }
+    }, 100);
 }
 
 // Close Comparison Modal
@@ -1297,7 +1311,182 @@ function resizeUpdateModal() {
     }
 }
 
+// Start Parameter Optimization
+async function startParameterOptimization() {
+    // Close comparison modal
+    closeComparisonModal();
+    
+    // Show loading with custom message
+    const loadingElement = document.getElementById('loading');
+    const loadingText = loadingElement.querySelector('p');
+    loadingText.textContent = 'Optimizing parameters... This may take a few minutes';
+    showLoading(true);
+    
+    try {
+        const startDate = document.getElementById('start-date').value;
+        const endDate = document.getElementById('end-date').value;
+        
+        const response = await fetch(`${API_URL}/api/optimize-parameters`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                symbol: currentSymbol,
+                start_date: startDate,
+                end_date: endDate
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(`Optimization failed: ${error}`);
+        }
+        
+        const data = await response.json();
+        showOptimizationModal(data);
+        
+    } catch (error) {
+        console.error('Error optimizing parameters:', error);
+        showError('Failed to optimize parameters: ' + error.message);
+    } finally {
+        showLoading(false);
+        // Reset loading text
+        loadingText.textContent = 'Running backtest...';
+    }
+}
+
+// Show Optimization Results Modal
+function showOptimizationModal(data) {
+    // Create modal if it doesn't exist
+    let modal = document.getElementById('optimization-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'optimization-modal';
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 1200px;">
+                <div class="modal-header">
+                    <h2>Parameter Optimization Results</h2>
+                    <button class="close-btn" onclick="closeOptimizationModal()">×</button>
+                </div>
+                <div class="modal-body" id="optimization-results">
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+    
+    // Build results HTML
+    const resultsHtml = `
+        <div style="margin-bottom: 1rem;">
+            <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                Tested all combinations of leverage, take profit, and stop loss for each strategy.
+                Results sorted by best Return.
+            </p>
+        </div>
+        <div style="overflow-x: auto;">
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Strategy</th>
+                        <th>Leverage</th>
+                        <th>Take Profit</th>
+                        <th>Stop Loss</th>
+                        <th>Return</th>
+                        <th>Sharpe</th>
+                        <th>Win Rate</th>
+                        <th>Trades</th>
+                        <th>Max DD</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${data.results.map((result, index) => `
+                        <tr class="${index === 0 ? 'best-result' : ''}">
+                            <td class="strategy-name">${STRATEGY_INFO[result.strategy].name}</td>
+                            <td>${result.leverage}x</td>
+                            <td>${(result.take_profit * 100).toFixed(0)}%</td>
+                            <td>${(result.stop_loss * 100).toFixed(0)}%</td>
+                            <td class="${result.total_return_pct >= 0 ? 'positive' : 'negative'}">
+                                ${result.total_return_pct >= 0 ? '+' : ''}${result.total_return_pct.toFixed(2)}%
+                            </td>
+                            <td>${result.sharpe_ratio.toFixed(2)}</td>
+                            <td>${result.win_rate.toFixed(1)}%</td>
+                            <td>${result.total_trades}</td>
+                            <td class="negative">-${result.max_drawdown_pct.toFixed(1)}%</td>
+                            <td>
+                                <button class="btn-primary" style="padding: 0.25rem 0.75rem; font-size: 0.85rem;"
+                                    onclick="applyOptimalParameters('${result.strategy}', ${result.leverage}, ${result.take_profit}, ${result.stop_loss})">
+                                    Apply
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+        <div style="margin-top: 2rem; padding: 1rem; background: var(--bg-secondary); border-radius: 4px;">
+            <h3 style="margin-bottom: 1rem;">Summary</h3>
+            <p style="color: var(--text-secondary);">
+                Best overall strategy: <strong style="color: var(--accent-green);">${STRATEGY_INFO[data.results[0].strategy].name}</strong>
+                with ${data.results[0].leverage}x leverage, ${(data.results[0].take_profit * 100).toFixed(0)}% TP, ${(data.results[0].stop_loss * 100).toFixed(0)}% SL
+            </p>
+            <p style="color: var(--text-secondary); margin-top: 0.5rem;">
+                Expected return: <strong style="color: ${data.results[0].total_return_pct >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}">
+                    ${data.results[0].total_return_pct >= 0 ? '+' : ''}${data.results[0].total_return_pct.toFixed(2)}%
+                </strong> (Sharpe Ratio: <strong>${data.results[0].sharpe_ratio.toFixed(2)}</strong>)
+            </p>
+        </div>
+    `;
+    
+    document.getElementById('optimization-results').innerHTML = resultsHtml;
+    modal.classList.add('active');
+}
+
+// Close Optimization Modal
+function closeOptimizationModal() {
+    const modal = document.getElementById('optimization-modal');
+    if (modal) {
+        modal.classList.remove('active');
+    }
+}
+
+// Apply Optimal Parameters
+function applyOptimalParameters(strategy, leverage, takeProfit, stopLoss) {
+    // Update global parameters
+    currentLeverage = leverage;
+    currentTakeProfit = takeProfit;
+    currentStopLoss = stopLoss;
+    currentStrategy = strategy;
+    
+    // Update UI buttons to reflect new values
+    // Leverage
+    document.querySelectorAll('.leverage-btn').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.leverage) === leverage);
+    });
+    
+    // Take Profit
+    document.querySelectorAll('.tp-btn').forEach(btn => {
+        btn.classList.toggle('active', parseFloat(btn.dataset.tp) === takeProfit);
+    });
+    
+    // Stop Loss
+    document.querySelectorAll('.sl-btn').forEach(btn => {
+        btn.classList.toggle('active', parseFloat(btn.dataset.sl) === stopLoss);
+    });
+    
+    // Update strategy selection
+    document.querySelectorAll('.strategy-card').forEach(card => {
+        card.classList.toggle('active', card.dataset.strategy === strategy);
+    });
+    
+    // Close modal and run backtest with new parameters
+    closeOptimizationModal();
+    runBacktest(strategy);
+}
+
 // Make functions available globally
 window.closeUpdateModal = closeUpdateModal;
 window.startDataUpdate = startDataUpdate;
 window.resizeUpdateModal = resizeUpdateModal;
+window.closeOptimizationModal = closeOptimizationModal;
+window.applyOptimalParameters = applyOptimalParameters;

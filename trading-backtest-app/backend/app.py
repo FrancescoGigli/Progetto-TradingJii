@@ -52,7 +52,7 @@ class BacktestRequest(BaseModel):
     take_profit_pct: float = 0.02
     stop_loss_pct: float = 0.02  # Added stop loss parameter
     start_date: Optional[str] = "2024-01-01"
-    end_date: Optional[str] = "2025-06-09"  # Updated to match database end date
+    end_date: Optional[str] = "2025-06-12"  # Updated to match database end date
 
 
 class CompareRequest(BaseModel):
@@ -61,7 +61,13 @@ class CompareRequest(BaseModel):
     take_profit_pct: float = 0.02
     stop_loss_pct: float = 0.02  # Added stop loss parameter
     start_date: Optional[str] = "2024-01-01"
-    end_date: Optional[str] = "2025-06-09"  # Updated to match database end date
+    end_date: Optional[str] = "2025-06-12"  # Updated to match database end date
+
+
+class OptimizeRequest(BaseModel):
+    symbol: str
+    start_date: Optional[str] = "2024-01-01"
+    end_date: Optional[str] = "2025-06-12"
 
 
 class UpdateDataRequest(BaseModel):
@@ -81,7 +87,11 @@ async def root():
 async def get_symbols():
     """Get available symbols from database"""
     try:
-        conn = sqlite3.connect("../../crypto_data.db")
+        # Get correct path to database
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        db_path = os.path.join(project_root, "crypto_data.db")
+        conn = sqlite3.connect(db_path)
         # Try 1h first, fallback to 4h if not available
         try:
             query = "SELECT DISTINCT symbol FROM market_data_1h ORDER BY symbol"
@@ -105,7 +115,11 @@ async def get_strategies():
 async def get_market_data(symbol: str, start_date: str = "2024-01-01", end_date: str = "2025-06-09"):
     """Get market data for a symbol"""
     try:
-        conn = sqlite3.connect("../../crypto_data.db")
+        # Get correct path to database
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        db_path = os.path.join(project_root, "crypto_data.db")
+        conn = sqlite3.connect(db_path)
         # Try 1h first, fallback to 4h if not available
         table_name = "market_data_1h"
         cursor = conn.cursor()
@@ -156,7 +170,10 @@ async def run_backtest(request: BacktestRequest):
         )
         
         # Load data with indicators - check which table exists
-        conn = sqlite3.connect("../../crypto_data.db")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        db_path = os.path.join(project_root, "crypto_data.db")
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
         # Check which table exists
@@ -271,7 +288,10 @@ async def compare_strategies(request: CompareRequest):
         )
         
         # Load data with indicators - check which table exists
-        conn = sqlite3.connect("../../crypto_data.db")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        db_path = os.path.join(project_root, "crypto_data.db")
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
         # Check which table exists
@@ -595,11 +615,116 @@ async def reset_update_state():
     return {"message": "Update state reset", "status": update_state}
 
 
+@app.post("/api/optimize-parameters")
+async def optimize_parameters(request: OptimizeRequest):
+    """Optimize parameters for all strategies"""
+    try:
+        # Define parameter ranges to test
+        leverages = [1, 2, 3, 5, 10, 12]
+        take_profits = [0.01, 0.02, 0.03, 0.05, 0.10]  # 1%, 2%, 3%, 5%, 10%
+        stop_losses = [0.02, 0.10, 0.15, 0.25, 0.30]  # 2%, 10%, 15%, 25%, 30%
+        
+        # Load data once
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        db_path = os.path.join(project_root, "crypto_data.db")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Check which table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='market_data_1h'")
+        table_name = "market_data_1h" if cursor.fetchone() else "market_data_4h"
+        
+        query = f"""
+        SELECT * FROM {table_name}
+        WHERE symbol = ? AND timestamp >= ? AND timestamp <= ?
+        ORDER BY timestamp
+        """
+        
+        df = pd.read_sql_query(query, conn, params=(
+            request.symbol, request.start_date, request.end_date
+        ))
+        conn.close()
+        
+        if df.empty:
+            raise HTTPException(status_code=404, detail=f"No data found for {request.symbol}")
+        
+        # Rename columns to match what strategies expect
+        column_mapping = {
+            'bbands_upper': 'bb_upper',
+            'bbands_middle': 'bb_middle',
+            'bbands_lower': 'bb_lower',
+            'macd_signal': 'macdsignal',
+            'macd_hist': 'macdhist',
+            'adx14': 'adx'
+        }
+        df = df.rename(columns=column_mapping)
+        
+        # Run optimization for all parameter combinations
+        results = []
+        total_combinations = len(STRATEGIES) * len(leverages) * len(take_profits) * len(stop_losses)
+        current = 0
+        
+        for strategy_name in STRATEGIES.keys():
+            for leverage in leverages:
+                for take_profit in take_profits:
+                    for stop_loss in stop_losses:
+                        try:
+                            current += 1
+                            print(f"Testing {current}/{total_combinations}: {strategy_name} L:{leverage} TP:{take_profit} SL:{stop_loss}")
+                            
+                            # Create backtest engine with current parameters
+                            engine = BacktestEngine(
+                                initial_capital=1000,
+                                leverage=leverage,
+                                take_profit_pct=take_profit,
+                                stop_loss_pct=stop_loss
+                            )
+                            
+                            # Run backtest
+                            backtest_results = engine.run_backtest(df.copy(), strategy_name)
+                            metrics = backtest_results['metrics']
+                            
+                            # Store results
+                            results.append({
+                                "strategy": strategy_name,
+                                "leverage": leverage,
+                                "take_profit": take_profit,
+                                "stop_loss": stop_loss,
+                                "total_return_pct": metrics['total_return_pct'] * leverage,
+                                "sharpe_ratio": metrics['sharpe_ratio'],
+                                "win_rate": metrics['win_rate'],
+                                "total_trades": metrics['total_trades'],
+                                "max_drawdown_pct": metrics['max_drawdown_pct'],
+                                "profit_factor": metrics['profit_factor']
+                            })
+                            
+                        except Exception as e:
+                            print(f"Error with {strategy_name} L:{leverage} TP:{take_profit} SL:{stop_loss}: {e}")
+                            continue
+        
+        # Sort by total return (best first)
+        results.sort(key=lambda x: x['total_return_pct'], reverse=True)
+        
+        # Return top 20 results
+        return {
+            "symbol": request.symbol,
+            "results": results[:20]
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/data-info")
 async def get_data_info():
     """Get information about available data in the database"""
     try:
-        conn = sqlite3.connect("../../crypto_data.db")
+        # Get correct path to database
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        db_path = os.path.join(project_root, "crypto_data.db")
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
         # Get available timeframes
